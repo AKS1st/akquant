@@ -587,24 +587,57 @@ def _build_daily_returns_from_equity(equity_curve: pd.Series) -> pd.Series:
     return cast(pd.Series, returns)
 
 
-def _normalize_returns_series(series: pd.Series) -> pd.Series:
-    """Normalize return series index to timezone-naive daily datetime index."""
+def _normalize_returns_series_with_reason(
+    series: pd.Series, series_label: str = "收益序列"
+) -> tuple[pd.Series, Optional[str]]:
+    """Normalize returns to a daily index and report validation errors."""
     cleaned = series.copy()
     cleaned = pd.to_numeric(cleaned, errors="coerce")
     cleaned = cast(pd.Series, cleaned.dropna())
     if cleaned.empty:
-        return cast(pd.Series, cleaned)
-    index = pd.to_datetime(cleaned.index, errors="coerce")
-    valid_mask = pd.Series(index).notna().to_numpy()
+        return cast(pd.Series, cleaned), f"{series_label}为空"
+
+    raw_index = cleaned.index
+    if isinstance(raw_index, pd.RangeIndex):
+        return (
+            pd.Series(dtype=float),
+            f"{series_label}索引必须为日期索引，当前为 RangeIndex",
+        )
+    if not isinstance(raw_index, pd.DatetimeIndex) and pd.api.types.is_numeric_dtype(
+        raw_index.dtype
+    ):
+        return (
+            pd.Series(dtype=float),
+            f"{series_label}索引必须为 DatetimeIndex 或可解析的日期索引",
+        )
+
+    if isinstance(raw_index, pd.DatetimeIndex):
+        dt_index = raw_index
+    else:
+        dt_index = pd.DatetimeIndex(pd.to_datetime(raw_index, errors="coerce"))
+
+    valid_mask = ~pd.isna(dt_index)
+    if not bool(valid_mask.any()):
+        return pd.Series(dtype=float), f"{series_label}索引无法解析为日期"
+
     cleaned = cleaned.loc[valid_mask].copy()
-    index = index[valid_mask]
-    dt_index = cast(pd.DatetimeIndex, index)
+    dt_index = dt_index[valid_mask]
+    if dt_index.empty:
+        return pd.Series(dtype=float), f"{series_label}索引无法解析为日期"
+
     if dt_index.tz is not None:
-        dt_index = dt_index.tz_convert("UTC").tz_localize(None)
+        # Drop timezone while preserving the local calendar day for daily alignment.
+        dt_index = dt_index.tz_localize(None)
     cleaned.index = dt_index.normalize()
     cleaned = cast(pd.Series, cleaned.groupby(cleaned.index).last())
-    cleaned = cast(pd.Series, cleaned.sort_index())
-    return cleaned
+    cleaned = cast(pd.Series, cleaned.sort_index().astype(float))
+    return cleaned, None
+
+
+def _normalize_returns_series(series: pd.Series) -> pd.Series:
+    """Normalize return series index to timezone-naive daily datetime index."""
+    normalized, _ = _normalize_returns_series_with_reason(series)
+    return normalized
 
 
 def _resolve_benchmark_returns(
@@ -622,22 +655,22 @@ def _resolve_benchmark_returns(
         if benchmark.name is not None and str(benchmark.name).strip()
         else "Benchmark"
     )
-    benchmark_series = _normalize_returns_series(benchmark)
-    if benchmark_series.empty:
-        return None, f"基准序列为空: {benchmark_label}"
+    benchmark_series, benchmark_reason = _normalize_returns_series_with_reason(
+        benchmark, f"基准序列 {benchmark_label}"
+    )
+    if benchmark_reason is not None:
+        return None, benchmark_reason
     quantile_95 = float(benchmark_series.abs().quantile(0.95))
     if quantile_95 > 2.0:
         benchmark_series = cast(pd.Series, benchmark_series.pct_change().fillna(0.0))
-    strategy_series = _normalize_returns_series(strategy_returns)
-    if strategy_series.empty:
-        return None, f"策略收益为空，无法对齐基准: {benchmark_label}"
-    aligned = cast(
-        pd.Series,
-        benchmark_series.reindex(strategy_series.index).fillna(0.0).astype(float),
+    strategy_series, strategy_reason = _normalize_returns_series_with_reason(
+        strategy_returns, "策略收益序列"
     )
-    if aligned.empty:
+    if strategy_reason is not None:
+        return None, f"{strategy_reason}，无法对齐基准: {benchmark_label}"
+    if strategy_series.index.intersection(benchmark_series.index).empty:
         return None, f"策略与基准无重叠区间: {benchmark_label}"
-    return aligned, benchmark_label
+    return benchmark_series, benchmark_label
 
 
 def _build_benchmark_sections(

@@ -9,7 +9,9 @@
 `BacktestResult.report` 支持直接传入基准收益率序列：
 
 ```python
-benchmark_returns = benchmark_df["close"].pct_change().fillna(0.0)
+benchmark_returns = (
+    benchmark_df.set_index("date")["close"].pct_change().fillna(0.0)
+)
 result.report(
     filename="akquant_report.html",
     benchmark=benchmark_returns,
