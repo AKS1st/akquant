@@ -5115,6 +5115,36 @@ def test_order_rejects_non_positive_quantity() -> None:
         )
 
 
+def test_order_and_trade_time_string_properties() -> None:
+    """Order/Trade should expose readable Asia/Shanghai timestamp strings."""
+    ts = pd.Timestamp("2025-01-02 15:00:00", tz="Asia/Shanghai").value
+    order = akquant.Order(
+        "o-time-str",
+        "AAPL",
+        akquant.OrderSide.Buy,
+        akquant.OrderType.Limit,
+        10.0,
+        100.0,
+        created_at=ts,
+    )
+    trade = akquant.Trade(
+        "t-time-str",
+        "o-time-str",
+        "AAPL",
+        akquant.OrderSide.Buy,
+        10.0,
+        100.0,
+        1.0,
+        ts,
+        0,
+        None,
+    )
+
+    assert order.created_at_str == "2025-01-02 15:00:00"
+    assert order.updated_at_str == "2025-01-02 15:00:00"
+    assert trade.timestamp_str == "2025-01-02 15:00:00"
+
+
 def test_instrument_rejects_non_positive_tick_size() -> None:
     """Instrument should reject non-positive tick size."""
     with pytest.raises(
