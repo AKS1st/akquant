@@ -99,6 +99,23 @@
     git push origin feature/my-new-feature
     ```
 
+### 5. 版本与 Changelog 规则 (Versioning & Changelog)
+
+为避免版本信息分散或互相冲突，AKQuant 统一采用以下规则：
+
+- `pyproject.toml` 中的 `project.version` 作为 Python 包版本号来源。
+- `Cargo.toml` 中的版本号必须与 `pyproject.toml` 保持一致。
+- 正式发布由形如 `v0.2.10` 的 Git tag 触发。
+- `CHANGELOG.md` 只保留 `Unreleased` 和当前 `0.2.x` 主线版本记录。
+- 更早的版本历史不再继续堆积在 `CHANGELOG.md` 中，统一以 Git tag、GitHub Releases 或历史提交记录为准。
+
+维护 `CHANGELOG.md` 时请遵循以下约定：
+
+- 日常开发只更新 `Unreleased` 区块。
+- 发版时，将 `Unreleased` 中与本次发布相关的内容整理为对应的 `0.2.x` 正式版本条目。
+- 变更说明优先写“用户可感知的行为变化”，避免只写纯内部重构细节。
+- 建议使用 `Added`、`Changed`、`Fixed`、`Removed` 分类。
+
 ### 6. 测试与验证 (Testing)
 
 为确保代码质量与回测结果的一致性，本项目引入了**黄金测试套件 (Golden Test Suite)**。

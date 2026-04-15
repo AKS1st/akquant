@@ -17,17 +17,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `run_backtest` always uses the unified stream core; runtime rollback flag `_engine_mode` is removed.
 - Futures fee Engine API naming is standardized to `set_futures_fee_rules*`; legacy `set_future_fee_rules*` is removed.
 
-## [0.1.13] - 2026-02-09
+## [0.2.9] - 2026-04-15
+
+### Fixed
+- Fixed benchmark return series index normalization and improved validation for report generation.
+
+## [0.2.8] - 2026-04-14
 
 ### Added
-- Incremental learning support for `SklearnAdapter` (via `partial_fit`) and `PyTorchAdapter` (via weight reset control).
-- `incremental` parameter in `ValidationConfig`.
-- Updated `ml_guide.md` with new features and clarified API signatures.
+- Added strategy start-time configuration support to the engine.
 
 ### Changed
-- `PyTorchAdapter` now defaults to `incremental=False` for strict Walk-Forward Validation.
+- Improved futures margin risk handling.
 
-## [0.1.12] - Previous Release
-- Basic implementation of `BarAggregator`.
-- Rust-based performance optimizations.
-- Zero-copy data access via PyO3.
+## [0.2.7] - 2026-04-09
+
+### Fixed
+- Applied conditional open-price optimization according to the configured price-basis policy.
+
+## [0.2.6] - 2026-04-09
+
+### Added
+- Added walk-forward model lifecycle management for the ML workflow.
+- Added multi-symbol backtesting support and improved backtest window configuration.
+- Added dictionary-based multi-symbol input support to the optimization workflow.
+
+### Changed
+- Improved rolling-training scheduling in parameter optimization.
+
+## [0.2.5] - 2026-04-08
+
+### Fixed
+- Fixed missing `ctx.orders` in order-event callbacks.
+
+## [0.2.4] - 2026-04-07
+
+### Added
+- Added same-bar cash reuse for sell-then-buy flows.
+
+### Changed
+- Distinguished automatic quantity adjustment from explicitly sized orders.
+
+## [0.2.3] - 2026-04-06
+
+### Fixed
+- Fixed cross-category operator conflict detection in the factor-expression parser.
+
+### Changed
+- Cleaned up completed migration docs and outdated links.
+- Refined examples by removing unused imports and obsolete configuration parameters.
+
+## [0.2.2] - 2026-04-03
+
+### Added
+- Added `catalog_path` support for specifying the data directory in backtests.
+- Added Top 8 rejected-order reason summaries in backtest output.
+
+## [0.2.1] - 2026-04-02
+
+### Added
+- Added order-level execution overrides and strategy-level default execution settings.
+- Added `NextClose` execution mode and unified the `symbols` parameter behavior.
+
+### Changed
+- Replaced `ExecutionMode` with `ExecutionPolicyCore`.
+- Simplified the `price_basis` options under `fill_policy`.
+- Updated the execution-semantics documentation and migration guidance.
