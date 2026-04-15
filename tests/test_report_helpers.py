@@ -3,6 +3,8 @@ from akquant.plot.report import (
     _build_analysis_table_sections,
     _build_metrics_html,
     _build_summary_context,
+    _normalize_returns_series,
+    _resolve_benchmark_returns,
 )
 from akquant.utils import format_metric_value
 
@@ -204,3 +206,27 @@ def test_format_metric_value_uses_metric_unit_mapping() -> None:
     assert format_metric_value("annualized_return", 0.021184) == "2.12%"
     assert format_metric_value("max_drawdown_pct", 1.07) == "1.07%"
     assert format_metric_value("calmar_ratio", 22.473305) == "22.47"
+
+
+def test_normalize_returns_series_preserves_local_calendar_day() -> None:
+    """Timezone-aware daily indexes should keep their local calendar day."""
+    idx = pd.date_range("2023-01-01", periods=3, freq="D", tz="Asia/Shanghai")
+    series = pd.Series([0.0, 0.01, -0.02], index=idx)
+
+    normalized = _normalize_returns_series(series)
+
+    expected_idx = pd.date_range("2023-01-01", periods=3, freq="D")
+    pd.testing.assert_index_equal(normalized.index, expected_idx)
+
+
+def test_resolve_benchmark_returns_rejects_range_index() -> None:
+    """Benchmark series must use date-like indexes instead of a RangeIndex."""
+    strategy_idx = pd.date_range("2023-01-01", periods=3, freq="D", tz="Asia/Shanghai")
+    strategy_returns = pd.Series([0.0, 0.01, -0.02], index=strategy_idx)
+    benchmark_returns = pd.Series([0.0, 0.005, -0.001], name="RANGE_BENCH")
+
+    resolved, reason = _resolve_benchmark_returns(benchmark_returns, strategy_returns)
+
+    assert resolved is None
+    assert "RangeIndex" in reason
+    assert "日期索引" in reason

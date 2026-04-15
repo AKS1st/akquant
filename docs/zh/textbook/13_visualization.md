@@ -89,7 +89,9 @@ fig.write_html("dashboard.html")
 4. 基准对比模块（传入 `benchmark` 时）
 
 ```python
-benchmark_returns = benchmark_df["close"].pct_change().fillna(0.0)
+benchmark_returns = (
+    benchmark_df.set_index("date")["close"].pct_change().fillna(0.0)
+)
 
 result.report(
     title="Alpha Strategy Report",

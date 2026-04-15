@@ -216,6 +216,70 @@ def test_report_includes_benchmark_comparison_sections(tmp_path: Path) -> None:
     assert "CSI300" in html
 
 
+def test_report_aligns_naive_benchmark_dates_without_notice(tmp_path: Path) -> None:
+    """Benchmark comparison should work with naive daily date indexes."""
+    _skip_if_no_plotly()
+    result = run_backtest(
+        data=_build_data(),
+        strategy=RoundTripStrategy,
+        symbols="TEST",
+        initial_cash=200000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        lot_size=1,
+        show_progress=False,
+    )
+    benchmark_returns = pd.Series(
+        [0.0, 0.001, -0.0005, 0.0008, 0.0],
+        index=pd.date_range("2023-01-01", periods=5, freq="D"),
+        name="NAIVE_BENCH",
+    )
+    report_path = tmp_path / "report_with_naive_benchmark.html"
+    result.report(
+        filename=str(report_path),
+        show=False,
+        benchmark=benchmark_returns,
+    )
+    html = report_path.read_text(encoding="utf-8")
+    assert "NAIVE_BENCH" in html
+    assert "策略与基准无重叠区间" not in html
+    assert "基准序列 NAIVE_BENCH 索引必须为日期索引" not in html
+
+
+def test_report_shows_notice_for_range_index_benchmark(tmp_path: Path) -> None:
+    """RangeIndex benchmark input should render a clear validation notice."""
+    _skip_if_no_plotly()
+    result = run_backtest(
+        data=_build_data(),
+        strategy=NoTradeStrategy,
+        symbols="TEST",
+        initial_cash=200000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        lot_size=1,
+        show_progress=False,
+    )
+    benchmark_returns = pd.Series(
+        [0.0, 0.001, -0.0005, 0.0008, 0.0], name="RANGE_BENCH"
+    )
+    report_path = tmp_path / "report_with_range_index_benchmark.html"
+    result.report(
+        filename=str(report_path),
+        show=False,
+        benchmark=benchmark_returns,
+    )
+    html = report_path.read_text(encoding="utf-8")
+    assert "基准对比 (Benchmark Comparison)" in html
+    assert "RangeIndex" in html
+    assert "日期索引" in html
+
+
 def test_report_handles_string_benchmark_with_notice(tmp_path: Path) -> None:
     """Report should render benchmark section notice when benchmark is ticker string."""
     _skip_if_no_plotly()
