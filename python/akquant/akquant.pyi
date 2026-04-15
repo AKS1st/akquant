@@ -880,7 +880,9 @@ class Order:
     time_in_force: akquant.TimeInForce
     status: akquant.OrderStatus
     created_at: int
+    created_at_str: str
     updated_at: int
+    updated_at_str: str
     tag: str
     reject_reason: str
     owner_strategy_id: typing.Optional[str]
@@ -2587,6 +2589,7 @@ class Trade:
     symbol: str
     side: akquant.OrderSide
     timestamp: int
+    timestamp_str: str
     bar_index: int
     quantity: float
     price: float

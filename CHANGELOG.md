@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-04-15
+
 ### Added
 - `run_backtest` now supports optional `on_event` callback and can emit stream events directly.
 - Added `ChinaOptionsConfig` with prefix-level option fee configuration (`fee_by_symbol_prefix`).
 - Added Engine API `set_options_fee_rules_by_prefix(symbol_prefix, commission_per_contract)`.
+- Added readable time-string properties for `Trade.timestamp`, `Order.created_at`, and `Order.updated_at`.
 
 ### Changed
 - `run_backtest_stream` is removed; stream scenarios should call `run_backtest(..., on_event=...)`.

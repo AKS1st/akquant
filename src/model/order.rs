@@ -1,5 +1,6 @@
 use super::market_data::extract_decimal;
 use super::types::{ExecutionPolicyCore, OrderRole, OrderSide, OrderStatus, OrderType, TimeInForce};
+use chrono::{FixedOffset, TimeZone, Utc};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::*;
@@ -48,6 +49,20 @@ fn validate_order_inputs(
         ensure_positive(v, "trail_reference_price")?;
     }
     Ok(())
+}
+
+fn format_timestamp_str(timestamp: i64) -> String {
+    let secs = timestamp.div_euclid(1_000_000_000);
+    let nanos = timestamp.rem_euclid(1_000_000_000) as u32;
+
+    if let Some(dt) = Utc.timestamp_opt(secs, nanos).single() {
+        let tz = FixedOffset::east_opt(8 * 3600).unwrap();
+        dt.with_timezone(&tz)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string()
+    } else {
+        timestamp.to_string()
+    }
 }
 
 #[gen_stub_pyclass]
@@ -226,6 +241,20 @@ impl Order {
     /// :return: 手续费
     fn get_commission(&self) -> f64 {
         self.commission.to_f64().unwrap_or_default()
+    }
+
+    #[getter]
+    /// 获取创建时间字符串 (Asia/Shanghai).
+    /// :return: 格式化时间字符串 YYYY-MM-DD HH:MM:SS
+    fn created_at_str(&self) -> String {
+        format_timestamp_str(self.created_at)
+    }
+
+    #[getter]
+    /// 获取更新时间字符串 (Asia/Shanghai).
+    /// :return: 格式化时间字符串 YYYY-MM-DD HH:MM:SS
+    fn updated_at_str(&self) -> String {
+        format_timestamp_str(self.updated_at)
     }
 
     #[getter]
@@ -485,6 +514,13 @@ impl Trade {
         self.commission.to_f64().unwrap_or_default()
     }
 
+    #[getter]
+    /// 获取格式化的成交时间字符串 (Asia/Shanghai).
+    /// :return: 格式化时间字符串 YYYY-MM-DD HH:MM:SS
+    fn timestamp_str(&self) -> String {
+        format_timestamp_str(self.timestamp)
+    }
+
     pub fn __repr__(&self) -> String {
         format!(
             "Trade(id={}, order_id={}, symbol={}, side={:?}, qty={}, price={}, time={}, bar={})",
@@ -597,5 +633,46 @@ mod tests {
     fn test_order_new_rejects_non_positive_price() {
         let result = validate_order_inputs(Decimal::from(1), Some(Decimal::ZERO), None, None, None);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_format_timestamp_str_uses_asia_shanghai() {
+        let timestamp = 1_735_802_000_000_000_000_i64; // 2025-01-02 15:00:00+08:00
+        assert_eq!(format_timestamp_str(timestamp), "2025-01-02 15:00:00");
+    }
+
+    #[test]
+    fn test_order_time_string_getters() {
+        let mut order = Order::test_new(
+            "o1",
+            "AAPL",
+            OrderSide::Buy,
+            OrderType::Limit,
+            Decimal::from(10),
+        );
+        let timestamp = 1_735_802_000_000_000_000_i64;
+        order.created_at = timestamp;
+        order.updated_at = timestamp;
+
+        assert_eq!(order.created_at_str(), "2025-01-02 15:00:00");
+        assert_eq!(order.updated_at_str(), "2025-01-02 15:00:00");
+    }
+
+    #[test]
+    fn test_trade_timestamp_string_getter() {
+        let trade = Trade {
+            id: "t1".to_string(),
+            order_id: "o1".to_string(),
+            symbol: "AAPL".to_string(),
+            side: OrderSide::Buy,
+            quantity: Decimal::from(10),
+            price: Decimal::from(100),
+            commission: Decimal::ZERO,
+            timestamp: 1_735_802_000_000_000_000_i64,
+            bar_index: 0,
+            owner_strategy_id: None,
+        };
+
+        assert_eq!(trade.timestamp_str(), "2025-01-02 15:00:00");
     }
 }
