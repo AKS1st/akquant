@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from akquant import (
     BacktestConfig,
+    InstrumentConfig,
     StrategyConfig,
     register_logger,
     register_strategy_loader,
@@ -3362,7 +3363,7 @@ def test_strategy_buy_sell_delegate_to_submit_order() -> None:
             trail_offset: float | None = None,
             trail_reference_price: float | None = None,
             fill_policy: dict[str, Any] | None = None,
-            slippage: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
             commission: dict[str, Any] | None = None,
         ) -> str:
             _ = price
@@ -3587,6 +3588,18 @@ class _OrderLevelSlippageStrategy(Strategy):
             },
             slippage={"type": "percent", "value": 0.1},
         )
+        self.submit_order(
+            symbol=bar.symbol,
+            side="Buy",
+            quantity=1.0,
+            tag="slippage-ticks",
+            fill_policy={
+                "price_basis": "open",
+                "bar_offset": 1,
+                "temporal": "same_cycle",
+            },
+            slippage={"type": "ticks", "value": 2},
+        )
 
 
 def test_order_level_slippage_overrides_engine_slippage() -> None:
@@ -3609,14 +3622,20 @@ def test_order_level_slippage_overrides_engine_slippage() -> None:
         symbols="AAPL",
         initial_cash=100000.0,
         show_progress=False,
+        config=BacktestConfig(
+            strategy_config=StrategyConfig(),
+            instruments_config=[InstrumentConfig(symbol="AAPL", tick_size=0.25)],
+        ),
     )
     filled_orders = result.orders_df[
         result.orders_df["status"].astype(str).str.lower() == "filled"
     ]
     fixed_row = filled_orders[filled_orders["tag"] == "slippage-fixed"].iloc[0]
     percent_row = filled_orders[filled_orders["tag"] == "slippage-percent"].iloc[0]
+    ticks_row = filled_orders[filled_orders["tag"] == "slippage-ticks"].iloc[0]
     assert float(fixed_row["avg_price"]) == pytest.approx(20.5)
     assert float(percent_row["avg_price"]) == pytest.approx(22.0)
+    assert float(ticks_row["avg_price"]) == pytest.approx(20.5)
 
 
 class _StrategyLevelSlippageStrategy(Strategy):
@@ -3650,8 +3669,74 @@ def test_strategy_level_slippage_applies_when_order_slippage_missing() -> None:
         symbols="AAPL",
         initial_cash=100000.0,
         show_progress=False,
-        slippage=0.2,
+        slippage={"type": "percent", "value": 0.2},
         strategy_slippage={"_default": {"type": "fixed", "value": 0.5}},
+    )
+    filled_orders = result.orders_df[
+        result.orders_df["status"].astype(str).str.lower() == "filled"
+    ]
+    row = filled_orders[filled_orders["tag"] == "strategy-slippage"].iloc[0]
+    assert float(row["avg_price"]) == pytest.approx(20.5)
+
+
+def test_strategy_level_ticks_slippage_uses_symbol_tick_size() -> None:
+    """Strategy-level tick slippage should resolve via instrument tick_size."""
+    register_logger(console=False, level="INFO")
+    data = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2023-01-01", periods=3, freq="D", tz="UTC"),
+            "open": [10.0, 20.0, 30.0],
+            "high": [11.0, 21.0, 31.0],
+            "low": [9.0, 19.0, 29.0],
+            "close": [100.0, 200.0, 300.0],
+            "volume": [10000.0, 10000.0, 10000.0],
+            "symbol": ["AAPL", "AAPL", "AAPL"],
+        }
+    )
+    result = run_backtest(
+        data=data,
+        strategy=_StrategyLevelSlippageStrategy,
+        symbols="AAPL",
+        initial_cash=100000.0,
+        show_progress=False,
+        config=BacktestConfig(
+            strategy_config=StrategyConfig(),
+            instruments_config=[InstrumentConfig(symbol="AAPL", tick_size=0.25)],
+        ),
+        strategy_slippage={"_default": {"type": "ticks", "value": 2}},
+    )
+    filled_orders = result.orders_df[
+        result.orders_df["status"].astype(str).str.lower() == "filled"
+    ]
+    row = filled_orders[filled_orders["tag"] == "strategy-slippage"].iloc[0]
+    assert float(row["avg_price"]) == pytest.approx(20.5)
+
+
+def test_global_ticks_slippage_resolves_to_fixed_from_shared_tick_size() -> None:
+    """Global tick slippage should resolve from a shared instrument tick_size."""
+    register_logger(console=False, level="INFO")
+    data = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2023-01-01", periods=3, freq="D", tz="UTC"),
+            "open": [10.0, 20.0, 30.0],
+            "high": [11.0, 21.0, 31.0],
+            "low": [9.0, 19.0, 29.0],
+            "close": [100.0, 200.0, 300.0],
+            "volume": [10000.0, 10000.0, 10000.0],
+            "symbol": ["AAPL", "AAPL", "AAPL"],
+        }
+    )
+    result = run_backtest(
+        data=data,
+        strategy=_StrategyLevelSlippageStrategy,
+        symbols="AAPL",
+        initial_cash=100000.0,
+        show_progress=False,
+        config=BacktestConfig(
+            strategy_config=StrategyConfig(),
+            instruments_config=[InstrumentConfig(symbol="AAPL", tick_size=0.25)],
+        ),
+        slippage={"type": "ticks", "value": 2},
     )
     filled_orders = result.orders_df[
         result.orders_df["status"].astype(str).str.lower() == "filled"
@@ -3787,7 +3872,7 @@ def test_strategy_trailing_helpers_delegate_to_submit_order() -> None:
             trail_offset: float | None = None,
             trail_reference_price: float | None = None,
             fill_policy: dict[str, Any] | None = None,
-            slippage: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
             commission: dict[str, Any] | None = None,
         ) -> str:
             _ = time_in_force
@@ -4014,7 +4099,7 @@ def test_bracket_prefers_engine_registration_when_available() -> None:
             trigger_price: float | None = None,
             tag: str | None = None,
             fill_policy: dict[str, Any] | None = None,
-            slippage: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
             commission: dict[str, Any] | None = None,
         ) -> str:
             self.buy_calls.append(
@@ -4086,7 +4171,7 @@ def test_bracket_falls_back_to_deferred_engine_queue_on_runtime_error() -> None:
             trigger_price: float | None = None,
             tag: str | None = None,
             fill_policy: dict[str, Any] | None = None,
-            slippage: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
             commission: dict[str, Any] | None = None,
         ) -> str:
             _ = (
@@ -4142,7 +4227,7 @@ def test_bracket_places_exit_orders_and_builds_oco() -> None:
             trigger_price: float | None = None,
             tag: str | None = None,
             fill_policy: dict[str, Any] | None = None,
-            slippage: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
             commission: dict[str, Any] | None = None,
         ) -> str:
             self.buy_calls.append(
@@ -4169,7 +4254,7 @@ def test_bracket_places_exit_orders_and_builds_oco() -> None:
             trigger_price: float | None = None,
             tag: str | None = None,
             fill_policy: dict[str, Any] | None = None,
-            slippage: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
             commission: dict[str, Any] | None = None,
         ) -> str:
             self._sell_counter += 1

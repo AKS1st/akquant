@@ -80,3 +80,59 @@ def test_option_example_main_uses_keyword_arguments(monkeypatch: Any) -> None:
     assert captured["commission_rate"] == 0.0
     assert captured["show_progress"] is False
     assert set(captured["data"]) == {"CALL_OPT", "UL"}
+
+
+def test_textbook_futures_strategy_uses_short_for_bearish_signal(
+    monkeypatch: Any,
+) -> None:
+    """Textbook futures strategy should open bearish positions via short()."""
+    module = _load_example_module(
+        "example_textbook_futures_strategy",
+        "examples/textbook/ch07_futures.py",
+    )
+    strategy = module.FuturesTrendStrategy()
+    captured: dict[str, Any] = {"short": None, "buy": None}
+
+    monkeypatch.setattr(
+        strategy,
+        "get_history",
+        lambda **_kwargs: pd.Series([100.0] * strategy.ma_window + [90.0]),
+    )
+    monkeypatch.setattr(strategy, "get_position", lambda _symbol: 0.0)
+    monkeypatch.setattr(strategy, "log", lambda _message: None)
+    monkeypatch.setattr(
+        strategy,
+        "short",
+        lambda symbol, quantity: captured.__setitem__("short", (symbol, quantity)),
+    )
+    monkeypatch.setattr(
+        strategy,
+        "buy",
+        lambda symbol, quantity: captured.__setitem__("buy", (symbol, quantity)),
+    )
+
+    bar = aq.Bar(
+        timestamp=pd.Timestamp("2023-01-01 09:30:00", tz="UTC").value,
+        open=90.0,
+        high=90.0,
+        low=90.0,
+        close=90.0,
+        volume=1000.0,
+        symbol="RB2310",
+    )
+    strategy.on_bar(bar)
+
+    assert captured["short"] == ("RB2310", 1)
+    assert captured["buy"] is None
+
+
+def test_textbook_futures_example_documents_fill_policy_and_bps_slippage() -> None:
+    """Textbook futures example should retain safer fill/slippage configuration."""
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "examples" / "textbook" / "ch07_futures.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"price_basis": "close"' in source
+    assert '"bar_offset": 0' in source
+    assert '"temporal": "same_cycle"' in source
+    assert 'slippage={"type": "percent", "value": 0.0002}' in source

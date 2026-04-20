@@ -4,7 +4,7 @@
 本示例展示了期货交易的核心特性：
 1. **保证金 (Margin)**：只需缴纳少量资金即可控制大额合约。
 2. **杠杆 (Leverage)**：放大收益与风险。
-3. **做空 (Short Selling)**：可以直接卖出开仓，在下跌行情中获利。
+3. **做空 (Short Selling)**：使用 `short()` / `cover()` 显式表达开空与平空。
 4. **合约乘数 (Multiplier)**：一手合约代表的价值。
 
 示例场景：
@@ -104,7 +104,7 @@ class FuturesTrendStrategy(Strategy):
                 self.buy(symbol, 1)
             elif signal == -1:
                 self.log("开空单 1 手")
-                self.sell(symbol, 1)
+                self.short(symbol, 1)
 
             self.last_signal = signal
 
@@ -165,6 +165,12 @@ if __name__ == "__main__":
         strategy=FuturesTrendStrategy,
         data=df,
         config=config,
+        # 对很多“按当根收盘价记交易”的期货策略，显式指定 fill_policy
+        # 会比默认的“下一根开盘成交”更贴近人工记录口径。
+        fill_policy={"price_basis": "close", "bar_offset": 0, "temporal": "same_cycle"},
+        # 注意：推荐显式声明滑点类型。
+        # 0.0002 = 2 bps；如果写成 0.2，表示 20% 滑点，不是 0.2 个点。
+        slippage={"type": "percent", "value": 0.0002},
     )
 
     print("\n" + "=" * 40)

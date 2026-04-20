@@ -3,6 +3,7 @@ import inspect
 import logging
 import os
 import sys
+import warnings
 from dataclasses import dataclass, fields
 from typing import (
     Any,
@@ -97,6 +98,9 @@ class SlippagePolicy(TypedDict, total=False):
 
     type: str
     value: float
+
+
+SlippageInput = Union[float, int, SlippagePolicy, Dict[str, Any], None]
 
 
 class CommissionPolicy(TypedDict, total=False):
@@ -322,7 +326,7 @@ _BROKER_PROFILE_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "stamp_tax_rate": 0.001,
         "transfer_fee_rate": 0.00001,
         "min_commission": 5.0,
-        "slippage": 0.0002,
+        "slippage": {"type": "percent", "value": 0.0002},
         "volume_limit_pct": 0.2,
         "lot_size": 100,
     },
@@ -331,7 +335,7 @@ _BROKER_PROFILE_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "stamp_tax_rate": 0.001,
         "transfer_fee_rate": 0.000005,
         "min_commission": 3.0,
-        "slippage": 0.0001,
+        "slippage": {"type": "percent", "value": 0.0001},
         "volume_limit_pct": 0.25,
         "lot_size": 100,
     },
@@ -340,7 +344,7 @@ _BROKER_PROFILE_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "stamp_tax_rate": 0.001,
         "transfer_fee_rate": 0.00001,
         "min_commission": 5.0,
-        "slippage": 0.001,
+        "slippage": {"type": "percent", "value": 0.001},
         "volume_limit_pct": 0.1,
         "lot_size": 100,
     },
@@ -691,7 +695,7 @@ def _apply_strategy_config_overrides(
     strategy_priority: Optional[Dict[str, int]],
     strategy_risk_budget: Optional[Dict[str, float]],
     strategy_fill_policy: Optional[Dict[str, FillPolicy]],
-    strategy_slippage: Optional[Dict[str, SlippagePolicy]],
+    strategy_slippage: Optional[Dict[str, SlippageInput]],
     strategy_commission: Optional[Dict[str, CommissionPolicy]],
     portfolio_risk_budget: Optional[float],
     strategy_runtime_config: Optional[Union[StrategyRuntimeConfig, Dict[str, Any]]],
@@ -711,7 +715,7 @@ def _apply_strategy_config_overrides(
     Optional[Dict[str, int]],
     Optional[Dict[str, float]],
     Optional[Dict[str, FillPolicy]],
-    Optional[Dict[str, SlippagePolicy]],
+    Optional[Dict[str, SlippageInput]],
     Optional[Dict[str, CommissionPolicy]],
     Optional[float],
     Optional[Union[StrategyRuntimeConfig, Dict[str, Any]]],
@@ -803,7 +807,7 @@ def _apply_strategy_config_overrides(
         )
     if strategy_slippage is None:
         strategy_slippage = cast(
-            Optional[Dict[str, SlippagePolicy]],
+            Optional[Dict[str, SlippageInput]],
             getattr(strategy_config, "strategy_slippage", None),
         )
     if strategy_commission is None:
@@ -961,8 +965,9 @@ def _normalize_strategy_fill_policy_map(
 
 
 def _normalize_strategy_slippage_map(
-    strategy_slippage: Optional[Dict[str, SlippagePolicy]],
+    strategy_slippage: Optional[Dict[str, SlippageInput]],
     configured_slot_ids: Sequence[str],
+    logger: logging.Logger,
 ) -> Optional[Dict[str, SlippagePolicy]]:
     if not strategy_slippage:
         return None
@@ -973,28 +978,12 @@ def _normalize_strategy_slippage_map(
         strategy_key_str = str(strategy_key).strip()
         if not strategy_key_str:
             raise ValueError("strategy_slippage contains empty strategy id")
-        if not isinstance(raw_slippage, dict):
-            raise TypeError(
-                f"strategy_slippage[{strategy_key_str}] must be a dict SlippagePolicy"
-            )
-        raw_type = str(raw_slippage.get("type", "percent")).strip().lower()
-        if raw_type not in {"percent", "fixed"}:
-            raise ValueError(
-                f"strategy_slippage[{strategy_key_str}].type must be one of: "
-                "percent, fixed"
-            )
-        raw_value = raw_slippage.get("value", 0.0)
-        try:
-            value = float(raw_value)
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"strategy_slippage[{strategy_key_str}].value must be a number >= 0"
-            ) from None
-        if value < 0:
-            raise ValueError(
-                f"strategy_slippage[{strategy_key_str}].value must be >= 0"
-            )
-        normalized[strategy_key_str] = {"type": raw_type, "value": value}
+        normalized[strategy_key_str] = _normalize_slippage_policy(
+            raw_slippage,
+            logger=logger,
+            scope=f"strategy_slippage[{strategy_key_str}]",
+            resolve_ticks=False,
+        )
     unknown_keys = sorted(set(normalized.keys()).difference(set(configured_slot_ids)))
     if unknown_keys:
         raise ValueError(
@@ -1539,6 +1528,108 @@ def _coerce_analyzer_plugins(
     return normalized
 
 
+def _warn_if_suspicious_global_slippage(
+    slippage: float, logger: logging.Logger
+) -> None:
+    """Warn when a global slippage value looks like a fixed price delta."""
+    if slippage < 0.05:
+        return
+    logger.warning(
+        "Global slippage=%s uses percent semantics in AKQuant. "
+        "For example, 0.2 means 20%% slippage, not a fixed 0.2 price delta. "
+        "If you intended a fixed offset such as 0.2 index points, set "
+        "order-level slippage={'type': 'fixed', 'value': 0.2} instead.",
+        slippage,
+    )
+
+
+def _warn_deprecated_float_slippage(
+    slippage: Union[int, float], logger: logging.Logger, scope: str
+) -> None:
+    _ = slippage
+    warnings.warn(
+        f"{scope} slippage passed as a bare number is deprecated in AKQuant. "
+        "Use an explicit policy such as "
+        "slippage={'type': 'percent', 'value': 0.0002} or "
+        "slippage={'type': 'fixed', 'value': 0.2}.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    logger.warning(
+        "%s slippage passed as a bare number is deprecated in AKQuant. "
+        "Please use an explicit policy such as "
+        "slippage={'type': 'percent', 'value': 0.0002} or "
+        "slippage={'type': 'fixed', 'value': 0.2}.",
+        scope,
+    )
+
+
+def _normalize_slippage_policy(
+    slippage: SlippageInput,
+    *,
+    instrument_snapshots: Optional[Dict[str, InstrumentSnapshot]] = None,
+    logger: Optional[logging.Logger] = None,
+    scope: str = "Global",
+    allow_float: bool = True,
+    resolve_ticks: bool = True,
+) -> SlippagePolicy:
+    if slippage is None:
+        return {"type": "zero", "value": 0.0}
+    if isinstance(slippage, (int, float)):
+        if not allow_float:
+            raise TypeError(
+                f"{scope} slippage must be a dict policy when provided; "
+                "bare numeric slippage is no longer accepted here"
+            )
+        numeric_value = float(slippage)
+        if numeric_value < 0:
+            raise ValueError(f"{scope} slippage.value must be >= 0")
+        if logger is not None and numeric_value != 0.0:
+            _warn_deprecated_float_slippage(numeric_value, logger, scope)
+            _warn_if_suspicious_global_slippage(numeric_value, logger)
+        return {"type": "percent", "value": numeric_value}
+    if not isinstance(slippage, dict):
+        raise TypeError(f"{scope} slippage must be a dict when provided")
+    raw_type = str(slippage.get("type", "percent")).strip().lower()
+    raw_value = slippage.get("value", 0.0)
+    if raw_type == "zero":
+        return {"type": "zero", "value": 0.0}
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{scope} slippage.value must be a number >= 0") from None
+    if value < 0:
+        raise ValueError(f"{scope} slippage.value must be >= 0")
+    if raw_type in {"percent", "fixed"}:
+        return {"type": raw_type, "value": value}
+    if raw_type == "ticks":
+        if not resolve_ticks:
+            return {"type": "ticks", "value": value}
+        if not instrument_snapshots:
+            raise ValueError(
+                f"{scope} slippage.type='ticks' requires instrument configuration"
+            )
+        tick_sizes = {
+            float(snapshot.tick_size)
+            for snapshot in instrument_snapshots.values()
+            if snapshot.tick_size is not None
+        }
+        if not tick_sizes:
+            raise ValueError(
+                f"{scope} slippage.type='ticks' requires at least one tick_size"
+            )
+        if len(tick_sizes) != 1:
+            raise ValueError(
+                f"{scope} slippage.type='ticks' requires a single shared tick_size "
+                "across all effective instruments"
+            )
+        tick_size = next(iter(tick_sizes))
+        return {"type": "fixed", "value": value * tick_size}
+    raise ValueError(
+        f"{scope} slippage.type must be one of: percent, fixed, ticks, zero"
+    )
+
+
 def run_backtest(
     data: Optional[BacktestDataInput] = None,
     strategy: Union[Type[Strategy], Strategy, Callable[[Any, Bar], None], None] = None,
@@ -1551,7 +1642,7 @@ def run_backtest(
     stamp_tax_rate: Optional[float] = None,
     transfer_fee_rate: Optional[float] = None,
     min_commission: Optional[float] = None,
-    slippage: Optional[float] = None,
+    slippage: SlippageInput = None,
     volume_limit_pct: Optional[float] = None,
     timezone: Optional[str] = None,
     t_plus_one: bool = False,
@@ -1591,7 +1682,7 @@ def run_backtest(
     strategy_priority: Optional[Dict[str, int]] = None,
     strategy_risk_budget: Optional[Dict[str, float]] = None,
     strategy_fill_policy: Optional[Dict[str, FillPolicy]] = None,
-    strategy_slippage: Optional[Dict[str, SlippagePolicy]] = None,
+    strategy_slippage: Optional[Dict[str, SlippageInput]] = None,
     strategy_commission: Optional[Dict[str, CommissionPolicy]] = None,
     portfolio_risk_budget: Optional[float] = None,
     risk_budget_mode: str = "order_notional",
@@ -1630,7 +1721,11 @@ def run_backtest(
     :param stamp_tax_rate: 印花税率 (仅卖出, 默认 0.0)
     :param transfer_fee_rate: 过户费率 (默认 0.0)
     :param min_commission: 最低佣金 (默认 0.0)
-    :param slippage: 滑点 (默认 0.0)
+    :param slippage: 滑点策略。推荐显式传 dict，如
+                     {"type": "percent", "value": 0.0002}、
+                     {"type": "fixed", "value": 0.2}、
+                     {"type": "ticks", "value": 1}。
+                     裸 float 仍兼容，但已不推荐，且按 percent 语义解析。
     :param volume_limit_pct: 成交量限制比例 (默认 0.25)
     :param fill_policy: 统一成交语义配置（可选），格式:
         {"price_basis": "open|close|ohlc4|hl2",
@@ -1786,7 +1881,7 @@ def run_backtest(
                 Optional[float], broker_profile_values.get("commission_rate")
             )
         if slippage is None:
-            slippage = cast(Optional[float], broker_profile_values.get("slippage"))
+            slippage = cast(SlippageInput, broker_profile_values.get("slippage"))
         if volume_limit_pct is None:
             volume_limit_pct = cast(
                 Optional[float], broker_profile_values.get("volume_limit_pct")
@@ -2034,6 +2129,7 @@ def run_backtest(
     normalized_strategy_slippage = _normalize_strategy_slippage_map(
         strategy_slippage,
         configured_slot_ids,
+        logger,
     )
     normalized_strategy_commission = _normalize_strategy_commission_map(
         strategy_commission,
@@ -2242,6 +2338,12 @@ def run_backtest(
         )
     for current_strategy in all_strategy_instances:
         current_strategy._set_instrument_snapshots(preliminary_snapshots)
+    normalized_global_slippage = _normalize_slippage_policy(
+        slippage,
+        instrument_snapshots=preliminary_snapshots,
+        logger=logger,
+        scope="Global",
+    )
 
     # 调用 on_start 获取订阅
     # 注意：现在调用 _on_start_internal 来触发自动发现
@@ -2962,12 +3064,20 @@ def run_backtest(
     )
 
     # Configure Execution parameters
-    if slippage > 0:
+    if (
+        normalized_global_slippage["type"] != "zero"
+        and normalized_global_slippage["value"] > 0
+    ):
         if hasattr(engine, "set_slippage"):
-            # Assume "percent" model for the simple float config
-            engine.set_slippage("percent", slippage)
+            engine.set_slippage(
+                normalized_global_slippage["type"],
+                normalized_global_slippage["value"],
+            )
         else:
-            logger.warning(f"Slippage {slippage} set but not supported by Engine.")
+            logger.warning(
+                "Slippage policy %s set but not supported by Engine.",
+                normalized_global_slippage,
+            )
 
     if volume_limit_pct != 0.25:
         if hasattr(engine, "set_volume_limit"):
@@ -3572,7 +3682,7 @@ def run_warm_start(
     strategy_priority: Optional[Dict[str, int]] = None,
     strategy_risk_budget: Optional[Dict[str, float]] = None,
     strategy_fill_policy: Optional[Dict[str, FillPolicy]] = None,
-    strategy_slippage: Optional[Dict[str, SlippagePolicy]] = None,
+    strategy_slippage: Optional[Dict[str, SlippageInput]] = None,
     strategy_commission: Optional[Dict[str, CommissionPolicy]] = None,
     portfolio_risk_budget: Optional[float] = None,
     risk_budget_mode: str = "order_notional",
@@ -3856,6 +3966,7 @@ def run_warm_start(
     normalized_strategy_slippage = _normalize_strategy_slippage_map(
         strategy_slippage,
         configured_slot_ids,
+        logger,
     )
     normalized_strategy_commission = _normalize_strategy_commission_map(
         strategy_commission,

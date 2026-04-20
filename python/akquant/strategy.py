@@ -1596,7 +1596,7 @@ class Strategy:
         trigger_price: Optional[float] = None,
         tag: Optional[str] = None,
         fill_policy: Optional[Dict[str, Any]] = None,
-        slippage: Optional[Dict[str, Any]] = None,
+        slippage: Optional[Union[float, Dict[str, Any]]] = None,
         commission: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
@@ -1635,7 +1635,7 @@ class Strategy:
         trigger_price: Optional[float] = None,
         tag: Optional[str] = None,
         fill_policy: Optional[Dict[str, Any]] = None,
-        slippage: Optional[Dict[str, Any]] = None,
+        slippage: Optional[Union[float, Dict[str, Any]]] = None,
         commission: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
@@ -1681,7 +1681,7 @@ class Strategy:
         trail_offset: Optional[float] = None,
         trail_reference_price: Optional[float] = None,
         fill_policy: Optional[Dict[str, Any]] = None,
-        slippage: Optional[Dict[str, Any]] = None,
+        slippage: Optional[Union[float, Dict[str, Any]]] = None,
         commission: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
@@ -1945,6 +1945,10 @@ class Strategy:
         price: Optional[float] = None,
         time_in_force: Optional[TimeInForce] = None,
         trigger_price: Optional[float] = None,
+        tag: Optional[str] = None,
+        fill_policy: Optional[Dict[str, Any]] = None,
+        slippage: Optional[Union[float, Dict[str, Any]]] = None,
+        commission: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         卖出开空 (Short Sell).
@@ -1956,7 +1960,18 @@ class Strategy:
             time_in_force: 订单有效期
             trigger_price: 触发价 (止损/止盈)
         """
-        _short_impl(self, symbol, quantity, price, time_in_force, trigger_price)
+        _short_impl(
+            self,
+            symbol,
+            quantity,
+            price,
+            time_in_force,
+            trigger_price,
+            tag,
+            fill_policy,
+            slippage,
+            commission,
+        )
 
     def cover(
         self,
@@ -1965,6 +1980,10 @@ class Strategy:
         price: Optional[float] = None,
         time_in_force: Optional[TimeInForce] = None,
         trigger_price: Optional[float] = None,
+        tag: Optional[str] = None,
+        fill_policy: Optional[Dict[str, Any]] = None,
+        slippage: Optional[Union[float, Dict[str, Any]]] = None,
+        commission: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         买入平空 (Buy to Cover).
@@ -1976,7 +1995,18 @@ class Strategy:
             time_in_force: 订单有效期
             trigger_price: 触发价 (止损/止盈)
         """
-        _cover_impl(self, symbol, quantity, price, time_in_force, trigger_price)
+        _cover_impl(
+            self,
+            symbol,
+            quantity,
+            price,
+            time_in_force,
+            trigger_price,
+            tag,
+            fill_policy,
+            slippage,
+            commission,
+        )
 
     def get_cash(self) -> float:
         """获取现金."""

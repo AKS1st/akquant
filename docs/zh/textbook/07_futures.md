@@ -193,14 +193,21 @@ rb_config = InstrumentConfig(
 
 下面的代码展示了一个经典的期货趋势跟踪策略。注意期货特有的**做空 (Short Selling)** 操作。
 
+防踩坑提醒：
+
+*   期货策略请显式配置 `InstrumentConfig(asset_type="FUTURES", multiplier=..., margin_ratio=...)`，不要依赖默认资产类型。
+*   如果你的人工记录按“当根收盘信号、当根收盘附近成交”统计，请显式设置 `fill_policy={"price_basis":"close","bar_offset":0,"temporal":"same_cycle"}`。默认语义通常是“当根算信号、下一根开盘成交”。
+*   `run_backtest(..., slippage=...)` 建议显式写成 policy，例如 `{"type":"percent","value":0.0002}`、`{"type":"fixed","value":0.2}` 或 `{"type":"ticks","value":1}`。其中百分比语义下，`0.0002 = 2 bps`，如果写成 `0.2`，表示 `20%` 滑点，而不是 `0.2` 个点。
+*   需要表达固定点差时，优先使用订单级滑点配置，例如 `slippage={"type":"fixed","value":0.2}`。
+
 ```python
 --8<-- "examples/textbook/ch07_futures.py"
 ```
 
 **关键逻辑解析**：
 
-*   **做空开仓**：`self.sell(symbol, quantity)`。若当前无持仓，则持仓变为负数（如 -1）。
-*   **平空仓**：`self.buy(symbol, quantity)`。若当前持仓为 -1，买入 1 手后持仓归零。
+*   **做空开仓**：优先使用 `self.short(symbol, quantity)`，语义更清晰，也更适合向用户解释成交明细。
+*   **平空仓**：优先使用 `self.cover(symbol, quantity)`；若当前持仓为 -1，回补 1 手后持仓归零。
 *   **杠杆管理**：由于期货自带杠杆，策略在分配资金时需谨慎。建议按**名义本金 (Notional Value)** 而非保证金占用进行风控。
 
 ## 7.5 商品期限结构深入 (Deep Dive into Term Structure)
