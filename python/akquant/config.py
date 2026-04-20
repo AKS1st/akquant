@@ -126,7 +126,10 @@ class InstrumentConfig:
     :param min_commission: Minimum commission per order.
     :param stamp_tax_rate: Stamp tax rate (sell side only).
     :param transfer_fee_rate: Transfer fee rate.
-    :param slippage: Asset-specific slippage (e.g., 0.0002).
+    :param slippage: Asset-specific slippage policy. 推荐显式写为
+                     {"type": "percent", "value": 0.0002}、
+                     {"type": "fixed", "value": 0.2} 或
+                     {"type": "ticks", "value": 1}。
 
     **Option Specific:**
     :param option_type: "CALL" or "PUT".
@@ -149,7 +152,7 @@ class InstrumentConfig:
     min_commission: Optional[float] = None
     stamp_tax_rate: Optional[float] = None
     transfer_fee_rate: Optional[float] = None
-    slippage: Optional[float] = None
+    slippage: Optional[Union[float, Dict[str, Any]]] = None
 
     # Option specific
     option_type: Optional[InstrumentOptionTypeInput] = None
@@ -485,8 +488,11 @@ class StrategyConfig:
     **Execution Behavior:**
     :param enable_fractional_shares: Allow fractional share trading. Default False.
     :param round_fill_price: Round execution price to tick size. Default True.
-    :param slippage: Global slippage model (Percentage). 0.0002 means 2 bps slippage.
-                     Applied to all trades unless overridden in `InstrumentConfig`.
+    :param slippage: Global slippage policy. 推荐显式写为
+                     {"type": "percent", "value": 0.0002}、
+                     {"type": "fixed", "value": 0.2} 或
+                     {"type": "ticks", "value": 1}。
+                     裸 float 仍兼容，但按 percent 语义解析。
     :param volume_limit_pct: Max participation rate. 0.25 means order size is
                              capped at 25% of the bar's volume. Default 0.25.
     :param exit_on_last_bar: Auto-close all positions at the end of backtest.
@@ -513,7 +519,7 @@ class StrategyConfig:
     # Execution
     enable_fractional_shares: bool = False
     round_fill_price: bool = True
-    slippage: float = 0.0  # Global slippage (e.g., 0.0002 for 2 bps)
+    slippage: Union[float, Dict[str, Any], None] = 0.0
     volume_limit_pct: float = 0.25  # Max participation rate (e.g., 25% of bar volume)
 
     # Position Sizing Constraints

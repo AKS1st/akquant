@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional, Tuple, cast
+import warnings
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from .akquant import OrderSide, OrderStatus, OrderType, TimeInForce
 
@@ -140,7 +141,7 @@ def buy(
     trail_offset: Optional[float] = None,
     trail_reference_price: Optional[float] = None,
     fill_policy: Optional[OrderFillPolicy] = None,
-    slippage: Optional[OrderSlippage] = None,
+    slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
 ) -> str:
     """买入下单."""
@@ -194,7 +195,7 @@ def sell(
     trail_offset: Optional[float] = None,
     trail_reference_price: Optional[float] = None,
     fill_policy: Optional[OrderFillPolicy] = None,
-    slippage: Optional[OrderSlippage] = None,
+    slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
 ) -> str:
     """卖出下单."""
@@ -248,7 +249,7 @@ def _submit_buy_side(
     trail_offset: Optional[float] = None,
     trail_reference_price: Optional[float] = None,
     fill_policy: Optional[OrderFillPolicy] = None,
-    slippage: Optional[OrderSlippage] = None,
+    slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
 ) -> str:
     if strategy.ctx is None:
@@ -272,7 +273,9 @@ def _submit_buy_side(
     )
     effective_slippage = _resolve_effective_order_slippage(strategy, slippage)
     fill_slippage_type, fill_slippage_value = _normalize_order_slippage(
-        effective_slippage
+        strategy,
+        symbol,
+        effective_slippage,
     )
     effective_commission = _resolve_effective_order_commission(strategy, commission)
     fill_commission_type, fill_commission_value = _normalize_order_commission(
@@ -336,7 +339,7 @@ def _submit_sell_side(
     trail_offset: Optional[float] = None,
     trail_reference_price: Optional[float] = None,
     fill_policy: Optional[OrderFillPolicy] = None,
-    slippage: Optional[OrderSlippage] = None,
+    slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
 ) -> str:
     if strategy.ctx is None:
@@ -357,7 +360,9 @@ def _submit_sell_side(
     )
     effective_slippage = _resolve_effective_order_slippage(strategy, slippage)
     fill_slippage_type, fill_slippage_value = _normalize_order_slippage(
-        effective_slippage
+        strategy,
+        symbol,
+        effective_slippage,
     )
     effective_commission = _resolve_effective_order_commission(strategy, commission)
     fill_commission_type, fill_commission_value = _normalize_order_commission(
@@ -430,7 +435,7 @@ def submit_order(
     trail_offset: Optional[float] = None,
     trail_reference_price: Optional[float] = None,
     fill_policy: Optional[OrderFillPolicy] = None,
-    slippage: Optional[OrderSlippage] = None,
+    slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
 ) -> str:
     """统一下单接口."""
@@ -547,23 +552,45 @@ def _normalize_order_fill_policy(
 
 
 def _normalize_order_slippage(
-    slippage: Optional[OrderSlippage],
+    strategy: Any,
+    symbol: str,
+    slippage: Optional[Union[OrderSlippage, float, int]],
 ) -> Tuple[Optional[str], Optional[float]]:
     if slippage is None:
         return None, None
-    if not isinstance(slippage, dict):
-        raise TypeError("slippage must be a dict when provided")
-    raw_type = str(slippage.get("type", "percent")).strip().lower()
-    if raw_type not in {"percent", "fixed"}:
-        raise ValueError("slippage.type must be one of: percent, fixed")
-    raw_value = slippage.get("value", 0.0)
+    if isinstance(slippage, (int, float)):
+        raw_type = "percent"
+        raw_value = float(slippage)
+        if raw_value != 0.0:
+            warnings.warn(
+                "Passing order slippage as a bare number is deprecated in AKQuant. "
+                "Use an explicit policy such as "
+                "slippage={'type': 'percent', 'value': 0.0002} or "
+                "slippage={'type': 'fixed', 'value': 0.2}.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+    else:
+        if not isinstance(slippage, dict):
+            raise TypeError("slippage must be a dict when provided")
+        raw_type = str(slippage.get("type", "percent")).strip().lower()
+        raw_value = slippage.get("value", 0.0)
     try:
         value = float(raw_value)
     except (TypeError, ValueError):
         raise ValueError("slippage.value must be a number >= 0") from None
     if value < 0:
         raise ValueError("slippage.value must be >= 0")
-    return raw_type, value
+    if raw_type in {"percent", "fixed"}:
+        return raw_type, value
+    if raw_type == "zero":
+        return "fixed", 0.0
+    if raw_type == "ticks":
+        tick_size = float(strategy.get_instrument(symbol).tick_size)
+        if tick_size <= 0:
+            raise ValueError("slippage.type='ticks' requires tick_size > 0")
+        return "fixed", value * tick_size
+    raise ValueError("slippage.type must be one of: percent, fixed, ticks, zero")
 
 
 def _normalize_order_commission(
@@ -609,8 +636,8 @@ def _resolve_effective_order_fill_policy(
 
 
 def _resolve_effective_order_slippage(
-    strategy: Any, slippage: Optional[OrderSlippage]
-) -> Optional[OrderSlippage]:
+    strategy: Any, slippage: Optional[Union[OrderSlippage, float, int]]
+) -> Optional[Union[OrderSlippage, float, int]]:
     if slippage is not None:
         return slippage
     owner_strategy_id = str(getattr(strategy, "_owner_strategy_id", "") or "").strip()
@@ -1108,6 +1135,10 @@ def short(
     price: Optional[float] = None,
     time_in_force: Optional[TimeInForce] = None,
     trigger_price: Optional[float] = None,
+    tag: Optional[str] = None,
+    fill_policy: Optional[OrderFillPolicy] = None,
+    slippage: Optional[Union[OrderSlippage, float, int]] = None,
+    commission: Optional[OrderCommission] = None,
 ) -> None:
     """卖出开空 (Short Sell)."""
     if strategy.ctx is None:
@@ -1130,7 +1161,18 @@ def short(
         )
 
     if quantity > 0:
-        strategy.ctx.sell(symbol, quantity, price, time_in_force, trigger_price)
+        _submit_sell_side(
+            strategy=strategy,
+            symbol=symbol,
+            quantity=quantity,
+            price=price,
+            time_in_force=time_in_force,
+            trigger_price=trigger_price,
+            tag=tag,
+            fill_policy=fill_policy,
+            slippage=slippage,
+            commission=commission,
+        )
 
 
 def cover(
@@ -1140,6 +1182,10 @@ def cover(
     price: Optional[float] = None,
     time_in_force: Optional[TimeInForce] = None,
     trigger_price: Optional[float] = None,
+    tag: Optional[str] = None,
+    fill_policy: Optional[OrderFillPolicy] = None,
+    slippage: Optional[Union[OrderSlippage, float, int]] = None,
+    commission: Optional[OrderCommission] = None,
 ) -> None:
     """买入平空 (Buy to Cover)."""
     if strategy.ctx is None:
@@ -1155,7 +1201,18 @@ def cover(
             return
 
     if quantity > 0:
-        strategy.ctx.buy(symbol, quantity, price, time_in_force, trigger_price)
+        _submit_buy_side(
+            strategy=strategy,
+            symbol=symbol,
+            quantity=quantity,
+            price=price,
+            time_in_force=time_in_force,
+            trigger_price=trigger_price,
+            tag=tag,
+            fill_policy=fill_policy,
+            slippage=slippage,
+            commission=commission,
+        )
 
 
 def get_cash(strategy: Any) -> float:

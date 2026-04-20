@@ -1,3 +1,4 @@
+import logging
 import time
 import warnings
 from datetime import date, datetime, timezone
@@ -4217,6 +4218,41 @@ def test_run_grid_search_parallel_warns_worker_log_visibility(
     )
     captured = capsys.readouterr()
     assert "self.log() output may not be visible" in captured.out
+
+
+def test_run_backtest_warns_on_suspicious_global_slippage(caplog: Any) -> None:
+    """Large float slippage should warn because AKQuant treats it as percent."""
+    data = _build_benchmark_data(n=5, symbol="SLIP_WARN")
+
+    with pytest.warns(DeprecationWarning):
+        with caplog.at_level(logging.WARNING, logger="akquant"):
+            _ = akquant.run_backtest(
+                strategy=NoopStrategy,
+                data=data,
+                symbols="SLIP_WARN",
+                slippage=0.2,
+                show_progress=False,
+            )
+
+    assert "Global slippage=0.2 uses percent semantics in AKQuant" in caplog.text
+    assert "slippage={'type': 'fixed', 'value': 0.2}" in caplog.text
+
+
+def test_run_backtest_does_not_warn_on_small_global_slippage(caplog: Any) -> None:
+    """Typical bps-scale slippage should not trigger the suspicious warning."""
+    data = _build_benchmark_data(n=5, symbol="SLIP_OK")
+
+    with pytest.warns(DeprecationWarning):
+        with caplog.at_level(logging.WARNING, logger="akquant"):
+            _ = akquant.run_backtest(
+                strategy=NoopStrategy,
+                data=data,
+                symbols="SLIP_OK",
+                slippage=0.0002,
+                show_progress=False,
+            )
+
+    assert "uses percent semantics in AKQuant" not in caplog.text
 
 
 def test_run_grid_search_parallel_forward_worker_logs_suppresses_visibility_warning(

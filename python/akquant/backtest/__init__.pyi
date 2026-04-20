@@ -69,8 +69,8 @@ class ExperimentalFillPolicy(TypedDict):
 
 FillPolicyInput = Union[FillPolicy, Dict[str, Any]]
 
-class SlippagePolicy(TypedDict):
-    type: Literal["percent", "fixed"]
+class SlippagePolicy(TypedDict, total=False):
+    type: Literal["percent", "fixed", "ticks", "zero"]
     value: float
 
 SlippagePolicyInput = Union[SlippagePolicy, Dict[str, Any]]
@@ -99,7 +99,7 @@ def run_backtest(
     stamp_tax_rate: Optional[float] = ...,
     transfer_fee_rate: Optional[float] = ...,
     min_commission: Optional[float] = ...,
-    slippage: Optional[float] = ...,
+    slippage: Optional[Union[float, SlippagePolicyInput]] = ...,
     volume_limit_pct: Optional[float] = ...,
     timezone: Optional[str] = ...,
     t_plus_one: bool = ...,
@@ -138,7 +138,7 @@ def run_backtest(
     strategy_priority: Optional[Dict[str, int]] = ...,
     strategy_risk_budget: Optional[Dict[str, float]] = ...,
     strategy_fill_policy: Optional[Dict[str, FillPolicyInput]] = ...,
-    strategy_slippage: Optional[Dict[str, SlippagePolicyInput]] = ...,
+    strategy_slippage: Optional[Dict[str, Union[float, SlippagePolicyInput]]] = ...,
     strategy_commission: Optional[Dict[str, CommissionPolicyInput]] = ...,
     portfolio_risk_budget: Optional[float] = ...,
     risk_budget_mode: Literal["order_notional", "trade_notional"] = ...,
