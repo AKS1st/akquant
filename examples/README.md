@@ -51,6 +51,7 @@
 - [46_broker_profile_demo.py](./46_broker_profile_demo.py): `broker_profile` 模板注入示例（默认费率/滑点/手数一键生效）。
 - [47_margin_liquidation_audit_demo.py](./47_margin_liquidation_audit_demo.py): 信用账户强平审计示例（`margin` 模式 + `liquidation_audit_df` + 报告输出）。
 - [48_margin_liquidation_priority_compare.py](./48_margin_liquidation_priority_compare.py): 强平顺序对比示例（`short_first` vs `long_first`）。
+- [49_on_expiry_demo.py](./49_on_expiry_demo.py): `on_expiry` 回调与流式 `expiry` 事件最小示例（期货到期结算后通知）。
 
 ## 流式回测与实时报告
 

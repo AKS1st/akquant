@@ -5181,6 +5181,172 @@ def test_run_backtest_settlement_type_rejects_physical() -> None:
         )
 
 
+def test_run_backtest_calls_on_expiry_after_settlement() -> None:
+    """Expiry callback should fire after positions are settled."""
+
+    class ExpiryCaptureStrategy(akquant.Strategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self.expiry_events: list[dict[str, Any]] = []
+            self.position_after_callback: float | None = None
+
+        def on_bar(self, bar: akquant.Bar) -> None:
+            target_ts = _ns(datetime(2026, 1, 30, 15, 0, tzinfo=timezone.utc))
+            if int(bar.timestamp) == target_ts:
+                self.buy(symbol=bar.symbol, quantity=1)
+
+        def on_expiry(self, event: dict[str, Any]) -> None:
+            self.expiry_events.append(dict(event))
+            self.position_after_callback = self.get_position(event["symbol"])
+
+    symbol = "FUT_EXP_CB"
+    bars = [
+        akquant.Bar(
+            _ns(datetime(2026, 1, 30, 15, 0, tzinfo=timezone.utc)),
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            1000.0,
+            symbol,
+        ),
+        akquant.Bar(
+            _ns(datetime(2026, 1, 31, 15, 0, tzinfo=timezone.utc)),
+            110.0,
+            110.0,
+            110.0,
+            110.0,
+            1000.0,
+            symbol,
+        ),
+        akquant.Bar(
+            _ns(datetime(2026, 2, 1, 15, 0, tzinfo=timezone.utc)),
+            109.0,
+            109.0,
+            109.0,
+            109.0,
+            1000.0,
+            symbol,
+        ),
+    ]
+    strategy = ExpiryCaptureStrategy()
+    config = akquant.BacktestConfig(
+        strategy_config=akquant.StrategyConfig(),
+        instruments_config=[
+            akquant.InstrumentConfig(
+                symbol=symbol,
+                asset_type="FUTURES",
+                multiplier=10.0,
+                margin_ratio=0.1,
+                tick_size=0.2,
+                expiry_date=date(2026, 1, 31),
+                settlement_type="settlement_price",
+                settlement_price=108.0,
+            )
+        ],
+    )
+
+    _ = akquant.run_backtest(
+        data=bars,
+        strategy=strategy,
+        symbols=[symbol],
+        config=config,
+        show_progress=False,
+    )
+
+    assert len(strategy.expiry_events) == 1
+    event = strategy.expiry_events[0]
+    assert event["symbol"] == symbol
+    assert event["asset_type"] == "FUTURES"
+    assert event["expiry_date"] == 20260131
+    assert event["settlement_type"] == "settlement_price"
+    assert event["settlement_price"] == pytest.approx(108.0, rel=1e-12)
+    assert event["quantity_before"] == pytest.approx(1.0, rel=1e-12)
+    assert event["quantity_closed"] == pytest.approx(1.0, rel=1e-12)
+    assert event["cash_flow"] == pytest.approx(1080.0, rel=1e-12)
+    assert strategy.position_after_callback == pytest.approx(0.0, rel=1e-12)
+
+
+def test_run_backtest_on_event_emits_expiry_event() -> None:
+    """Unified stream should emit expiry events."""
+
+    class BuyOnceStrategy(akquant.Strategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self.submitted = False
+
+        def on_bar(self, bar: akquant.Bar) -> None:
+            if not self.submitted:
+                self.buy(symbol=bar.symbol, quantity=1)
+                self.submitted = True
+
+    symbol = "FUT_EXP_STREAM"
+    bars = [
+        akquant.Bar(
+            _ns(datetime(2026, 1, 30, 15, 0, tzinfo=timezone.utc)),
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            1000.0,
+            symbol,
+        ),
+        akquant.Bar(
+            _ns(datetime(2026, 1, 31, 15, 0, tzinfo=timezone.utc)),
+            111.0,
+            111.0,
+            111.0,
+            111.0,
+            1000.0,
+            symbol,
+        ),
+        akquant.Bar(
+            _ns(datetime(2026, 2, 1, 15, 0, tzinfo=timezone.utc)),
+            112.0,
+            112.0,
+            112.0,
+            112.0,
+            1000.0,
+            symbol,
+        ),
+    ]
+    events: list[akquant.BacktestStreamEvent] = []
+    config = akquant.BacktestConfig(
+        strategy_config=akquant.StrategyConfig(),
+        instruments_config=[
+            akquant.InstrumentConfig(
+                symbol=symbol,
+                asset_type="FUTURES",
+                multiplier=5.0,
+                margin_ratio=0.1,
+                tick_size=0.2,
+                expiry_date=date(2026, 1, 31),
+                settlement_type="settlement_price",
+                settlement_price=110.0,
+            )
+        ],
+    )
+
+    _ = akquant.run_backtest(
+        data=bars,
+        strategy=BuyOnceStrategy,
+        symbols=[symbol],
+        config=config,
+        on_event=events.append,
+        show_progress=False,
+    )
+
+    expiry_events = [event for event in events if event["event_type"] == "expiry"]
+    assert len(expiry_events) == 1
+    payload = expiry_events[0]["payload"]
+    assert payload["symbol"] == symbol
+    assert payload["asset_type"] == "FUTURES"
+    assert payload["expiry_date"] == "20260131"
+    assert payload["settlement_type"] == "settlement_price"
+    assert payload["settlement_price"] == "110"
+    assert payload["owner_strategy_id"] == "_default"
+
+
 def test_instrument_config_rejects_invalid_asset_type() -> None:
     """InstrumentConfig should reject unsupported asset_type."""
     with pytest.raises(ValueError, match="Unsupported asset_type"):

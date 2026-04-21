@@ -13,6 +13,7 @@ use uuid::Uuid;
 // use crate::analysis::{BacktestResult, PositionSnapshot};
 use crate::clock::Clock;
 use crate::context::StrategyContext;
+use crate::context::ExpiryEvent;
 use crate::event::Event;
 use crate::event_manager::EventManager;
 use crate::execution::ExecutionClient;
@@ -102,6 +103,7 @@ pub struct Engine {
     pub(crate) strategy_reduce_only_active: HashSet<String>,
     pub(crate) margin_accrued_interest: Decimal,
     pub(crate) margin_daily_interest: Decimal,
+    pub(crate) recent_expiry_events: Vec<ExpiryEvent>,
     pub(crate) snapshot_time: i64,
     pub(crate) stream_callback: Option<Py<PyAny>>,
     pub(crate) stream_run_id: Option<String>,
@@ -584,6 +586,7 @@ impl Engine {
                         closed_trades: self.state.order_manager.trade_tracker.closed_trades.clone(),
                         recent_trades: step_trades,
                         recent_rejected_orders: step_rejected_orders,
+                        recent_expiry_events: self.recent_expiry_events.clone(),
                         margin_accrued_interest: self
                             .margin_accrued_interest
                             .to_f64()
@@ -904,6 +907,7 @@ impl Engine {
             closed_trades: self.state.order_manager.trade_tracker.closed_trades.clone(),
             recent_trades: step_trades,
             recent_rejected_orders: step_rejected_orders,
+            recent_expiry_events: self.recent_expiry_events.clone(),
             history_buffer: Some(self.history_buffer.clone()),
             event_tx: Some(self.event_manager.sender()),
             risk_config: self.risk_manager.config.clone(),

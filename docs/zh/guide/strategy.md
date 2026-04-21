@@ -362,13 +362,14 @@ AKQuant 提供了两种风格的策略开发接口：
 | `on_tick(ctx, tick)` | 回测数据流产生 Tick 事件 | 仅 Bar 数据集不会触发 Tick 回调 |
 | `on_order(ctx, order)` | 策略上下文中观察到订单状态变化 | 每轮事件循环中先于主事件回调触发 |
 | `on_trade(ctx, trade)` | `recent_trades` 中出现成交回报 | 框架会进行成交去重，避免重复触发 |
+| `on_expiry(ctx, event)` | 引擎实际执行到期结算/移除 | 仅在 `expiry_date` 驱动的结算真正发生后触发，且触发时账户状态已更新 |
 | `on_timer(ctx, payload)` | 已注册的定时器到点触发 | 支持单次定时与每日定时 payload |
 
 ### 5.2 相关示例
 
 *   函数式回调基础示例：`examples/23_functional_callbacks_demo.py`
 *   函数式 Tick 回调模拟示例：`examples/24_functional_tick_simulation_demo.py`
-*   LiveRunner 支持函数式入口与多 slot 编排：`LiveRunner(strategy_cls=on_bar, strategy_id="alpha", strategies_by_slot={"beta": OtherStrategy}, initialize=..., on_tick=..., on_order=..., on_trade=..., on_timer=...)`
+*   LiveRunner 支持函数式入口与多 slot 编排：`LiveRunner(strategy_cls=on_bar, strategy_id="alpha", strategies_by_slot={"beta": OtherStrategy}, initialize=..., on_tick=..., on_order=..., on_trade=..., on_expiry=..., on_timer=...)`
 *   回测多 slot 与策略级风控映射建议使用集中式 `BacktestConfig(strategy_config=StrategyConfig(...))`：`docs/zh/advanced/multi_strategy_guide.md`
 *   broker_live 函数式下单示例：`examples/39_live_broker_submit_order_demo.py`
 *   broker_live 默认执行语义为 `strict`，可通过 `gateway_options={"execution_semantics_mode": "strict"}` 显式声明
@@ -671,6 +672,7 @@ class MetaAwareStrategy(Strategy):
 
 *   `on_order(self, order)`: 订单状态更新时触发。
 *   `on_trade(self, trade)`: 订单成交时触发。
+*   `on_expiry(self, event)`: 到期结算事件触发。仅当引擎实际执行到期结算/移除后触发，回调参数为事件字典，常见字段包括 `symbol`、`expiry_date`、`quantity_closed`、`cash_flow` 与 `settlement_type`。最小可运行示例见：`examples/49_on_expiry_demo.py`。
 
 ### 7.2 指标 (Indicators)
 

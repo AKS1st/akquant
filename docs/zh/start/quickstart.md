@@ -411,6 +411,8 @@ result = run_backtest(
 print("event_stats:", result.get_event_stats())
 ```
 
+如果你还想在策略内部直接处理到期结算后的动作，可以实现 `on_expiry(event)`；当引擎实际执行 `expiry_date` 驱动的结算/移除后会触发该回调。最小示例见：`examples/49_on_expiry_demo.py`。
+
 常用流式参数说明：
 
 - `stream_progress_interval`: `progress` 事件采样间隔（正整数）

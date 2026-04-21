@@ -1,3 +1,4 @@
+use crate::model::types::AssetType;
 use crate::model::Instrument;
 use crate::portfolio::Portfolio;
 use chrono::NaiveDate;
@@ -9,8 +10,13 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct SettlementTask {
     pub symbol: String,
+    pub asset_type: AssetType,
+    pub expiry_date: Option<u32>,
     pub quantity: Decimal,
     pub cash_flow: Decimal,
+    pub settlement_type: Option<String>,
+    pub settlement_price: Option<Decimal>,
+    pub reason: String,
     pub description: String,
 }
 

@@ -525,6 +525,7 @@ impl Engine {
             strategy_reduce_only_active: std::collections::HashSet::new(),
             margin_accrued_interest: Decimal::ZERO,
             margin_daily_interest: Decimal::ZERO,
+            recent_expiry_events: Vec::new(),
             snapshot_time: 0,
             stream_callback: None,
             stream_run_id: None,

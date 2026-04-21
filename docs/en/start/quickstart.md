@@ -399,6 +399,8 @@ result = run_backtest(
 print("event_stats:", result.get_event_stats())
 ```
 
+If you want to react inside the strategy after an actual expiry settlement/removal, implement `on_expiry(event)`. The callback fires only after the engine executes an `expiry_date` driven settlement task. Runnable example: `examples/49_on_expiry_demo.py`.
+
 Common streaming options:
 
 *   `stream_progress_interval`: sampling interval for `progress` events (positive int)

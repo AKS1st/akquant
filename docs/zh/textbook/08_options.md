@@ -238,6 +238,8 @@ opt_config = InstrumentConfig(
 )
 ```
 
+如果你的期权策略需要在到期后执行额外逻辑，例如记录行权/到期结算结果、移除失效合约后重建候选池，推荐实现 `on_expiry(event)`。该回调仅在引擎实际执行 `expiry_date` 驱动的到期结算/移除后触发。最小可运行示例见：`examples/49_on_expiry_demo.py`。
+
 ### 8.8.2 保证金计算
 
 期权卖方（义务方）需要缴纳保证金。`akquant` 支持交易所标准的保证金计算公式：

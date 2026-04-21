@@ -55,8 +55,29 @@ impl SettlementHandler for ExpirySettlementHandler {
             let cash_flow = *qty * settle_price * instr.multiplier();
             tasks.push(SettlementTask {
                 symbol: symbol.clone(),
+                asset_type: instr.asset_type,
+                expiry_date: Some(expiry_date_int),
                 quantity: *qty,
                 cash_flow,
+                settlement_type: match instr.asset_type {
+                    AssetType::Futures => Some(
+                        match instr.settlement_type().unwrap_or(SettlementType::Cash) {
+                            SettlementType::Cash => {
+                                if instr.settlement_price().is_some() {
+                                    "settlement_price"
+                                } else {
+                                    "cash"
+                                }
+                            }
+                            SettlementType::Physical => "physical",
+                            SettlementType::ForceClose => "force_close",
+                        }
+                        .to_string(),
+                    ),
+                    _ => None,
+                },
+                settlement_price: Some(settle_price),
+                reason: "expiry".to_string(),
                 description: format!(
                     "Expiry settlement for {symbol} ({:?})",
                     instr.settlement_type().unwrap_or(SettlementType::Cash)

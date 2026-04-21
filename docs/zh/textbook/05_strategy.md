@@ -447,7 +447,24 @@ def on_order(self, order):
 
 当发生实际成交时触发。与 `on_order` 的区别在于，一笔大单可能会分多次成交，每次成交都会触发 `on_trade`，而 `on_order` 更关注订单状态流转。
 
-### 5.7.3 `on_event`：策略外的统一事件流
+### 5.7.3 `on_expiry`
+
+当引擎实际执行 `expiry_date` 驱动的到期结算或到期移除后触发。这个回调适合处理移仓换月、到期后重建仓位、期权到期后的后续逻辑等场景。
+
+```python
+def on_expiry(self, event):
+    self.log(
+        "到期结算: "
+        f"{event['symbol']} "
+        f"closed={event['quantity_closed']} "
+        f"cash_flow={event['cash_flow']} "
+        f"type={event.get('settlement_type')}"
+    )
+```
+
+回调触发时，账户和持仓状态已经更新，因此你可以直接读取最新持仓。最小可运行示例见：`examples/49_on_expiry_demo.py`。
+
+### 5.7.4 `on_event`：策略外的统一事件流
 
 如果你需要把回测事件推送到日志系统、监控看板或告警服务，可在 `run_backtest` 入口直接传入 `on_event`，统一消费事件流。
 

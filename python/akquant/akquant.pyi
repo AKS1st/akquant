@@ -2412,6 +2412,7 @@ class StrategyContext:
     session: akquant.TradingSession
     current_time: int
     recent_trades: list[Trade]
+    recent_expiry_events: list[ExpiryEvent]
     risk_config: RiskConfig
     strategy_id: typing.Optional[str]
     last_closed_trade: typing.Optional[ClosedTrade]
@@ -2429,7 +2430,11 @@ class StrategyContext:
         active_orders: typing.Optional[typing.Sequence[Order]],
         closed_trades: typing.Optional[typing.Sequence[ClosedTrade]],
         recent_trades: typing.Optional[typing.Sequence[Trade]],
+        recent_expiry_events: typing.Optional[typing.Sequence[ExpiryEvent]],
         risk_config: typing.Optional[RiskConfig],
+        strategy_id: typing.Optional[str],
+        margin_accrued_interest: typing.Optional[float],
+        margin_daily_interest: typing.Optional[float],
     ) -> "StrategyContext": ...
     def history(
         self, symbol: str, field: str, count: int
@@ -2543,6 +2548,19 @@ class StrategyContext:
         :return: 可用持仓数量
         """
         ...
+
+class ExpiryEvent:
+    symbol: str
+    asset_type: akquant.AssetType
+    trading_date: str
+    expiry_date: typing.Optional[int]
+    quantity_before: float
+    quantity_closed: float
+    cash_flow: float
+    settlement_type: typing.Optional[str]
+    settlement_price: typing.Optional[float]
+    reason: str
+    description: str
 
 class Tick:
     r"""

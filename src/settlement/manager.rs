@@ -21,11 +21,27 @@ pub struct SettlementContext<'a> {
     pub risk_config: &'a RiskConfig,
 }
 
+#[derive(Debug, Clone)]
+pub struct ExecutedExpiryEvent {
+    pub symbol: String,
+    pub asset_type: crate::model::types::AssetType,
+    pub trading_date: NaiveDate,
+    pub expiry_date: Option<u32>,
+    pub quantity_before: Decimal,
+    pub quantity_closed: Decimal,
+    pub cash_flow: Decimal,
+    pub settlement_type: Option<String>,
+    pub settlement_price: Option<Decimal>,
+    pub reason: String,
+    pub description: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SettlementOutcome {
     pub daily_interest: Decimal,
     pub forced_liquidation: bool,
     pub liquidated_symbols: Vec<String>,
+    pub expiry_events: Vec<ExecutedExpiryEvent>,
 }
 
 /// Settlement Manager
@@ -82,7 +98,13 @@ impl SettlementManager {
             ctx.last_prices,
         ));
 
+        let mut expiry_events = Vec::new();
         for task in tasks {
+            let quantity_before = portfolio
+                .positions
+                .get(&task.symbol)
+                .copied()
+                .unwrap_or(Decimal::ZERO);
             // Execute settlement task
             // 1. Adjust Cash
             if !task.cash_flow.is_zero() {
@@ -111,6 +133,20 @@ impl SettlementManager {
                     }
                 }
             }
+
+            expiry_events.push(ExecutedExpiryEvent {
+                symbol: task.symbol.clone(),
+                asset_type: task.asset_type,
+                trading_date: ctx.date,
+                expiry_date: task.expiry_date,
+                quantity_before,
+                quantity_closed: task.quantity,
+                cash_flow: task.cash_flow,
+                settlement_type: task.settlement_type.clone(),
+                settlement_price: task.settlement_price,
+                reason: task.reason.clone(),
+                description: task.description.clone(),
+            });
         }
 
         // 4. Order Expiration (Day Orders)
@@ -125,7 +161,10 @@ impl SettlementManager {
             o.status = OrderStatus::Expired;
             expired_orders_out.push(o);
         }
-        outcome
+        SettlementOutcome {
+            expiry_events,
+            ..outcome
+        }
     }
 
     fn process_margin_interest_and_liquidation(

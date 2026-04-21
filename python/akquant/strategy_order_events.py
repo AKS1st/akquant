@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any, Set, Tuple
 
 from .akquant import OrderStatus
 from .strategy_framework_hooks import (
@@ -104,6 +104,42 @@ def check_order_events(strategy: Any) -> None:
             mark_portfolio_dirty(strategy)
 
 
+def check_expiry_events(strategy: Any) -> None:
+    """检查到期事件并触发回调."""
+    ensure_framework_state(strategy)
+    if strategy.ctx is None or not hasattr(strategy.ctx, "recent_expiry_events"):
+        return
+
+    for event in strategy.ctx.recent_expiry_events:
+        key = expiry_event_key(strategy, event)
+        seen: Set[Tuple[Any, ...]] = getattr(
+            strategy, "_framework_expiry_event_keys", set()
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        strategy._framework_expiry_event_keys = seen
+        payload = {
+            "symbol": getattr(event, "symbol", None),
+            "asset_type": _enum_name(getattr(event, "asset_type", None)),
+            "trading_date": getattr(event, "trading_date", None),
+            "expiry_date": getattr(event, "expiry_date", None),
+            "quantity_before": getattr(event, "quantity_before", None),
+            "quantity_closed": getattr(event, "quantity_closed", None),
+            "cash_flow": getattr(event, "cash_flow", None),
+            "settlement_type": getattr(event, "settlement_type", None),
+            "settlement_price": getattr(event, "settlement_price", None),
+            "reason": getattr(event, "reason", None),
+            "description": getattr(event, "description", None),
+            "owner_strategy_id": str(
+                getattr(strategy.ctx, "strategy_id", None)
+                or getattr(strategy, "_owner_strategy_id", "_default")
+            ),
+        }
+        call_user_callback(strategy, "on_expiry", payload, payload=payload)
+        mark_portfolio_dirty(strategy)
+
+
 def _emit_order_callback(strategy: Any, order: Any) -> None:
     call_user_callback(strategy, "on_order", order, payload=order)
     mark_portfolio_dirty(strategy)
@@ -113,6 +149,28 @@ def _emit_order_callback(strategy: Any, order: Any) -> None:
         if order_id and order_id not in strategy._framework_rejected_order_ids:
             strategy._framework_rejected_order_ids.add(order_id)
             call_user_callback(strategy, "on_reject", order, payload=order)
+
+
+def expiry_event_key(strategy: Any, event: Any) -> Tuple[Any, ...]:
+    """生成到期事件去重 Key."""
+    return (
+        key_value(getattr(event, "symbol", None)),
+        key_value(getattr(event, "trading_date", None)),
+        key_value(getattr(event, "expiry_date", None)),
+        key_value(getattr(event, "quantity_closed", None)),
+        key_value(getattr(event, "reason", None)),
+    )
+
+
+def _enum_name(value: Any) -> Any:
+    """将枚举值转换为可读名称."""
+    name = getattr(value, "name", None)
+    if isinstance(name, str) and name:
+        return name.upper()
+    if value is None:
+        return None
+    text = str(value)
+    return text.split(".")[-1].upper() if "." in text else text.upper()
 
 
 def trade_event_key(strategy: Any, trade: Any) -> Tuple[Any, ...]:

@@ -35,6 +35,7 @@ class FunctionalStrategy(Strategy):
         on_tick: Optional[Callable[[Any, Any], None]] = ...,
         on_order: Optional[Callable[[Any, Any], None]] = ...,
         on_trade: Optional[Callable[[Any, Any], None]] = ...,
+        on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]] = ...,
         on_timer: Optional[Callable[[Any, str], None]] = ...,
         context: Optional[Dict[str, Any]] = None,
     ) -> None: ...
@@ -46,7 +47,7 @@ class BacktestStreamEvent(TypedDict):
     event_type: str
     symbol: Optional[str]
     level: str
-    payload: Dict[str, str]
+    payload: Dict[str, Any]
 
 ImplementedPriceBasis = Literal[
     "open",
@@ -109,6 +110,7 @@ def run_backtest(
     on_tick: Optional[Callable[[Any, Any], None]] = ...,
     on_order: Optional[Callable[[Any, Any], None]] = ...,
     on_trade: Optional[Callable[[Any, Any], None]] = ...,
+    on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]] = ...,
     on_timer: Optional[Callable[[Any, str], None]] = ...,
     context: Optional[Dict[str, Any]] = ...,
     history_depth: Optional[int] = ...,

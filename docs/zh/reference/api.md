@@ -150,6 +150,7 @@ def run_warm_start(
 *   `data`: 回测数据。支持单个 DataFrame，`{symbol: DataFrame}` 字典，`List[Bar]`，或实现 `DataFeedAdapter.load(request)` 的对象。
 *   `strategy`: 策略类、策略实例，或 `on_bar` 函数（函数式编程风格）。
 *   `initialize` / `on_start` / `on_stop`: 函数式策略生命周期回调，分别对应初始化、启动、停止阶段。
+*   `on_tick` / `on_order` / `on_trade` / `on_expiry` / `on_timer`: 函数式策略事件回调；其中 `on_expiry(ctx, event)` 在引擎实际执行到期结算后触发。
 *   `symbols`: 标的代码或代码列表。
 *   `initial_cash`: 初始资金 (默认 100,000.0)。
 *   legacy 价格基准参数：已移除。
@@ -304,11 +305,11 @@ result = aq.run_backtest(
 
 *   生命周期: `started`, `finished`
 *   采样更新: `progress`, `equity`
-*   交易相关: `order`, `trade`, `risk`
+*   交易相关: `order`, `trade`, `risk`, `expiry`
 *   运行异常: `error`
 *   行情流: `tick`
 
-**交易事件 payload 常用字段 (`order`/`trade`/`risk`):**
+**交易事件 payload 常用字段 (`order`/`trade`/`risk`/`expiry`):**
 
 *   `owner_strategy_id`: 策略归属 ID（默认 `_default`）。
 *   `order_id`: 订单 ID（`order`/`trade`/`risk`）。
@@ -319,6 +320,12 @@ result = aq.run_backtest(
 *   `price`: 成交价格（`trade`）。
 *   `quantity`: 成交数量（`trade`）。
 *   `reason`: 风控拒绝原因（`risk`）。
+*   `expiry_date`: 到期日（`expiry`，`YYYYMMDD`）。
+*   `quantity_before`: 到期前持仓数量（`expiry`）。
+*   `quantity_closed`: 本次因到期关闭的数量（`expiry`）。
+*   `cash_flow`: 到期结算现金流（`expiry`）。
+*   `settlement_type`: 到期结算模式（`expiry`，如 `cash`、`settlement_price`、`force_close`）。
+*   `settlement_price`: 实际采用的结算价（`expiry`，存在时提供）。
 
 **`finished.payload` 常用字段:**
 
@@ -648,6 +655,7 @@ result = run_backtest(
 *   `on_order(order: Order)`: 订单状态更新时触发（如成交、取消、拒绝）。
 *   `on_trade(trade: Trade)`: 订单成交时触发。
 *   `on_reject(order: Order)`: 订单首次进入 `Rejected` 时触发一次。
+*   `on_expiry(event: Dict[str, Any])`: 到期结算回调。仅当引擎实际执行 `expiry_date` 驱动的到期结算/移除后触发；回调时账户状态已更新。示例见：`examples/49_on_expiry_demo.py`。
 *   `on_session_start(session, timestamp)`: 会话切换开始时触发。
 *   `on_session_end(session, timestamp)`: 会话切换结束时触发。
 *   `before_trading(trading_date, timestamp)`: 每个本地交易日首次进入 Normal 会话时触发一次。

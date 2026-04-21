@@ -268,6 +268,7 @@ class Strategy:
     _framework_last_portfolio_state: Any
     _framework_portfolio_dirty: bool
     _framework_rejected_order_ids: set[str]
+    _framework_expiry_event_keys: set[Tuple[Any, ...]]
     _framework_stop_flushed: bool
     _framework_boundary_timers_registered: bool
     _trading_day_bounds: Dict[str, Tuple[int, int]]
@@ -394,6 +395,7 @@ class Strategy:
         instance._framework_last_portfolio_state = None
         instance._framework_portfolio_dirty = True
         instance._framework_rejected_order_ids = set()
+        instance._framework_expiry_event_keys = set()
         instance._framework_stop_flushed = False
         instance._framework_boundary_timers_registered = False
         instance._trading_day_bounds = {}
@@ -1163,6 +1165,10 @@ class Strategy:
 
     def on_error(self, error: Exception, source: str, payload: Any = None) -> None:
         """错误回调."""
+        pass
+
+    def on_expiry(self, event: Dict[str, Any]) -> None:
+        """到期结算回调."""
         pass
 
     def _check_order_events(self) -> None:

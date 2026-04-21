@@ -21,6 +21,7 @@ from .strategy_ml import (
     finalize_training_cycle,
     should_trigger_training,
 )
+from .strategy_order_events import check_expiry_events
 from .strategy_scheduler import flush_pending_schedules
 
 
@@ -44,6 +45,7 @@ def _flush_deferred_target_value_orders(strategy: Any, event_symbol: str) -> Non
             remaining_orders.append((symbol, target_value, price, kwargs))
     setattr(strategy, "_deferred_target_value_orders", remaining_orders)
     strategy._check_order_events()
+    check_expiry_events(strategy)
 
 
 def on_bar_event(strategy: Any, bar: Bar, ctx: StrategyContext) -> None:
@@ -55,6 +57,7 @@ def on_bar_event(strategy: Any, bar: Bar, ctx: StrategyContext) -> None:
     strategy._last_event_type = "bar"
 
     strategy._check_order_events()
+    check_expiry_events(strategy)
 
     symbol = bar.symbol
     current_pos = ctx.get_position(symbol)
@@ -134,6 +137,7 @@ def on_tick_event(strategy: Any, tick: Tick, ctx: StrategyContext) -> None:
     register_boundary_timers(strategy)
     strategy._last_event_type = "tick"
     strategy._check_order_events()
+    check_expiry_events(strategy)
     previous_price = strategy._last_prices.get(tick.symbol)
     strategy.current_tick = tick
     strategy.current_bar = None

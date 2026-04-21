@@ -558,6 +558,25 @@ impl Processor for DataProcessor {
                         &mut expired_orders,
                         &settlement_ctx,
                     );
+                    engine.recent_expiry_events = settlement_outcome
+                        .expiry_events
+                        .iter()
+                        .map(|event| crate::context::ExpiryEvent {
+                            symbol: event.symbol.clone(),
+                            asset_type: event.asset_type,
+                            trading_date: event.trading_date.to_string(),
+                            expiry_date: event.expiry_date,
+                            quantity_before: event.quantity_before.to_f64().unwrap_or_default(),
+                            quantity_closed: event.quantity_closed.to_f64().unwrap_or_default(),
+                            cash_flow: event.cash_flow.to_f64().unwrap_or_default(),
+                            settlement_type: event.settlement_type.clone(),
+                            settlement_price: event
+                                .settlement_price
+                                .and_then(|value| value.to_f64()),
+                            reason: event.reason.clone(),
+                            description: event.description.clone(),
+                        })
+                        .collect();
                     engine.margin_daily_interest = settlement_outcome.daily_interest;
                     engine.margin_accrued_interest += settlement_outcome.daily_interest;
                     if settlement_outcome.daily_interest > Decimal::ZERO {
@@ -602,6 +621,52 @@ impl Processor for DataProcessor {
                         risk_payload.insert("liquidated_symbols", liquidated_symbols.join(","));
                         risk_payload.insert("priority", priority);
                         engine.emit_stream_event(py, "risk", None, "warn", risk_payload);
+                    }
+                    let recent_expiry_events = engine.recent_expiry_events.clone();
+                    for expiry_event in recent_expiry_events {
+                        let expiry_symbol = expiry_event.symbol.clone();
+                        let mut expiry_payload = HashMap::new();
+                        expiry_payload.insert("symbol", expiry_symbol.clone());
+                        expiry_payload.insert(
+                            "asset_type",
+                            format!("{:?}", expiry_event.asset_type).to_ascii_uppercase(),
+                        );
+                        expiry_payload.insert("trading_date", expiry_event.trading_date.clone());
+                        if let Some(expiry_date) = expiry_event.expiry_date {
+                            expiry_payload.insert("expiry_date", expiry_date.to_string());
+                        }
+                        expiry_payload.insert(
+                            "quantity_before",
+                            expiry_event.quantity_before.to_string(),
+                        );
+                        expiry_payload.insert(
+                            "quantity_closed",
+                            expiry_event.quantity_closed.to_string(),
+                        );
+                        expiry_payload.insert("cash_flow", expiry_event.cash_flow.to_string());
+                        if let Some(ref settlement_type) = expiry_event.settlement_type {
+                            expiry_payload.insert("settlement_type", settlement_type.clone());
+                        }
+                        if let Some(settlement_price) = expiry_event.settlement_price {
+                            expiry_payload
+                                .insert("settlement_price", settlement_price.to_string());
+                        }
+                        expiry_payload.insert("reason", expiry_event.reason.clone());
+                        expiry_payload.insert("description", expiry_event.description.clone());
+                        if let Some(owner_strategy_id) = engine
+                            .default_strategy_id
+                            .clone()
+                            .filter(|text| !text.trim().is_empty())
+                        {
+                            expiry_payload.insert("owner_strategy_id", owner_strategy_id);
+                        }
+                        engine.emit_stream_event(
+                            py,
+                            "expiry",
+                            Some(expiry_symbol.as_str()),
+                            "info",
+                            expiry_payload,
+                        );
                     }
 
                     for o in expired_orders {

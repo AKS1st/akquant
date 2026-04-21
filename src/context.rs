@@ -4,8 +4,8 @@ use crate::history::HistoryBuffer;
 use crate::market::MarketModel;
 use crate::model::market_data::extract_decimal;
 use crate::model::{
-    ExecutionPolicyCore, Instrument, Order, OrderSide, OrderType, PriceBasis, TemporalPolicy,
-    TimeInForce, Timer, Trade, TradingSession,
+    AssetType, ExecutionPolicyCore, Instrument, Order, OrderSide, OrderType, PriceBasis,
+    TemporalPolicy, TimeInForce, Timer, Trade, TradingSession,
 };
 use crate::portfolio::Portfolio;
 use crate::risk::RiskConfig;
@@ -45,6 +45,7 @@ pub struct ContextInit {
     pub closed_trades: Arc<Vec<ClosedTrade>>,
     pub recent_trades: Vec<Trade>,
     pub recent_rejected_orders: Vec<Order>,
+    pub recent_expiry_events: Vec<ExpiryEvent>,
     pub history_buffer: Option<Arc<RwLock<HistoryBuffer>>>,
     pub event_tx: Option<Sender<Event>>,
     pub risk_config: RiskConfig,
@@ -63,8 +64,71 @@ pub struct ContextUpdate {
     pub closed_trades: Arc<Vec<ClosedTrade>>,
     pub recent_trades: Vec<Trade>,
     pub recent_rejected_orders: Vec<Order>,
+    pub recent_expiry_events: Vec<ExpiryEvent>,
     pub margin_accrued_interest: f64,
     pub margin_daily_interest: f64,
+}
+
+#[gen_stub_pyclass]
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct ExpiryEvent {
+    #[pyo3(get)]
+    pub symbol: String,
+    #[pyo3(get)]
+    pub asset_type: AssetType,
+    #[pyo3(get)]
+    pub trading_date: String,
+    #[pyo3(get)]
+    pub expiry_date: Option<u32>,
+    #[pyo3(get)]
+    pub quantity_before: f64,
+    #[pyo3(get)]
+    pub quantity_closed: f64,
+    #[pyo3(get)]
+    pub cash_flow: f64,
+    #[pyo3(get)]
+    pub settlement_type: Option<String>,
+    #[pyo3(get)]
+    pub settlement_price: Option<f64>,
+    #[pyo3(get)]
+    pub reason: String,
+    #[pyo3(get)]
+    pub description: String,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl ExpiryEvent {
+    #[new]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        symbol: String,
+        asset_type: AssetType,
+        trading_date: String,
+        expiry_date: Option<u32>,
+        quantity_before: f64,
+        quantity_closed: f64,
+        cash_flow: f64,
+        settlement_type: Option<String>,
+        settlement_price: Option<f64>,
+        reason: String,
+        description: String,
+    ) -> Self {
+        Self {
+            symbol,
+            asset_type,
+            trading_date,
+            expiry_date,
+            quantity_before,
+            quantity_closed,
+            cash_flow,
+            settlement_type,
+            settlement_price,
+            reason,
+            description,
+        }
+    }
 }
 
 fn parse_order_fill_policy_override(
@@ -210,6 +274,7 @@ impl StrategyContext {
 
         self.recent_trades = update.recent_trades;
         self.recent_rejected_orders = update.recent_rejected_orders;
+        self.recent_expiry_events = update.recent_expiry_events;
         self.margin_accrued_interest = update.margin_accrued_interest;
         self.margin_daily_interest = update.margin_daily_interest;
 
@@ -271,6 +336,9 @@ pub struct StrategyContext {
     // Recent rejected orders generated in the last step
     #[pyo3(get)]
     pub recent_rejected_orders: Vec<Order>,
+    // Recent expiry events generated in the last step
+    #[pyo3(get)]
+    pub recent_expiry_events: Vec<ExpiryEvent>,
     // History Buffer (Shared with Engine)
     pub history_buffer: Option<Arc<RwLock<HistoryBuffer>>>,
     // Event Channel (Optional, for async order submission)
@@ -304,6 +372,7 @@ impl StrategyContext {
             closed_trades: init.closed_trades,
             recent_trades: init.recent_trades,
             recent_rejected_orders: init.recent_rejected_orders,
+            recent_expiry_events: init.recent_expiry_events,
             history_buffer: init.history_buffer,
             event_tx: init.event_tx,
             risk_config: init.risk_config,
@@ -327,6 +396,7 @@ impl StrategyContext {
     /// :param active_orders: 当前活跃订单列表
     /// :param closed_trades: 已平仓交易列表
     /// :param recent_trades: 最近成交列表
+    /// :param recent_expiry_events: 最近到期事件列表
     /// :param risk_config: 风控配置
     #[new]
     #[allow(clippy::too_many_arguments)]
@@ -339,6 +409,7 @@ impl StrategyContext {
         active_orders: Option<Vec<Order>>,
         closed_trades: Option<Vec<ClosedTrade>>,
         recent_trades: Option<Vec<Trade>>,
+        recent_expiry_events: Option<Vec<ExpiryEvent>>,
         risk_config: Option<RiskConfig>,
         strategy_id: Option<String>,
         margin_accrued_interest: Option<f64>,
@@ -370,6 +441,7 @@ impl StrategyContext {
             closed_trades: Arc::new(closed_trades.unwrap_or_default()),
             recent_trades: recent_trades.unwrap_or_default(),
             recent_rejected_orders: Vec::new(),
+            recent_expiry_events: recent_expiry_events.unwrap_or_default(),
             history_buffer: None,
             event_tx: None,
             risk_config: risk_config.unwrap_or_default(),

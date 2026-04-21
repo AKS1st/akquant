@@ -71,8 +71,13 @@ impl SettlementHandler for OptionSettlementHandler {
 
                 tasks.push(SettlementTask {
                     symbol: symbol.clone(),
+                    asset_type: instr.asset_type,
+                    expiry_date: Some(expiry_date_int),
                     quantity: *qty, // Full position quantity to close
                     cash_flow,
+                    settlement_type: None,
+                    settlement_price: None,
+                    reason: "expiry".to_string(),
                     description: format!("Option Expiry for {symbol}"),
                 });
             }

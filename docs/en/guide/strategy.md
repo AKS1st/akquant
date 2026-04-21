@@ -380,6 +380,24 @@ def on_trade(self, trade):
     print(f"Trade Execution: {trade.symbol} Price: {trade.price} Qty: {trade.quantity} Comm: {trade.commission}")
 ```
 
+#### 5.4.3 Expiry Settlement Callback (`on_expiry`)
+
+Triggered only after the engine actually executes an `expiry_date` driven settlement/removal. The callback receives an event dict, and portfolio state is already updated when it runs.
+
+Runnable example: `examples/49_on_expiry_demo.py`.
+
+```python
+def on_expiry(self, event):
+    print(
+        "Expiry:",
+        event["symbol"],
+        event["expiry_date"],
+        event["quantity_closed"],
+        event["cash_flow"],
+        event.get("settlement_type"),
+    )
+```
+
 ### 5.5 Account & Position Query
 
 In addition to `get_position`, you can query more account information:

@@ -23,7 +23,7 @@ pub mod settlement;
 pub mod statistics;
 
 use analysis::{BacktestResult, ClosedTrade, LiquidationAudit, PerformanceMetrics, TradePnL};
-use context::StrategyContext;
+use context::{ExpiryEvent, StrategyContext};
 use data::{BarAggregator, DataFeed, from_arrays};
 use engine::Engine;
 use model::{
@@ -44,6 +44,7 @@ fn akquant(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<BarAggregator>()?;
     m.add_class::<Engine>()?;
     m.add_class::<StrategyContext>()?;
+    m.add_class::<ExpiryEvent>()?;
     m.add_class::<Order>()?;
     m.add_class::<Trade>()?;
     m.add_class::<OrderType>()?;

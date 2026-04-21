@@ -1266,6 +1266,7 @@ def _build_strategy_instance(
     on_tick: Optional[Callable[[Any, Any], None]],
     on_order: Optional[Callable[[Any, Any], None]],
     on_trade: Optional[Callable[[Any, Any], None]],
+    on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]],
     on_timer: Optional[Callable[[Any, str], None]],
     context: Optional[Dict[str, Any]],
 ) -> Strategy:
@@ -1312,6 +1313,7 @@ def _build_strategy_instance(
             on_tick=on_tick,
             on_order=on_order,
             on_trade=on_trade,
+            on_expiry=on_expiry,
             on_timer=on_timer,
             context=context,
         )
@@ -1332,6 +1334,7 @@ class FunctionalStrategy(Strategy):
         on_tick: Optional[Callable[[Any, Any], None]] = None,
         on_order: Optional[Callable[[Any, Any], None]] = None,
         on_trade: Optional[Callable[[Any, Any], None]] = None,
+        on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
         on_timer: Optional[Callable[[Any, str], None]] = None,
         context: Optional[Dict[str, Any]] = None,
     ):
@@ -1344,6 +1347,7 @@ class FunctionalStrategy(Strategy):
         self._on_tick_func = on_tick
         self._on_order_func = on_order
         self._on_trade_func = on_trade
+        self._on_expiry_func = on_expiry
         self._on_timer_func = on_timer
         self._context = context or {}
 
@@ -1385,6 +1389,11 @@ class FunctionalStrategy(Strategy):
         """Delegate on_trade event to the user-provided function."""
         if self._on_trade_func is not None:
             self._on_trade_func(self, trade)
+
+    def on_expiry(self, event: Dict[str, Any]) -> None:
+        """Delegate on_expiry event to the user-provided function."""
+        if self._on_expiry_func is not None:
+            self._on_expiry_func(self, event)
 
     def on_timer(self, payload: str) -> None:
         """Delegate on_timer event to the user-provided function."""
@@ -1652,6 +1661,7 @@ def run_backtest(
     on_tick: Optional[Callable[[Any, Any], None]] = None,
     on_order: Optional[Callable[[Any, Any], None]] = None,
     on_trade: Optional[Callable[[Any, Any], None]] = None,
+    on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
     on_timer: Optional[Callable[[Any, str], None]] = None,
     context: Optional[Dict[str, Any]] = None,
     history_depth: Optional[int] = None,
@@ -2082,6 +2092,7 @@ def run_backtest(
         on_tick,
         on_order,
         on_trade,
+        on_expiry,
         on_timer,
         context,
     )
@@ -2113,6 +2124,7 @@ def run_backtest(
                 on_tick,
                 on_order,
                 on_trade,
+                on_expiry,
                 on_timer,
                 context,
             )
@@ -3936,17 +3948,18 @@ def run_warm_start(
                 raise ValueError("strategy slot id cannot be empty")
             slot_strategy_instances[slot_key_str] = _build_strategy_instance(
                 slot_strategy_input,
-                {},
-                False,
-                logger,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+                strategy_kwargs={},
+                strict_strategy_params=False,
+                logger=logger,
+                initialize=None,
+                on_start=None,
+                on_stop=None,
+                on_tick=None,
+                on_order=None,
+                on_trade=None,
+                on_expiry=None,
+                on_timer=None,
+                context=None,
             )
 
     configured_slot_ids = [effective_strategy_id]
