@@ -146,19 +146,39 @@ impl Engine {
         }
     }
 
+    fn effective_terminal_timestamp_for_timer(timer: &Timer) -> Option<i64> {
+        if let Some(source_ts) = timer
+            .payload
+            .strip_prefix("__framework_rebalance__|")
+            .and_then(|payload| payload.rsplit('|').next())
+            .and_then(|value| value.parse::<i64>().ok())
+        {
+            return Some(source_ts);
+        }
+        if timer.payload.starts_with("__framework_boundary__|after|") {
+            return Some(timer.timestamp.saturating_sub(1));
+        }
+        if timer.payload.starts_with("__framework_boundary__|before|") {
+            return None;
+        }
+        Some(timer.timestamp)
+    }
+
+    pub(crate) fn terminal_result_timestamp(&self) -> Option<i64> {
+        match self.current_event.as_ref() {
+            Some(Event::Bar(bar)) => Some(bar.timestamp),
+            Some(Event::Tick(tick)) => Some(tick.timestamp),
+            Some(Event::Timer(timer)) => Self::effective_terminal_timestamp_for_timer(timer),
+            _ => self.clock.timestamp(),
+        }
+    }
+
     pub(crate) fn execution_policy_core(&self) -> ExecutionPolicyCore {
         self.execution_policy_core_state
     }
 
     pub(crate) fn set_execution_policy_core(&mut self, policy: ExecutionPolicyCore) {
         self.execution_policy_core_state = policy;
-    }
-
-    pub(crate) fn timer_same_cycle_enabled(&self) -> bool {
-        matches!(
-            self.execution_policy_core_state.temporal,
-            crate::model::TemporalPolicy::SameCycle
-        )
     }
 
     pub(crate) fn normalized_order_strategy_id(order: &Order) -> Option<String> {

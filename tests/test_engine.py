@@ -289,6 +289,47 @@ class DailyTimerBuyStrategy(akquant.Strategy):
         self.submitted = True
 
 
+class DailyTimerOrderLevelCurrentCloseStrategy(akquant.Strategy):
+    """Use order-level current-close fill policy on daily timers."""
+
+    def __init__(self, symbol: str) -> None:
+        """Initialize symbol and order-level fill policy."""
+        super().__init__()
+        self.symbol_ref = symbol
+        self.fill_policy = {
+            "price_basis": "close",
+            "bar_offset": 0,
+            "temporal": "same_cycle",
+        }
+
+    def on_start(self) -> None:
+        """Register opening and closing daily timers."""
+        self.add_daily_timer("09:25:00", "daily_buy")
+        self.add_daily_timer("14:56:00", "daily_sell")
+
+    def on_timer(self, payload: str) -> None:
+        """Buy at the first timer and sell available shares at the second."""
+        if payload == "daily_buy":
+            self.buy(
+                symbol=self.symbol_ref,
+                quantity=1,
+                tag="timer-buy",
+                fill_policy=self.fill_policy,
+            )
+            return
+        if payload != "daily_sell":
+            return
+        available = self.get_available_position(self.symbol_ref)
+        if available <= 0:
+            return
+        self.sell(
+            symbol=self.symbol_ref,
+            quantity=available,
+            tag="timer-sell",
+            fill_policy=self.fill_policy,
+        )
+
+
 def _ns(dt: datetime) -> int:
     """
     Convert a datetime to nanoseconds since epoch.
@@ -496,6 +537,61 @@ def test_daily_timer_trading_day_alignment_uses_local_calendar_day() -> None:
     )
     assert first_entry_time == pd.Timestamp("2025-01-24 15:00:00", tz="Asia/Shanghai")
     assert first_entry_time.weekday() < 5
+
+
+def test_order_level_current_close_daily_timer_sell_fills_same_day() -> None:
+    """Order-level current-close timer sell should fill on the same trading day."""
+    symbol = "DAILY_TIMER_OVERRIDE"
+    data = pd.DataFrame(
+        {
+            "open": [10.0, 11.0, 12.0],
+            "high": [10.0, 11.0, 12.0],
+            "low": [10.0, 11.0, 12.0],
+            "close": [10.0, 11.0, 12.0],
+            "volume": [1000.0, 1000.0, 1000.0],
+            "symbol": [symbol, symbol, symbol],
+        },
+        index=pd.to_datetime(["2026-04-01", "2026-04-02", "2026-04-03"]),
+    )
+    strategy = DailyTimerOrderLevelCurrentCloseStrategy(symbol=symbol)
+
+    result = akquant.run_backtest(
+        data=data,
+        strategy=strategy,
+        symbols=symbol,
+        t_plus_one=True,
+        initial_cash=100000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        lot_size=1,
+        show_progress=False,
+    )
+
+    filled_sell_orders = result.orders_df[
+        (result.orders_df["side"].astype(str).str.lower() == "sell")
+        & (result.orders_df["status"].astype(str).str.lower() == "filled")
+        & (result.orders_df["tag"].astype(str) == "timer-sell")
+    ]
+    assert not filled_sell_orders.empty
+
+    sell_order = filled_sell_orders.iloc[0]
+    sell_updated_at = pd.Timestamp(sell_order["updated_at"]).tz_convert("Asia/Shanghai")
+    assert sell_updated_at == pd.Timestamp("2026-04-02 14:56:00", tz="Asia/Shanghai")
+    assert float(sell_order["avg_price"]) == pytest.approx(11.0)
+
+    executions_df = result.executions_df
+    filled_sell_executions = executions_df[
+        executions_df["side"].astype(str).str.lower() == "sell"
+    ]
+    assert not filled_sell_executions.empty
+    sell_execution_time = pd.Timestamp(
+        filled_sell_executions.iloc[0]["timestamp"]
+    ).tz_convert("Asia/Shanghai")
+    assert sell_execution_time == pd.Timestamp(
+        "2026-04-02 14:56:00", tz="Asia/Shanghai"
+    )
 
 
 def test_current_close_timer_order_next_event_policy_fills_on_next_bar() -> None:
