@@ -1081,7 +1081,7 @@ impl Engine {
 
         // Record final snapshot if we have data
         if self.current_date.is_some()
-            && let Some(timestamp) = self.clock.timestamp()
+            && let Some(timestamp) = self.terminal_result_timestamp()
         {
             self.statistics_manager.record_snapshot(
                 timestamp,
@@ -1117,7 +1117,7 @@ impl Engine {
             &self.last_prices,
             &self.state.order_manager,
             self.initial_cash,
-            self.clock.timestamp(),
+            self.terminal_result_timestamp(),
         )
     }
 }

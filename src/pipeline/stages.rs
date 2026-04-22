@@ -2,7 +2,9 @@ use crate::context::EngineContext;
 use crate::data::FeedAction;
 use crate::engine::Engine;
 use crate::event::Event;
-use crate::model::{Bar, Order, OrderStatus, PriceBasis, TradingSession};
+use crate::model::{
+    Bar, ExecutionPolicyCore, Order, OrderStatus, PriceBasis, TemporalPolicy, TradingSession,
+};
 use crate::pipeline::processor::{Processor, ProcessorResult};
 use pyo3::prelude::*;
 use rust_decimal::Decimal;
@@ -109,16 +111,56 @@ fn process_order_request(engine: &mut Engine, py: Python<'_>, mut order: Order) 
     }
 }
 
-fn should_run_post_strategy_match_now(engine: &Engine) -> bool {
-    let policy = engine.execution_policy_core();
-    if !(policy.price_basis == PriceBasis::Close && policy.bar_offset == 0) {
-        return false;
+fn effective_execution_policy_for_order(engine: &Engine, order: &Order) -> ExecutionPolicyCore {
+    order
+        .fill_policy_override
+        .unwrap_or(engine.execution_policy_core())
+}
+
+fn should_run_phase_for_engine_default(
+    phase: &ExecutionPhase,
+    engine: &Engine,
+    event: Option<&Event>,
+) -> bool {
+    should_run_phase_for_current_event(phase, engine.execution_policy_core(), event)
+}
+
+fn should_run_phase_for_current_event(
+    phase: &ExecutionPhase,
+    policy: ExecutionPolicyCore,
+    event: Option<&Event>,
+) -> bool {
+    match phase {
+        ExecutionPhase::PreStrategy => policy.bar_offset == 1,
+        ExecutionPhase::PostStrategy => {
+            if !(policy.price_basis == PriceBasis::Close && policy.bar_offset == 0) {
+                return false;
+            }
+            match event {
+                Some(Event::Bar(_) | Event::Tick(_)) => true,
+                Some(Event::Timer(timer)) => {
+                    matches!(policy.temporal, TemporalPolicy::SameCycle)
+                        && !timer.payload.starts_with("__framework_")
+                }
+                _ => false,
+            }
+        }
     }
-    match engine.current_event.as_ref() {
-        Some(Event::Bar(_) | Event::Tick(_)) => true,
-        Some(Event::Timer(_)) => engine.timer_same_cycle_enabled(),
-        _ => false,
-    }
+}
+
+fn has_orders_matching_phase(engine: &Engine, phase: &ExecutionPhase, orders: &[Order]) -> bool {
+    let event = engine.current_event.as_ref();
+    orders.iter().any(|order| {
+        should_run_phase_for_current_event(
+            phase,
+            effective_execution_policy_for_order(engine, order),
+            event,
+        )
+    })
+}
+
+fn should_run_post_strategy_match_now(engine: &Engine, orders: &[Order]) -> bool {
+    has_orders_matching_phase(engine, &ExecutionPhase::PostStrategy, orders)
 }
 
 fn emit_execution_reports_for_current_event(engine: &mut Engine) {
@@ -344,8 +386,9 @@ impl Processor for ChannelProcessor {
                 let has_sell = pending_order_requests
                     .iter()
                     .any(|order| order.side == crate::model::OrderSide::Sell);
-                let can_do_two_phase =
-                    has_buy && has_sell && should_run_post_strategy_match_now(engine);
+                let can_do_two_phase = has_buy
+                    && has_sell
+                    && should_run_post_strategy_match_now(engine, &pending_order_requests);
 
                 if can_do_two_phase {
                     let mut sell_orders = Vec::new();
@@ -900,13 +943,10 @@ impl Processor for ExecutionProcessor {
         _py: Python<'_>,
         _strategy: &Bound<'_, PyAny>,
     ) -> PyResult<ProcessorResult> {
-        let should_run = match self.phase {
-            ExecutionPhase::PreStrategy => engine.execution_policy_core().bar_offset == 1,
-            ExecutionPhase::PostStrategy => {
-                let policy = engine.execution_policy_core();
-                policy.price_basis == PriceBasis::Close && policy.bar_offset == 0
-            }
-        };
+        let active_orders = engine.state.order_manager.active_orders.clone();
+        let event = engine.current_event.as_ref();
+        let should_run = should_run_phase_for_engine_default(&self.phase, engine, event)
+            || has_orders_matching_phase(engine, &self.phase, &active_orders);
 
         if !should_run {
             return Ok(ProcessorResult::Next);
@@ -921,9 +961,6 @@ impl Processor for ExecutionProcessor {
         if let Some(event) = engine.current_event.clone() {
             match event {
                 Event::Bar(_) | Event::Tick(_) | Event::Timer(_) => {
-                    if matches!(event, Event::Timer(_)) && !engine.timer_same_cycle_enabled() {
-                        return Ok(ProcessorResult::Next);
-                    }
                     // Create Context
                     let ctx = EngineContext {
                         instruments: &engine.instruments,
