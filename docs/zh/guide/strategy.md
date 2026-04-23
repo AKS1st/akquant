@@ -30,7 +30,7 @@
 * `on_trade`: 收到成交回报时触发。
 * `on_reject`: 订单进入 `Rejected` 状态时触发。
 * `on_session_start` / `on_session_end`: 会话切换时触发。
-* `before_trading` / `after_trading`: 交易日级钩子。
+* `on_before_trading` / `on_after_trading`: 交易日级钩子。
 * `on_daily_rebalance`: 交易日调仓钩子（每天最多一次，适合横截面轮动）。
 * `on_portfolio_update`: 账户快照变化时触发。
 * `on_error`: 用户回调抛异常时触发，默认触发后继续抛出异常。
@@ -38,28 +38,100 @@
 *   `on_stop`: 策略停止时调用，适合进行资源清理或结果统计。
 *   `on_train_signal`: 滚动训练触发信号 (仅在 ML 模式下触发)。
 
+### 2.0 回调速查表
+
+| 回调 | 何时触发 | 典型用途 | 示例入口 |
+| :--- | :--- | :--- | :--- |
+| `on_start` | 策略实例启动后 | 订阅标的、注册指标、初始化运行态资源 | `examples/textbook/ch05_strategy.py` |
+| `on_resume` | 热启动恢复时，且早于 `on_start` | 恢复连接、打印恢复状态、处理快照续跑逻辑 | `examples/21_warm_start_demo.py` |
+| `on_bar` | 每根 Bar 闭合时 | 主交易逻辑、指标更新、信号计算 | `examples/01_quickstart.py` |
+| `on_tick` | 每个 Tick 到达时 | 高频/盘口响应、逐笔监控 | `examples/51_class_tick_callbacks_demo.py` |
+| `on_order` | 订单状态变化时 | 跟踪下单生命周期、联动撤单/重置状态 | `examples/08_event_callbacks.py` |
+| `on_trade` | 收到成交回报时 | 成交日志、成交后风控、累计统计 | `examples/08_event_callbacks.py` |
+| `on_reject` | 订单首次进入 `Rejected` 时 | 记录拒单原因、告警、降级处理 | `examples/50_framework_hooks_demo.py` |
+| `on_session_start` | 会话切换开始时 | 日盘/夜盘切换、session 级状态重置 | `examples/50_framework_hooks_demo.py` |
+| `on_session_end` | 会话切换结束时 | 收盘后清理、session 结束打点 | `examples/50_framework_hooks_demo.py` |
+| `on_before_trading` | 本地交易日首次进入 `Normal` 会话 | 盘前检查、生成交易日级信号 | `examples/50_framework_hooks_demo.py` |
+| `on_daily_rebalance` | 每个交易日最多一次，与 `on_before_trading` 同阶段 | 横截面选股、统一调仓 | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_after_trading` | 离开 `Normal` 会话时，必要时下一事件补发 | 日终统计、收盘后清理与归档 | `examples/50_framework_hooks_demo.py` |
+| `on_portfolio_update` | 账户快照变化时增量触发 | 监控现金/权益变化、推送 UI 或告警 | `examples/50_framework_hooks_demo.py` |
+| `on_error` | 任一用户回调抛异常时 | 记录异常源、决定继续/中断策略 | `examples/22_strategy_runtime_config_demo.py` |
+| `on_timer` | 定时器到点时 | 定时调仓、盘前任务、节律性检查 | `examples/strategies/07_stock_momentum_rotation_on_timer.py` |
+| `on_stop` | 策略停止时 | 汇总统计、资源释放、打印总结 | `examples/textbook/ch05_strategy.py` |
+| `on_expiry` | 引擎实际执行到期结算/移除后 | 处理换月、记录结算、清理失效合约 | `examples/49_on_expiry_demo.py` |
+| `on_train_signal` | ML 滚动训练窗口触发时 | 训练模型、切换待激活模型 | `examples/10_ml_walk_forward.py` |
+
+其中，`on_session_start`、`on_session_end`、`on_before_trading`、`on_after_trading`、`on_portfolio_update`、`on_reject` 这类框架级钩子，推荐直接运行 `examples/50_framework_hooks_demo.py` 观察触发顺序与日志输出。
+如果你只想先看一份“最常用回调的一站式示例”，优先运行 `examples/08_event_callbacks.py`；它把 `on_start/on_bar/on_order/on_trade/on_reject/on_timer/on_portfolio_update/on_stop` 放到了同一个脚本里。
+如果你要写类风格的 Tick 策略，先看 `examples/51_class_tick_callbacks_demo.py`；如果你更偏好函数式入口，再看 `examples/24_functional_tick_simulation_demo.py`。
+
 ### 2.1 回调触发契约
 
 对于每个 `bar/tick/timer` 事件，框架按以下顺序分发回调：
 
 1. `on_order` / `on_trade`（若拒单则额外触发 `on_reject`）
-2. 框架钩子（`on_session_*`、`before_trading`/`after_trading`、`on_portfolio_update`）
+2. 框架钩子（`on_session_*`、`on_before_trading`/`on_after_trading`、`on_portfolio_update`）
 3. 用户事件回调（`on_bar` / `on_tick` / `on_timer`）
 
 说明：
 
 * `on_reject` 对同一订单 id 只触发一次。
 * 回测中已终态拒单会通过上下文快照 `recent_rejected_orders` 在下一次事件分发时补发，避免因清理活跃订单导致漏触发。
-* `before_trading` 在本地交易日首次进入 Normal 会话时触发一次。
-* `on_daily_rebalance` 与 `before_trading` 同一阶段触发，每个交易日最多触发一次。
-* `after_trading` 在离开 Normal 会话时触发；若先跨日再收到事件，会在下一事件补发上一交易日的 `after_trading`。
+* `on_before_trading` 在本地交易日首次进入 Normal 会话时触发一次。
+* `on_daily_rebalance` 与 `on_before_trading` 同一阶段触发，每个交易日最多触发一次。
+* `on_after_trading` 在离开 Normal 会话时触发；若先跨日再收到事件，会在下一事件补发上一交易日的 `on_after_trading`。
 * 若需要更精确的交易日边界触发，可在策略中设置 `self.enable_precise_day_boundary_hooks = True`。
 * `on_portfolio_update` 采用增量触发：初始化时触发一次，后续仅在订单/成交或持仓相关价格变化时触发。
 * 可通过 `self.portfolio_update_eps` 过滤微小资产波动（默认 `0.0`，即不过滤）。
-* 停止阶段会在 `on_stop` 之前补发待触发的 `on_session_end` / `after_trading`。
+* 停止阶段会在 `on_stop` 之前补发待触发的 `on_session_end` / `on_after_trading`。
 * `on_error` 参数为 `(error, source, payload)`，推荐通过 `self.error_mode = "raise" | "continue"` 控制行为（默认 `raise`）。`self.re_raise_on_error` 仍兼容，作为兜底开关。
 * 推荐使用 `self.runtime_config = StrategyRuntimeConfig(...)` 统一配置上述行为开关。
 * 旧别名字段与 `runtime_config` 会自动保持同步。
+
+#### 2.1.1 常规事件分发时序
+
+```mermaid
+sequenceDiagram
+    participant Feed as 行情/Timer 事件
+    participant FW as Framework Dispatcher
+    participant Strategy as 用户策略
+
+    Feed->>FW: bar / tick / timer 到达
+    FW->>Strategy: on_order(...)
+    FW->>Strategy: on_trade(...)
+    alt 订单首次变为 Rejected
+        FW->>Strategy: on_reject(...)
+    end
+    FW->>Strategy: on_session_start / on_session_end
+    FW->>Strategy: on_before_trading / on_after_trading
+    FW->>Strategy: on_daily_rebalance
+    FW->>Strategy: on_portfolio_update
+    alt 当前事件是 Bar
+        FW->>Strategy: on_bar(bar)
+    else 当前事件是 Tick
+        FW->>Strategy: on_tick(tick)
+    else 当前事件是 Timer
+        FW->>Strategy: on_timer(payload)
+    end
+```
+
+#### 2.1.2 停止阶段补发时序
+
+```mermaid
+sequenceDiagram
+    participant Engine as Engine Stop Phase
+    participant FW as Framework Dispatcher
+    participant Strategy as 用户策略
+
+    Engine->>FW: _on_stop_internal()
+    alt 仍有未补发的 session 结束事件
+        FW->>Strategy: on_session_end(...)
+    end
+    alt 仍有未补发的交易日结束事件
+        FW->>Strategy: on_after_trading(...)
+    end
+    FW->>Strategy: on_stop()
+```
 
 ## 3. 风险管理 (Risk Management)
 
@@ -365,7 +437,35 @@ AKQuant 提供了两种风格的策略开发接口：
 | `on_expiry(ctx, event)` | 引擎实际执行到期结算/移除 | 仅在 `expiry_date` 驱动的结算真正发生后触发，且触发时账户状态已更新 |
 | `on_timer(ctx, payload)` | 已注册的定时器到点触发 | 支持单次定时与每日定时 payload |
 
-### 5.2 相关示例
+### 5.2 类风格 vs 函数式回调对照
+
+| 类风格 | 函数式 | 说明 | 推荐示例 |
+| :--- | :--- | :--- | :--- |
+| `on_start(self)` | `on_start(ctx)` | 生命周期起点，两种风格都支持 | `examples/08_event_callbacks.py`、`examples/23_functional_callbacks_demo.py` |
+| `on_stop(self)` | `on_stop(ctx)` | 生命周期终点，两种风格都支持 | `examples/textbook/ch05_strategy.py` |
+| `on_bar(self, bar)` | `on_bar(ctx, bar)` | 主策略入口，两种风格都支持 | `examples/01_quickstart.py`、`examples/23_functional_callbacks_demo.py` |
+| `on_tick(self, tick)` | `on_tick(ctx, tick)` | Tick 事件入口，两种风格都支持 | `examples/51_class_tick_callbacks_demo.py`、`examples/24_functional_tick_simulation_demo.py` |
+| `on_order(self, order)` | `on_order(ctx, order)` | 订单状态回调，两种风格都支持 | `examples/08_event_callbacks.py` |
+| `on_trade(self, trade)` | `on_trade(ctx, trade)` | 成交回报回调，两种风格都支持 | `examples/08_event_callbacks.py` |
+| `on_expiry(self, event)` | `on_expiry(ctx, event)` | 到期结算回调，两种风格都支持 | `examples/49_on_expiry_demo.py` |
+| `on_timer(self, payload)` | `on_timer(ctx, payload)` | 定时器回调，两种风格都支持 | `examples/08_event_callbacks.py`、`examples/23_functional_callbacks_demo.py` |
+| `on_resume(self)` | 不支持 | 热启动恢复钩子，目前仅类风格支持 | `examples/21_warm_start_demo.py` |
+| `on_reject(self, order)` | 不支持 | 拒单回调，目前仅类风格支持 | `examples/08_event_callbacks.py`、`examples/50_framework_hooks_demo.py` |
+| `on_session_start(self, session, timestamp)` | 不支持 | 会话边界钩子，目前仅类风格支持 | `examples/50_framework_hooks_demo.py` |
+| `on_session_end(self, session, timestamp)` | 不支持 | 会话边界钩子，目前仅类风格支持 | `examples/50_framework_hooks_demo.py` |
+| `on_before_trading(self, trading_date, timestamp)` | 不支持 | 交易日前边界钩子，目前仅类风格支持 | `examples/50_framework_hooks_demo.py` |
+| `on_after_trading(self, trading_date, timestamp)` | 不支持 | 交易日后边界钩子，目前仅类风格支持 | `examples/50_framework_hooks_demo.py` |
+| `on_daily_rebalance(self, trading_date, timestamp)` | 不支持 | 交易日调仓钩子，目前仅类风格支持 | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_portfolio_update(self, snapshot)` | 不支持 | 账户快照回调，目前仅类风格支持 | `examples/50_framework_hooks_demo.py` |
+| `on_error(self, error, source, payload)` | 不支持 | 用户异常回调，目前仅类风格支持 | `examples/22_strategy_runtime_config_demo.py` |
+| `on_train_signal(self, context)` | 不支持 | ML 滚动训练钩子，目前仅类风格支持 | `examples/10_ml_walk_forward.py` |
+
+建议：
+
+*   如果你需要 `on_session_*`、`on_before_trading`、`on_after_trading`、`on_portfolio_update`、`on_error` 这类框架钩子，优先选择类风格。
+*   如果你只是做快速原型，且只依赖 `on_bar/on_tick/on_order/on_trade/on_timer`，函数式入口通常更轻量。
+
+### 5.3 相关示例
 
 *   函数式回调基础示例：`examples/23_functional_callbacks_demo.py`
 *   函数式 Tick 回调模拟示例：`examples/24_functional_tick_simulation_demo.py`

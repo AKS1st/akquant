@@ -6,7 +6,16 @@
 
 - 主示例：[examples/textbook/ch05_strategy.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch05_strategy.py)
 - 进阶示例：[examples/23_functional_callbacks_demo.py](https://github.com/akfamily/akquant/blob/main/examples/23_functional_callbacks_demo.py)
+- 框架钩子示例：[examples/50_framework_hooks_demo.py](https://github.com/akfamily/akquant/blob/main/examples/50_framework_hooks_demo.py)
+- 类风格 Tick 示例：[examples/51_class_tick_callbacks_demo.py](https://github.com/akfamily/akquant/blob/main/examples/51_class_tick_callbacks_demo.py)
 - 对应指南：[策略指南](../guide/strategy.md)
+
+建议学习路径：
+
+1. 先运行 `examples/textbook/ch05_strategy.py`，掌握 `on_start -> on_bar -> on_stop` 的主骨架。
+2. 再看 `examples/08_event_callbacks.py`，把订单、成交、拒单、定时器放到一张图里理解。
+3. 需要框架边界钩子时，运行 `examples/50_framework_hooks_demo.py`。
+4. 需要 Tick 级策略时，运行 `examples/51_class_tick_callbacks_demo.py`。
 
 ## 快速运行与验收
 
@@ -28,6 +37,8 @@ python examples/textbook/ch05_strategy.py
 2.  `on_start`: **初始化钩子**。回测开始前触发，常用于订阅数据、设置风控参数。
 3.  `on_bar`: **事件处理钩子**。每根 K 线走完时触发，这是策略逻辑的核心入口。
 4.  `on_stop`: **结束钩子**。回测结束时触发，常用于清理资源或统计结果。
+
+这 4 个回调构成了最常见的策略主骨架，但并不是全部。AKQuant 还提供了热启动、框架边界、定时器、账户快照、拒单、ML 训练信号等扩展回调。本章后续会给出一张完整的教材级速查表，帮助你知道“应该把逻辑写进哪个 `on_xxx`”。
 
 ### 5.1.1 示例代码：带止损的双均线策略
 
@@ -85,6 +96,46 @@ result = aq.run_backtest(
 ```
 
 当你需要 `on_start/on_stop/on_order/on_trade` 等完整生命周期并封装为可复用组件时，优先使用类风格；当你需要快速验证交易逻辑和参数时，函数式入口更轻量。
+
+### 5.2.4 全量 `on_xxx` 回调速查表
+
+如果把 `AKQuant` 的策略接口只理解为 `on_start -> on_bar -> on_stop`，很容易在盘前准备、日终归档、拒单处理、恢复续跑等场景里把逻辑塞错地方。更好的做法是按“事件来源”来理解回调族：
+
+1.  **生命周期回调**：控制策略启动、恢复、停止。
+2.  **主数据事件回调**：处理 Bar、Tick、Timer 这三类用户最常见的决策入口。
+3.  **订单与成交回调**：跟踪订单流转、拒单与实际成交。
+4.  **框架边界回调**：处理交易日、session 和账户快照这类“不是行情、但很关键”的事件。
+5.  **专项回调**：处理到期结算、ML 训练信号、异常治理等高级场景。
+
+下表给出教材中建议掌握的完整接口：
+
+| 回调 | 类型 | 典型用途 | 推荐示例 |
+| :--- | :--- | :--- | :--- |
+| `on_start` | 生命周期 | 订阅标的、注册指标、初始化运行态资源 | `examples/textbook/ch05_strategy.py` |
+| `on_resume` | 生命周期 | 热启动恢复、打印快照续跑状态、恢复外部连接 | `examples/21_warm_start_demo.py` |
+| `on_stop` | 生命周期 | 汇总统计、资源释放、输出最终摘要 | `examples/textbook/ch05_strategy.py` |
+| `on_bar` | 主数据事件 | K 线策略、指标更新、主交易逻辑 | `examples/textbook/ch05_strategy.py` |
+| `on_tick` | 主数据事件 | Tick 级监控、盘口驱动、高频响应 | `examples/51_class_tick_callbacks_demo.py` |
+| `on_timer` | 主数据事件 | 定时任务、盘前检查、固定时点调仓 | `examples/strategies/07_stock_momentum_rotation_on_timer.py` |
+| `on_order` | 订单事件 | 跟踪订单状态流转、联动撤单或重置状态 | `examples/08_event_callbacks.py` |
+| `on_trade` | 订单事件 | 记录成交、成交后风控、累计成交统计 | `examples/08_event_callbacks.py` |
+| `on_reject` | 订单事件 | 记录拒单原因、发告警、触发降级策略 | `examples/50_framework_hooks_demo.py` |
+| `on_session_start` | 框架边界 | 日盘/夜盘切换、session 级状态重置 | `examples/50_framework_hooks_demo.py` |
+| `on_session_end` | 框架边界 | 收盘后清理、session 结束打点与归档 | `examples/50_framework_hooks_demo.py` |
+| `on_before_trading` | 框架边界 | 盘前检查、生成交易日级信号、盘前风控 | `examples/50_framework_hooks_demo.py` |
+| `on_daily_rebalance` | 框架边界 | 横截面选股、每天最多一次的统一调仓 | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_after_trading` | 框架边界 | 日终统计、收盘后归档、落盘或报表输出 | `examples/50_framework_hooks_demo.py` |
+| `on_portfolio_update` | 框架边界 | 账户权益变化监控、推送 UI 或风控告警 | `examples/50_framework_hooks_demo.py` |
+| `on_expiry` | 专项回调 | 期货/期权到期结算、换月、移除失效合约 | `examples/49_on_expiry_demo.py` |
+| `on_error` | 专项回调 | 统一处理用户回调异常、选择继续或中断 | `examples/22_strategy_runtime_config_demo.py` |
+| `on_train_signal` | 专项回调 | ML 滚动训练窗口触发时更新模型 | `examples/10_ml_walk_forward.py` |
+
+有两个实践判断非常重要：
+
+*   当逻辑依赖**价格数据本身**时，优先考虑 `on_bar` / `on_tick` / `on_timer`。
+*   当逻辑依赖**交易阶段边界**时，优先考虑 `on_before_trading` / `on_after_trading` / `on_session_*`，不要强行塞进 `on_bar`。
+
+如果你想系统理解这些回调的触发顺序、类风格与函数式的能力差异，以及每个回调是否有公开示例，请继续参考：[策略指南](../guide/strategy.md)。
 
 ## 5.3 交易接口详解 (Trading API)
 
@@ -464,7 +515,27 @@ def on_expiry(self, event):
 
 回调触发时，账户和持仓状态已经更新，因此你可以直接读取最新持仓。最小可运行示例见：`examples/49_on_expiry_demo.py`。
 
-### 5.7.4 `on_event`：策略外的统一事件流
+### 5.7.4 框架边界回调：把逻辑放在“正确阶段”
+
+很多初学者会把盘前准备、日终归档、交易日调仓都写进 `on_bar`。这在简单脚本里能跑，但一旦进入多标的、多 session、live/backtest 复用的场景，就容易变得难维护。更稳妥的做法是把逻辑写在对应的框架边界回调里：
+
+*   `on_before_trading(trading_date, timestamp)`: 本地交易日首次进入 `Normal` 会话时触发，适合做盘前检查、生成交易日级候选池。
+*   `on_daily_rebalance(trading_date, timestamp)`: 与 `on_before_trading` 同阶段，但每个交易日最多一次，适合横截面统一调仓。
+*   `on_after_trading(trading_date, timestamp)`: 离开 `Normal` 会话时触发，适合做日终归档、统计与报告。
+*   `on_session_start(session, timestamp)` / `on_session_end(session, timestamp)`: 适合夜盘/日盘切换、session 级状态管理。
+*   `on_portfolio_update(snapshot)`: 当账户权益、现金或持仓相关估值发生变化时增量触发，适合驱动监控面板。
+*   `on_reject(order)`: 当订单首次进入 `Rejected` 时触发，适合做拒单分类、重试和人工告警。
+*   `on_error(error, source, payload)`: 当用户回调抛异常时触发，可统一记录来源并决定是否继续。
+
+最小可运行示例见：`examples/50_framework_hooks_demo.py`。如果你只需要理解“哪个阶段该做什么”，可以先记住这条经验：
+
+1.  **盘前信号、当日候选池、统一调仓**：放 `on_before_trading` / `on_daily_rebalance`。
+2.  **日终汇总、落盘、报表**：放 `on_after_trading`。
+3.  **日盘夜盘切换、session 内状态重置**：放 `on_session_start` / `on_session_end`。
+4.  **账户权益变化通知**：放 `on_portfolio_update`。
+5.  **拒单与异常治理**：分别放 `on_reject` 和 `on_error`。
+
+### 5.7.5 `on_event`：策略外的统一事件流
 
 如果你需要把回测事件推送到日志系统、监控看板或告警服务，可在 `run_backtest` 入口直接传入 `on_event`，统一消费事件流。
 

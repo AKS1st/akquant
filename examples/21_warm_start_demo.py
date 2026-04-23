@@ -55,6 +55,13 @@ class MovingAverageStrategy(Strategy):
         self.register_indicator("sma_slow", self.sma_slow)
         print(f"[Strategy] Started. Fast={self.fast_window}, Slow={self.slow_window}")
 
+    def on_resume(self) -> None:
+        """Call only when strategy state is restored from snapshot."""
+        print(
+            "[Strategy] on_resume called. "
+            f"Existing counts: buy={self.buy_count}, sell={self.sell_count}"
+        )
+
     def on_bar(self, bar: Bar) -> None:
         """Call on every bar."""
         # 累加状态变量

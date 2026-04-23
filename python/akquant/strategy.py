@@ -1143,7 +1143,7 @@ class Strategy:
         """会话结束回调."""
         pass
 
-    def before_trading(self, trading_date: dt.date, timestamp: int) -> None:
+    def on_before_trading(self, trading_date: dt.date, timestamp: int) -> None:
         """交易日开始前回调."""
         pass
 
@@ -1151,7 +1151,7 @@ class Strategy:
         """交易日调仓回调（每天最多一次）."""
         pass
 
-    def after_trading(self, trading_date: dt.date, timestamp: int) -> None:
+    def on_after_trading(self, trading_date: dt.date, timestamp: int) -> None:
         """交易日结束后回调."""
         pass
 

@@ -2735,7 +2735,7 @@ class FrameworkHooksStrategy(Strategy):
         """Record session end."""
         self.events.append(f"session_end:{session}:{timestamp}")
 
-    def before_trading(self, trading_date: Any, timestamp: int) -> None:
+    def on_before_trading(self, trading_date: Any, timestamp: int) -> None:
         """Record before trading hook."""
         self.events.append(f"before:{trading_date}:{timestamp}")
 
@@ -2743,7 +2743,7 @@ class FrameworkHooksStrategy(Strategy):
         """Record daily rebalance hook."""
         self.events.append(f"rebalance:{trading_date}:{timestamp}")
 
-    def after_trading(self, trading_date: Any, timestamp: int) -> None:
+    def on_after_trading(self, trading_date: Any, timestamp: int) -> None:
         """Record after trading hook."""
         self.events.append(f"after:{trading_date}:{timestamp}")
 
@@ -3342,8 +3342,8 @@ def test_run_backtest_runtime_config_override_false_keeps_strategy_config(
     assert "runtime_config_override=False" in caplog.text
 
 
-def test_stop_internal_flushes_session_and_after_trading_hooks() -> None:
-    """Stop phase should flush session_end and after_trading when pending."""
+def test_stop_internal_flushes_session_and_on_after_trading_hooks() -> None:
+    """Stop phase should flush session_end and on_after_trading when pending."""
     strategy = FrameworkHooksStrategy()
     ctx = MagicMock(spec=StrategyContext)
     ctx.get_position.return_value = 0.0

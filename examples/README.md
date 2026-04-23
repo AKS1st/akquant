@@ -19,7 +19,7 @@
 - [05_live_trading_ctp.py](./05_live_trading_ctp.py): CTP 实盘接口示例。
 - [06_complex_orders.py](./06_complex_orders.py): 复杂订单助手示例（`place_bracket_order` + 自动 OCO 联动）。
 - [07_option_test.py](./07_option_test.py): 期权回测示例。
-- [08_event_callbacks.py](./08_event_callbacks.py): 回调事件使用示例。
+- [08_event_callbacks.py](./08_event_callbacks.py): 统一事件回调示例（`on_start/on_bar/on_order/on_trade/on_reject/on_timer/on_portfolio_update/on_stop`）。
 - [09_ml_framework.py](./09_ml_framework.py): 机器学习框架基础示例。
 - [10_ml_walk_forward.py](./10_ml_walk_forward.py): Walk-Forward 训练评估示例。
 - [11_plot_visualization.py](./11_plot_visualization.py): 可视化报告生成示例。
@@ -52,6 +52,8 @@
 - [47_margin_liquidation_audit_demo.py](./47_margin_liquidation_audit_demo.py): 信用账户强平审计示例（`margin` 模式 + `liquidation_audit_df` + 报告输出）。
 - [48_margin_liquidation_priority_compare.py](./48_margin_liquidation_priority_compare.py): 强平顺序对比示例（`short_first` vs `long_first`）。
 - [49_on_expiry_demo.py](./49_on_expiry_demo.py): `on_expiry` 回调与流式 `expiry` 事件最小示例（期货到期结算后通知）。
+- [50_framework_hooks_demo.py](./50_framework_hooks_demo.py): `on_session_start/on_session_end/on_before_trading/on_after_trading/on_portfolio_update/on_reject` 框架级钩子最小示例。
+- [51_class_tick_callbacks_demo.py](./51_class_tick_callbacks_demo.py): 类风格 `on_tick` 最小示例（含 `on_order/on_trade/on_timer` 相邻回调）。
 
 ## 流式回测与实时报告
 

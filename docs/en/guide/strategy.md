@@ -29,7 +29,7 @@ A strategy goes through the following stages from start to finish:
 *   `on_trade`: Triggered when a trade execution report is received.
 *   `on_reject`: Triggered when an order enters `Rejected` status.
 *   `on_session_start` / `on_session_end`: Triggered on session transitions.
-*   `before_trading` / `after_trading`: Daily trading hooks.
+*   `on_before_trading` / `on_after_trading`: Daily trading hooks.
 *   `on_portfolio_update`: Triggered when portfolio snapshot changes.
 *   `on_error`: Triggered when user callback raises an exception, then exception is re-raised by default.
 *   `on_timer`: Called when a timer triggers (needs manual registration).
@@ -37,26 +37,98 @@ A strategy goes through the following stages from start to finish:
 *   `on_stop`: Called when the strategy stops, suitable for resource cleanup or result statistics (refer to Backtrader `stop` / Nautilus `on_stop`).
 *   `on_train_signal`: Triggered for rolling training signals (only in ML mode).
 
+### 2.0 Callback Cheat Sheet
+
+| Callback | Trigger timing | Typical usage | Example |
+| :--- | :--- | :--- | :--- |
+| `on_start` | After strategy instance is started | Subscribe symbols, register indicators, initialize runtime state | `examples/textbook/ch05_strategy.py` |
+| `on_resume` | On warm-start restore, before `on_start` | Restore connections, inspect restored state, continue from snapshot | `examples/21_warm_start_demo.py` |
+| `on_bar` | When each bar closes | Main trading logic, indicator updates, signal generation | `examples/01_quickstart.py` |
+| `on_tick` | When each tick arrives | High-frequency reactions, tick-level monitoring | `examples/51_class_tick_callbacks_demo.py` |
+| `on_order` | When order status changes | Track lifecycle, reset state, order-linked orchestration | `examples/08_event_callbacks.py` |
+| `on_trade` | When a trade report arrives | Execution logging, post-trade risk handling, aggregation | `examples/08_event_callbacks.py` |
+| `on_reject` | First time an order becomes `Rejected` | Log reject reasons, alerting, graceful degradation | `examples/50_framework_hooks_demo.py` |
+| `on_session_start` | When session transition begins | Reset day/night session state, session-aware bookkeeping | `examples/50_framework_hooks_demo.py` |
+| `on_session_end` | When session transition ends | End-of-session cleanup and logging | `examples/50_framework_hooks_demo.py` |
+| `on_before_trading` | First entry into `Normal` session each local trading day | Pre-market checks, trading-date level signal preparation | `examples/50_framework_hooks_demo.py` |
+| `on_daily_rebalance` | At most once per trading day, same phase as `on_before_trading` | Cross-sectional ranking and one-shot rebalance | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_after_trading` | When leaving `Normal`, or replayed on the next event if needed | End-of-day summaries, post-close cleanup, archiving | `examples/50_framework_hooks_demo.py` |
+| `on_portfolio_update` | Incrementally when portfolio snapshot changes | Monitor cash/equity changes, push UI or alerts | `examples/50_framework_hooks_demo.py` |
+| `on_error` | When any user callback raises | Record callback source and choose continue vs fail-fast | `examples/22_strategy_runtime_config_demo.py` |
+| `on_timer` | When a registered timer fires | Scheduled rebalance, pre-market tasks, cadence checks | `examples/strategies/07_stock_momentum_rotation_on_timer.py` |
+| `on_stop` | When strategy stops | Final summary, resource cleanup, reporting | `examples/textbook/ch05_strategy.py` |
+| `on_expiry` | After expiry settlement/removal is actually executed | Roll contracts, record settlement, clear expired instruments | `examples/49_on_expiry_demo.py` |
+| `on_train_signal` | When ML rolling training window is triggered | Train models and swap pending model versions | `examples/10_ml_walk_forward.py` |
+
+For framework-level hooks such as `on_session_start`, `on_session_end`, `on_before_trading`, `on_after_trading`, `on_portfolio_update`, and `on_reject`, start with `examples/50_framework_hooks_demo.py` to observe trigger order and logs in one place.
+If you want a single "most common callbacks" script first, start with `examples/08_event_callbacks.py`; it bundles `on_start/on_bar/on_order/on_trade/on_reject/on_timer/on_portfolio_update/on_stop` in one place.
+For class-style Tick strategies, start with `examples/51_class_tick_callbacks_demo.py`; if you prefer function-style callbacks, then continue with `examples/24_functional_tick_simulation_demo.py`.
+
 ### 2.1 Callback Dispatch Contract
 
 For each `bar/tick/timer` event, AKQuant dispatches callbacks in this order:
 
 1. `on_order` / `on_trade` (plus `on_reject` when status is `Rejected`)
-2. Framework hooks (`on_session_*`, `before_trading`/`after_trading`, `on_portfolio_update`)
+2. Framework hooks (`on_session_*`, `on_before_trading`/`on_after_trading`, `on_portfolio_update`)
 3. User event callback (`on_bar` / `on_tick` / `on_timer`)
 
 Notes:
 
 * `on_reject` is emitted once per order id when the order first becomes `Rejected`.
-* `before_trading` is emitted once per local trading date when session enters `Normal`.
-* `after_trading` is emitted once per local trading date when leaving `Normal`, or on next event if day rollover occurs first.
+* `on_before_trading` is emitted once per local trading date when session enters `Normal`.
+* `on_after_trading` is emitted once per local trading date when leaving `Normal`, or on next event if day rollover occurs first.
 * Set `self.enable_precise_day_boundary_hooks = True` to enable boundary-timer based precise day hooks.
 * `on_portfolio_update` is incremental: emitted once at initialization, then only on order/trade or position-relevant price changes.
 * Use `self.portfolio_update_eps` to filter tiny equity/cash changes (default `0.0`).
-* During stop phase, pending `on_session_end` / `after_trading` are flushed before `on_stop`.
+* During stop phase, pending `on_session_end` / `on_after_trading` are flushed before `on_stop`.
 * `on_error` receives `(error, source, payload)`. Prefer `self.error_mode = "raise" | "continue"` (default `raise`). `self.re_raise_on_error` remains as fallback for compatibility.
 * Prefer `self.runtime_config = StrategyRuntimeConfig(...)` as a unified runtime switch entry.
 * Legacy alias fields and `runtime_config` stay synchronized automatically.
+
+#### 2.1.1 Regular Event Dispatch Sequence
+
+```mermaid
+sequenceDiagram
+    participant Feed as Market/Timer Event
+    participant FW as Framework Dispatcher
+    participant Strategy as User Strategy
+
+    Feed->>FW: bar / tick / timer arrives
+    FW->>Strategy: on_order(...)
+    FW->>Strategy: on_trade(...)
+    alt order first becomes Rejected
+        FW->>Strategy: on_reject(...)
+    end
+    FW->>Strategy: on_session_start / on_session_end
+    FW->>Strategy: on_before_trading / on_after_trading
+    FW->>Strategy: on_daily_rebalance
+    FW->>Strategy: on_portfolio_update
+    alt current event is Bar
+        FW->>Strategy: on_bar(bar)
+    else current event is Tick
+        FW->>Strategy: on_tick(tick)
+    else current event is Timer
+        FW->>Strategy: on_timer(payload)
+    end
+```
+
+#### 2.1.2 Stop-Phase Flush Sequence
+
+```mermaid
+sequenceDiagram
+    participant Engine as Engine Stop Phase
+    participant FW as Framework Dispatcher
+    participant Strategy as User Strategy
+
+    Engine->>FW: _on_stop_internal()
+    alt pending session-end event exists
+        FW->>Strategy: on_session_end(...)
+    end
+    alt pending trading-day end event exists
+        FW->>Strategy: on_after_trading(...)
+    end
+    FW->>Strategy: on_stop()
+```
 
 ## 3. Utilities
 
@@ -234,7 +306,35 @@ For style selection guidance, see [Strategy Style Decision Guide](../advanced/st
 | `on_trade(ctx, trade)` | Trade reports appear in `recent_trades` | Trade dedupe applies to avoid repeated callbacks |
 | `on_timer(ctx, payload)` | A timer is scheduled and fired | Includes both one-shot and daily timer payloads |
 
-### 4.2 Related Examples
+### 4.2 Class vs Function Callback Mapping
+
+| Class-based | Function-style | Notes | Recommended Example |
+| :--- | :--- | :--- | :--- |
+| `on_start(self)` | `on_start(ctx)` | Lifecycle entry point, supported by both styles | `examples/08_event_callbacks.py`, `examples/23_functional_callbacks_demo.py` |
+| `on_stop(self)` | `on_stop(ctx)` | Lifecycle exit point, supported by both styles | `examples/textbook/ch05_strategy.py` |
+| `on_bar(self, bar)` | `on_bar(ctx, bar)` | Primary strategy entry, supported by both styles | `examples/01_quickstart.py`, `examples/23_functional_callbacks_demo.py` |
+| `on_tick(self, tick)` | `on_tick(ctx, tick)` | Tick entry, supported by both styles | `examples/51_class_tick_callbacks_demo.py`, `examples/24_functional_tick_simulation_demo.py` |
+| `on_order(self, order)` | `on_order(ctx, order)` | Order state callback, supported by both styles | `examples/08_event_callbacks.py` |
+| `on_trade(self, trade)` | `on_trade(ctx, trade)` | Trade report callback, supported by both styles | `examples/08_event_callbacks.py` |
+| `on_expiry(self, event)` | `on_expiry(ctx, event)` | Expiry settlement callback, supported by both styles | `examples/49_on_expiry_demo.py` |
+| `on_timer(self, payload)` | `on_timer(ctx, payload)` | Timer callback, supported by both styles | `examples/08_event_callbacks.py`, `examples/23_functional_callbacks_demo.py` |
+| `on_resume(self)` | Not supported | Warm-start restore hook, currently class-style only | `examples/21_warm_start_demo.py` |
+| `on_reject(self, order)` | Not supported | Reject callback, currently class-style only | `examples/08_event_callbacks.py`, `examples/50_framework_hooks_demo.py` |
+| `on_session_start(self, session, timestamp)` | Not supported | Session boundary hook, currently class-style only | `examples/50_framework_hooks_demo.py` |
+| `on_session_end(self, session, timestamp)` | Not supported | Session boundary hook, currently class-style only | `examples/50_framework_hooks_demo.py` |
+| `on_before_trading(self, trading_date, timestamp)` | Not supported | Trading-day boundary hook, currently class-style only | `examples/50_framework_hooks_demo.py` |
+| `on_after_trading(self, trading_date, timestamp)` | Not supported | Trading-day boundary hook, currently class-style only | `examples/50_framework_hooks_demo.py` |
+| `on_daily_rebalance(self, trading_date, timestamp)` | Not supported | Daily rebalance hook, currently class-style only | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_portfolio_update(self, snapshot)` | Not supported | Portfolio snapshot callback, currently class-style only | `examples/50_framework_hooks_demo.py` |
+| `on_error(self, error, source, payload)` | Not supported | User exception callback, currently class-style only | `examples/22_strategy_runtime_config_demo.py` |
+| `on_train_signal(self, context)` | Not supported | ML rolling-train hook, currently class-style only | `examples/10_ml_walk_forward.py` |
+
+Recommendations:
+
+*   Choose class-based style when you need framework hooks such as `on_session_*`, `on_before_trading`, `on_after_trading`, `on_portfolio_update`, or `on_error`.
+*   Choose function-style when you mainly need `on_bar/on_tick/on_order/on_trade/on_timer` for fast prototyping.
+
+### 4.3 Related Examples
 
 *   Function-style callback baseline: `examples/23_functional_callbacks_demo.py`
 *   Function-style tick callback simulation: `examples/24_functional_tick_simulation_demo.py`

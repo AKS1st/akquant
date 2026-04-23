@@ -129,7 +129,7 @@ def dispatch_time_hooks(strategy: Any) -> None:
     ):
         call_user_callback(
             strategy,
-            "after_trading",
+            "on_after_trading",
             last_date,
             current_time,
             payload={"trading_date": last_date, "timestamp": current_time},
@@ -162,7 +162,7 @@ def dispatch_time_hooks(strategy: Any) -> None:
     ):
         call_user_callback(
             strategy,
-            "before_trading",
+            "on_before_trading",
             current_date,
             current_time,
             payload={"trading_date": current_date, "timestamp": current_time},
@@ -178,7 +178,7 @@ def dispatch_time_hooks(strategy: Any) -> None:
     ):
         call_user_callback(
             strategy,
-            "after_trading",
+            "on_after_trading",
             current_date,
             current_time,
             payload={"trading_date": current_date, "timestamp": current_time},
@@ -190,7 +190,7 @@ def dispatch_time_hooks(strategy: Any) -> None:
 
 
 def register_boundary_timers(strategy: Any) -> None:
-    """注册交易日边界定时器，用于精确触发 before/after_trading."""
+    """注册交易日边界定时器，用于精确触发 on_before/on_after_trading."""
     if strategy.ctx is None:
         return
     if not bool(_runtime_option(strategy, "enable_precise_day_boundary_hooks")):
@@ -240,7 +240,7 @@ def dispatch_boundary_timer(strategy: Any, payload: str) -> bool:
         if getattr(strategy, "_framework_before_trading_done_date", None) != day:
             call_user_callback(
                 strategy,
-                "before_trading",
+                "on_before_trading",
                 day,
                 current_time,
                 payload={"trading_date": day, "timestamp": current_time},
@@ -252,7 +252,7 @@ def dispatch_boundary_timer(strategy: Any, payload: str) -> bool:
         if getattr(strategy, "_framework_after_trading_done_date", None) != day:
             call_user_callback(
                 strategy,
-                "after_trading",
+                "on_after_trading",
                 day,
                 current_time,
                 payload={"trading_date": day, "timestamp": current_time},
@@ -388,7 +388,7 @@ def dispatch_shutdown_hooks(strategy: Any) -> None:
     if before_done_date is not None and after_done_date != before_done_date:
         call_user_callback(
             strategy,
-            "after_trading",
+            "on_after_trading",
             before_done_date,
             current_time,
             payload={"trading_date": before_done_date, "timestamp": current_time},

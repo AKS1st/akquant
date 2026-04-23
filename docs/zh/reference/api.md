@@ -658,9 +658,9 @@ result = run_backtest(
 *   `on_expiry(event: Dict[str, Any])`: 到期结算回调。仅当引擎实际执行 `expiry_date` 驱动的到期结算/移除后触发；回调时账户状态已更新。示例见：`examples/49_on_expiry_demo.py`。
 *   `on_session_start(session, timestamp)`: 会话切换开始时触发。
 *   `on_session_end(session, timestamp)`: 会话切换结束时触发。
-*   `before_trading(trading_date, timestamp)`: 每个本地交易日首次进入 Normal 会话时触发一次。
+*   `on_before_trading(trading_date, timestamp)`: 每个本地交易日首次进入 Normal 会话时触发一次。
 *   `on_daily_rebalance(trading_date, timestamp)`: 交易日调仓钩子，每个交易日最多触发一次。
-*   `after_trading(trading_date, timestamp)`: 离开 Normal 会话时触发；若先跨日则在下一事件补发。
+*   `on_after_trading(trading_date, timestamp)`: 离开 Normal 会话时触发；若先跨日则在下一事件补发。
 *   `on_portfolio_update(snapshot)`: 账户快照变化时触发。
 *   `on_error(error, source, payload=None)`: 用户回调抛异常时触发，默认触发后继续抛出。
 *   `on_timer(payload: str)`: 定时器触发。

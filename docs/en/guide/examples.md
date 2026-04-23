@@ -4,11 +4,16 @@
 
 *   [Examples Directory Index](https://github.com/akfamily/akquant/blob/main/examples/README.md): Quick entry to all scripts under `examples/`, including scenario-based shortest run paths.
 *   [Quick Start](../start/quickstart.md): Complete workflow covering manual data backtesting and AKShare data backtesting.
+*   [Unified Event Callback Example](https://github.com/akfamily/akquant/blob/main/examples/08_event_callbacks.py): A single entry covering `on_start/on_bar/on_order/on_trade/on_reject/on_timer/on_portfolio_update/on_stop`.
+*   [Class-Style Tick Callback Example](https://github.com/akfamily/akquant/blob/main/examples/51_class_tick_callbacks_demo.py): Demonstrates `Strategy.on_tick(self, tick)` together with adjacent `on_order/on_trade/on_timer` callbacks.
 *   [Simple SMA Strategy](strategy.md#class-based): Demonstrates how to write a strategy in class style and perform simple trading logic in `on_bar`.
 *   [Expiry Callback Example](https://github.com/akfamily/akquant/blob/main/examples/49_on_expiry_demo.py): Demonstrates `on_expiry(event)` together with streamed `expiry` events for expiry-driven settlement workflows.
+*   [Framework Hooks Example](https://github.com/akfamily/akquant/blob/main/examples/50_framework_hooks_demo.py): Demonstrates `on_session_start/on_session_end/on_before_trading/on_after_trading/on_portfolio_update/on_reject` and their trigger order.
 *   [Shortest Path for Multi-Asset Target Weights](https://github.com/akfamily/akquant/blob/main/examples/43_target_weights_rebalance.py): TopN dynamic rebalance example using momentum ranking and one-shot portfolio adjustment.
 
 > Data Source Convention: Unless otherwise specified (e.g. simulated data), examples on this page default to using AKShare to fetch real market data.
+>
+> Style hint: start with `08_event_callbacks.py`, `50_framework_hooks_demo.py`, and `51_class_tick_callbacks_demo.py` for class-based callbacks; use `23_functional_callbacks_demo.py` and `24_functional_tick_simulation_demo.py` when migrating script-style strategies.
 
 ### UI-Driven Strategy Parameterization (PARAM_MODEL)
 
