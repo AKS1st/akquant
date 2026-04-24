@@ -1,5 +1,5 @@
-use crate::model::types::AssetType;
 use crate::model::Instrument;
+use crate::model::types::AssetType;
 use crate::portfolio::Portfolio;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;

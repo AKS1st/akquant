@@ -256,7 +256,10 @@ impl Default for ExecutionPolicyCore {
 
 impl ExecutionPolicyCore {
     pub fn from_legacy(mode: ExecutionMode, timer_execution_policy: &str) -> Self {
-        let temporal = if timer_execution_policy.trim().eq_ignore_ascii_case("next_event") {
+        let temporal = if timer_execution_policy
+            .trim()
+            .eq_ignore_ascii_case("next_event")
+        {
             TemporalPolicy::NextEvent
         } else {
             TemporalPolicy::SameCycle

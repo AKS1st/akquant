@@ -17,7 +17,7 @@ use crate::history::HistoryBuffer;
 use crate::market::corporate_action::CorporateActionManager;
 use crate::market::manager::MarketManager;
 use crate::model::{
-    Bar, ExecutionPolicyCore, Instrument, Order, PriceBasis, TemporalPolicy, Trade,
+    Bar, ExecutionPolicyCore, Instrument, Order, PriceBasis, TemporalPolicy, Timer, Trade,
     TradingSession, corporate_action::CorporateAction,
 };
 use crate::portfolio::Portfolio;
@@ -77,6 +77,10 @@ impl Engine {
 
     fn clear_stream_callback(&mut self) {
         self.set_stream_callback_internal(None);
+    }
+
+    fn add_timer(&mut self, timestamp: i64, payload: String) {
+        self.timers.push(Timer { timestamp, payload });
     }
 
     fn set_stream_options(

@@ -44,6 +44,9 @@ from .strategy_framework_hooks import (
 from .strategy_framework_hooks import (
     ensure_framework_state as _ensure_framework_state_impl,
 )
+from .strategy_framework_hooks import (
+    register_pre_open_timers as _register_pre_open_timers_impl,
+)
 from .strategy_history import get_history as _get_history_impl
 from .strategy_history import get_history_df as _get_history_df_impl
 from .strategy_history import get_rolling_data as _get_rolling_data_impl
@@ -265,12 +268,15 @@ class Strategy:
     _framework_last_local_date: Optional[dt.date]
     _framework_before_trading_done_date: Optional[dt.date]
     _framework_after_trading_done_date: Optional[dt.date]
+    _framework_pre_open_done_date: Optional[dt.date]
     _framework_last_portfolio_state: Any
     _framework_portfolio_dirty: bool
     _framework_rejected_order_ids: set[str]
     _framework_expiry_event_keys: set[Tuple[Any, ...]]
     _framework_stop_flushed: bool
     _framework_boundary_timers_registered: bool
+    _framework_pre_open_timers_registered: bool
+    _framework_in_pre_open_phase: bool
     _trading_day_bounds: Dict[str, Tuple[int, int]]
     _oco_groups: Dict[str, set[str]]
     _oco_order_to_group: Dict[str, str]
@@ -392,12 +398,15 @@ class Strategy:
         instance._framework_last_local_date = None
         instance._framework_before_trading_done_date = None
         instance._framework_after_trading_done_date = None
+        instance._framework_pre_open_done_date = None
         instance._framework_last_portfolio_state = None
         instance._framework_portfolio_dirty = True
         instance._framework_rejected_order_ids = set()
         instance._framework_expiry_event_keys = set()
         instance._framework_stop_flushed = False
         instance._framework_boundary_timers_registered = False
+        instance._framework_pre_open_timers_registered = False
+        instance._framework_in_pre_open_phase = False
         instance._trading_day_bounds = {}
         instance._oco_groups = {}
         instance._oco_order_to_group = {}
@@ -682,6 +691,7 @@ class Strategy:
             self.on_resume()
 
         self.on_start()
+        _register_pre_open_timers_impl(self)
         self._start_initialized = True
 
     def on_stop(self) -> None:
@@ -1153,6 +1163,10 @@ class Strategy:
 
     def on_after_trading(self, trading_date: dt.date, timestamp: int) -> None:
         """交易日结束后回调."""
+        pass
+
+    def on_pre_open(self, event: Dict[str, Any]) -> None:
+        """开盘前回调，仅该阶段默认使用 next-open 成交语义."""
         pass
 
     def on_reject(self, order: Any) -> None:

@@ -9,10 +9,12 @@ from .strategy_framework_hooks import (
     dispatch_boundary_timer,
     dispatch_daily_rebalance_timer,
     dispatch_portfolio_update,
+    dispatch_pre_open_timer,
     dispatch_time_hooks,
     ensure_framework_state,
     mark_portfolio_dirty,
     register_boundary_timers,
+    register_pre_open_timers,
 )
 from .strategy_ml import (
     activate_pending_model,
@@ -54,6 +56,7 @@ def on_bar_event(strategy: Any, bar: Bar, ctx: StrategyContext) -> None:
     strategy.ctx = ctx
     flush_pending_schedules(strategy)
     register_boundary_timers(strategy)
+    register_pre_open_timers(strategy)
     strategy._last_event_type = "bar"
 
     strategy._check_order_events()
@@ -135,6 +138,7 @@ def on_tick_event(strategy: Any, tick: Tick, ctx: StrategyContext) -> None:
     strategy.ctx = ctx
     flush_pending_schedules(strategy)
     register_boundary_timers(strategy)
+    register_pre_open_timers(strategy)
     strategy._last_event_type = "tick"
     strategy._check_order_events()
     check_expiry_events(strategy)
@@ -161,6 +165,7 @@ def on_timer_event(strategy: Any, payload: str, ctx: StrategyContext) -> None:
     strategy.ctx = ctx
     flush_pending_schedules(strategy)
     register_boundary_timers(strategy)
+    register_pre_open_timers(strategy)
     strategy._check_order_events()
 
     current_time = int(getattr(ctx, "current_time", 0))
@@ -174,6 +179,9 @@ def on_timer_event(strategy: Any, payload: str, ctx: StrategyContext) -> None:
         return
 
     if dispatch_boundary_timer(strategy, payload):
+        return
+
+    if dispatch_pre_open_timer(strategy, payload):
         return
 
     if payload.startswith("__daily__|"):

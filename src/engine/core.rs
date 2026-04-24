@@ -12,8 +12,8 @@ use uuid::Uuid;
 
 // use crate::analysis::{BacktestResult, PositionSnapshot};
 use crate::clock::Clock;
-use crate::context::StrategyContext;
 use crate::context::ExpiryEvent;
+use crate::context::StrategyContext;
 use crate::event::Event;
 use crate::event_manager::EventManager;
 use crate::execution::ExecutionClient;
@@ -134,7 +134,8 @@ pub(crate) struct PendingStreamEvent {
 // Internal implementation of Engine (not exposed to Python)
 impl Engine {
     pub(crate) fn is_active_timestamp(&self, timestamp: i64) -> bool {
-        self.active_start_time_ns.is_none_or(|start_ns| timestamp >= start_ns)
+        self.active_start_time_ns
+            .is_none_or(|start_ns| timestamp >= start_ns)
     }
 
     pub(crate) fn current_event_timestamp(&self) -> Option<i64> {
@@ -710,7 +711,9 @@ impl Engine {
         );
         payload.insert(
             "fill_policy_temporal",
-            self.execution_policy_core_state.temporal_as_str().to_string(),
+            self.execution_policy_core_state
+                .temporal_as_str()
+                .to_string(),
         );
         self.emit_stream_event(py, "started", None, "info", payload);
     }

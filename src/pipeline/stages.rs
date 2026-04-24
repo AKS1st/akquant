@@ -567,7 +567,8 @@ impl Processor for DataProcessor {
 
                 // Daily Snapshot & Settlement
                 let local_date = local_dt.date_naive();
-                if engine.is_active_timestamp(timestamp) && engine.current_date != Some(local_date) {
+                if engine.is_active_timestamp(timestamp) && engine.current_date != Some(local_date)
+                {
                     if engine.current_date.is_some() {
                         engine.statistics_manager.record_snapshot(
                             timestamp,
@@ -678,21 +679,16 @@ impl Processor for DataProcessor {
                         if let Some(expiry_date) = expiry_event.expiry_date {
                             expiry_payload.insert("expiry_date", expiry_date.to_string());
                         }
-                        expiry_payload.insert(
-                            "quantity_before",
-                            expiry_event.quantity_before.to_string(),
-                        );
-                        expiry_payload.insert(
-                            "quantity_closed",
-                            expiry_event.quantity_closed.to_string(),
-                        );
+                        expiry_payload
+                            .insert("quantity_before", expiry_event.quantity_before.to_string());
+                        expiry_payload
+                            .insert("quantity_closed", expiry_event.quantity_closed.to_string());
                         expiry_payload.insert("cash_flow", expiry_event.cash_flow.to_string());
                         if let Some(ref settlement_type) = expiry_event.settlement_type {
                             expiry_payload.insert("settlement_type", settlement_type.clone());
                         }
                         if let Some(settlement_price) = expiry_event.settlement_price {
-                            expiry_payload
-                                .insert("settlement_price", settlement_price.to_string());
+                            expiry_payload.insert("settlement_price", settlement_price.to_string());
                         }
                         expiry_payload.insert("reason", expiry_event.reason.clone());
                         expiry_payload.insert("description", expiry_event.description.clone());
@@ -1022,9 +1018,12 @@ impl Processor for StatisticsProcessor {
                 .state
                 .portfolio
                 .calculate_used_margin(&engine.last_prices, &engine.instruments);
-            engine
-                .statistics_manager
-                .update(timestamp, equity, engine.state.portfolio.cash, margin);
+            engine.statistics_manager.update(
+                timestamp,
+                equity,
+                engine.state.portfolio.cash,
+                margin,
+            );
             let mut payload = HashMap::new();
             payload.insert("timestamp", timestamp.to_string());
             payload.insert("equity", equity.to_string());

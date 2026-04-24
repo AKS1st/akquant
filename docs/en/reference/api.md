@@ -639,12 +639,24 @@ Strategy base class. Users should inherit from this class and override callback 
 *   `on_session_start(session, timestamp)`: Triggered on session transition start.
 *   `on_session_end(session, timestamp)`: Triggered on session transition end.
 *   `on_before_trading(trading_date, timestamp)`: Triggered once when entering Normal session each local day.
+*   `on_pre_open(event: Dict[str, Any])`: Triggered once before the first regular event of each trading day. Use it for "pre-open decision, current open fill" workflows; default order semantics resolve to `price_basis=open, bar_offset=1, temporal=same_cycle`. See `examples/52_pre_open_demo.py`.
 *   `on_after_trading(trading_date, timestamp)`: Triggered when leaving Normal session, or replayed on next event after day rollover.
 *   `on_portfolio_update(snapshot)`: Triggered when cash/equity/position snapshot changes.
 *   `on_error(error, source, payload=None)`: Triggered when user callback raises, then exception is re-raised by default.
 *   `on_timer(payload: str)`: Triggered by timer.
 *   `on_stop()`: Triggered when the strategy stops.
 *   `on_train_signal(context)`: Triggered by rolling training signal (ML mode).
+
+Recommended `on_pre_open` pattern:
+
+```python
+def on_pre_open(self, event: Dict[str, Any]) -> None:
+    signal = self.compute_pre_open_signal()
+    if signal > 0:
+        self.buy("000001", quantity=100)
+```
+
+Note: if you do not pass an explicit `fill_policy` here, the framework defaults to current-open order semantics.
 
 **Properties & Shortcuts:**
 

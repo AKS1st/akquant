@@ -9,12 +9,14 @@
 *   [简单的均线策略 (SMA Strategy)](strategy.md#class-based): 展示了如何使用类风格编写策略，并在 `on_bar` 中进行简单的交易逻辑。
 *   [到期结算回调示例](https://github.com/akfamily/akquant/blob/main/examples/49_on_expiry_demo.py): 演示 `on_expiry(event)` 与流式 `expiry` 事件，适合验证期货/期权到期后的策略通知链路。
 *   [框架钩子示例](https://github.com/akfamily/akquant/blob/main/examples/50_framework_hooks_demo.py): 演示 `on_session_start/on_session_end/on_before_trading/on_after_trading/on_portfolio_update/on_reject` 的触发顺序与典型用途。
+*   [盘前开盘语义示例](https://github.com/akfamily/akquant/blob/main/examples/52_pre_open_demo.py): 演示 `on_pre_open(event)` 如何表达“盘前决策，本次 open 成交”。
+*   [前一日定时准备到次日盘前执行示例](https://github.com/akfamily/akquant/blob/main/examples/53_timer_to_pre_open_demo.py): 演示“前一交易日更晚的 `on_timer` 准备，下一交易日 `on_pre_open` 下单”的双阶段写法。
 *   [多标的目标权重调仓最短路径](https://github.com/akfamily/akquant/blob/main/examples/43_target_weights_rebalance.py): TopN 动态调仓示例，展示同时间切片收齐后基于动量的组合再平衡。
 *   [指标组合 Playbook 示例](https://github.com/akfamily/akquant/blob/main/examples/45_talib_indicator_playbook_demo.py): 演示 `EMA/ADX/NATR` 与 `BBANDS/RSI/MOM` 组合在同一策略中的落地方式，并支持 `--data-source akshare` 真实数据模式。
 
 > 数据源约定：除特别标注需要模拟数据外，本页示例默认使用 AKShare 获取真实市场数据。
 >
-> 风格建议：想先学类风格事件回调，优先从 `08_event_callbacks.py`、`50_framework_hooks_demo.py`、`51_class_tick_callbacks_demo.py` 开始；想迁移脚本式策略，再看 `23_functional_callbacks_demo.py`、`24_functional_tick_simulation_demo.py`。
+> 风格建议：想先学类风格事件回调，优先从 `08_event_callbacks.py`、`50_framework_hooks_demo.py`、`51_class_tick_callbacks_demo.py` 开始；如果你的场景是“盘前信号，本次 open 成交”，先看 `52_pre_open_demo.py`；如果你还需要“前一日准备、次日盘前执行”的双阶段写法，再看 `53_timer_to_pre_open_demo.py`；想迁移脚本式策略，再看 `23_functional_callbacks_demo.py`、`24_functional_tick_simulation_demo.py`。
 
 ### 页面化参数配置（PARAM_MODEL）
 

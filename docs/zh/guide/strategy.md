@@ -31,6 +31,7 @@
 * `on_reject`: 订单进入 `Rejected` 状态时触发。
 * `on_session_start` / `on_session_end`: 会话切换时触发。
 * `on_before_trading` / `on_after_trading`: 交易日级钩子。
+* `on_pre_open`: 开盘前最后一个合法决策点，适合“盘前信号，本次 open 成交”。
 * `on_daily_rebalance`: 交易日调仓钩子（每天最多一次，适合横截面轮动）。
 * `on_portfolio_update`: 账户快照变化时触发。
 * `on_error`: 用户回调抛异常时触发，默认触发后继续抛出异常。
@@ -52,6 +53,7 @@
 | `on_session_start` | 会话切换开始时 | 日盘/夜盘切换、session 级状态重置 | `examples/50_framework_hooks_demo.py` |
 | `on_session_end` | 会话切换结束时 | 收盘后清理、session 结束打点 | `examples/50_framework_hooks_demo.py` |
 | `on_before_trading` | 本地交易日首次进入 `Normal` 会话 | 盘前检查、生成交易日级信号 | `examples/50_framework_hooks_demo.py` |
+| `on_pre_open` | 每个交易日首个常规行情事件前，由框架定时器抢先触发 | 集合竞价/盘前信号，使用默认 next-open 语义下单 | `examples/52_pre_open_demo.py` |
 | `on_daily_rebalance` | 每个交易日最多一次，与 `on_before_trading` 同阶段 | 横截面选股、统一调仓 | `examples/strategies/05_stock_momentum_rotation_timer.py` |
 | `on_after_trading` | 离开 `Normal` 会话时，必要时下一事件补发 | 日终统计、收盘后清理与归档 | `examples/50_framework_hooks_demo.py` |
 | `on_portfolio_update` | 账户快照变化时增量触发 | 监控现金/权益变化、推送 UI 或告警 | `examples/50_framework_hooks_demo.py` |
@@ -62,6 +64,7 @@
 | `on_train_signal` | ML 滚动训练窗口触发时 | 训练模型、切换待激活模型 | `examples/10_ml_walk_forward.py` |
 
 其中，`on_session_start`、`on_session_end`、`on_before_trading`、`on_after_trading`、`on_portfolio_update`、`on_reject` 这类框架级钩子，推荐直接运行 `examples/50_framework_hooks_demo.py` 观察触发顺序与日志输出。
+如果你的目标是“盘前决策，但希望成交价仍是当日 open”，优先看 `examples/52_pre_open_demo.py`，不要再用通用 `on_timer` 模拟该语义。
 如果你只想先看一份“最常用回调的一站式示例”，优先运行 `examples/08_event_callbacks.py`；它把 `on_start/on_bar/on_order/on_trade/on_reject/on_timer/on_portfolio_update/on_stop` 放到了同一个脚本里。
 如果你要写类风格的 Tick 策略，先看 `examples/51_class_tick_callbacks_demo.py`；如果你更偏好函数式入口，再看 `examples/24_functional_tick_simulation_demo.py`。
 
@@ -78,8 +81,10 @@
 * `on_reject` 对同一订单 id 只触发一次。
 * 回测中已终态拒单会通过上下文快照 `recent_rejected_orders` 在下一次事件分发时补发，避免因清理活跃订单导致漏触发。
 * `on_before_trading` 在本地交易日首次进入 Normal 会话时触发一次。
+* `on_pre_open` 在每个交易日的首个常规行情事件前，由框架预注册 timer 先触发一次。
 * `on_daily_rebalance` 与 `on_before_trading` 同一阶段触发，每个交易日最多触发一次。
 * `on_after_trading` 在离开 Normal 会话时触发；若先跨日再收到事件，会在下一事件补发上一交易日的 `on_after_trading`。
+* `on_pre_open` 内若直接调用 `buy/sell/order_target_*` 且未显式传 `fill_policy`，框架会自动解析为 `price_basis=open, bar_offset=1, temporal=same_cycle`。
 * 若需要更精确的交易日边界触发，可在策略中设置 `self.enable_precise_day_boundary_hooks = True`。
 * `on_portfolio_update` 采用增量触发：初始化时触发一次，后续仅在订单/成交或持仓相关价格变化时触发。
 * 可通过 `self.portfolio_update_eps` 过滤微小资产波动（默认 `0.0`，即不过滤）。
@@ -132,6 +137,64 @@ sequenceDiagram
     end
     FW->>Strategy: on_stop()
 ```
+
+#### 2.1.3 何时使用 `on_pre_open`
+
+推荐使用 `on_pre_open` 的场景：
+
+* 你在集合竞价、盘前扫描、开盘前风控检查后形成信号。
+* 你希望订单默认按“本次 open 成交”建模，而不是等下一根 bar。
+* 你需要一个语义明确的框架钩子，而不是自己维护一套定时器协议。
+
+不推荐继续用通用 `on_timer` 代替的场景：
+
+* 需要严格表达“盘前信号，本次 open 成交”。
+* 需要让团队成员一眼看懂策略意图。
+
+三者区别：
+
+* `on_before_trading`: 交易日级语义钩子，强调“这一天开始了”。
+* `on_pre_open`: 撮合语义钩子，强调“这是开盘前最后一个可下单点”。
+* `on_timer`: 通用调度工具，适合节律任务，不适合承载专门的开盘成交语义。
+
+推荐模板：
+
+```python
+class AuctionSignalStrategy(Strategy):
+    def __init__(self) -> None:
+        self.pending_dates = set()
+
+    def on_start(self) -> None:
+        self.subscribe("000001")
+
+    def on_pre_open(self, event: dict[str, object]) -> None:
+        trading_date = event["trading_date"]
+        if trading_date in self.pending_dates:
+            return
+
+        self.pending_dates.add(trading_date)
+
+        signal = self.compute_pre_open_signal()
+        if signal > 0:
+            # 不显式传 fill_policy 时，默认按当日 open 语义处理
+            self.buy("000001", quantity=100)
+        elif signal < 0:
+            self.sell("000001", quantity=100)
+```
+
+实践建议：
+
+* `on_pre_open` 里尽量只放“最后决策”和“下单”逻辑。
+* 盘前扫描、候选池更新、风控检查可以提前准备，但最终是否成交的决策留在 `on_pre_open`。
+* 如果你显式传入 `fill_policy`，将以你的显式配置为准。
+
+时序提醒：
+
+* 不要把 `on_before_trading` 当成“同一天稳定先于 `on_pre_open` 的准备阶段”。
+* 默认路径下，`on_pre_open` 发生在首个常规事件之前，而 `on_before_trading` 通常发生在进入 `Normal` 会话后的首个常规事件上。
+* 即使启用 `enable_precise_day_boundary_hooks`，`on_before_trading` 的边界 timer 也不应被当作 `on_pre_open` 的同日准备链路来依赖。
+* 如果你想做“双阶段”最佳实践，推荐用“前一交易日更晚的回调先准备，下一交易日 `on_pre_open` 再下单”，例如前一日 `on_timer` 或 `on_after_trading`。
+* 参考示例：`examples/53_timer_to_pre_open_demo.py`。
 
 ## 3. 风险管理 (Risk Management)
 

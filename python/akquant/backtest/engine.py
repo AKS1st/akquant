@@ -53,6 +53,9 @@ from ..strategy import (
     Strategy,
     StrategyRuntimeConfig,
 )
+from ..strategy_framework_hooks import (
+    collect_pre_open_timer_entries as _collect_pre_open_timer_entries_impl,
+)
 from ..strategy_loader import resolve_strategy_input
 from ..utils import df_to_arrays, prepare_dataframe
 from ..utils.inspector import infer_warmup_period
@@ -121,6 +124,29 @@ def make_fill_policy(
     if bar_offset is not None:
         policy["bar_offset"] = bar_offset
     return policy
+
+
+def _prime_framework_pre_open_timers(
+    strategies: Sequence[Strategy], engine: Any
+) -> None:
+    """Prime global pre-open timers before the event loop starts."""
+    add_timer = getattr(engine, "add_timer", None)
+    if not callable(add_timer):
+        return
+
+    unique_timers: dict[str, int] = {}
+    for current_strategy in strategies:
+        entries = _collect_pre_open_timer_entries_impl(current_strategy)
+        if entries:
+            current_strategy._framework_pre_open_timers_registered = True
+        for timestamp_ns, payload in entries:
+            unique_timers[payload] = int(timestamp_ns)
+
+    for payload, timestamp_ns in sorted(
+        unique_timers.items(),
+        key=lambda item: (int(item[1]), item[0]),
+    ):
+        add_timer(timestamp_ns, payload)
 
 
 @dataclass(frozen=True)
@@ -2680,6 +2706,7 @@ def run_backtest(
     cast(Any, engine).active_start_time_ns = active_start_time_ns
     for current_strategy in all_strategy_instances:
         setattr(current_strategy, "_engine", engine)
+    _prime_framework_pre_open_timers(all_strategy_instances, engine)
     if analyzer_manager.plugins:
         try:
             analyzer_manager.on_start(
@@ -4296,6 +4323,7 @@ def run_warm_start(
                 current_strategy._trading_days = sorted(list(all_dates))
             if hasattr(current_strategy, "_trading_day_bounds"):
                 current_strategy._trading_day_bounds = day_bounds
+            setattr(current_strategy, "_engine", engine)
 
     # Capture restored cash BEFORE running (for correct initial_market_value in result)
     restored_cash = engine.portfolio.cash
@@ -4426,6 +4454,7 @@ def run_warm_start(
             stream_error_mode,
             stream_mode,
         )
+    _prime_framework_pre_open_timers(all_strategy_instances, engine)
 
     if hasattr(strategy_instance, "_on_start_internal"):
         strategy_instance._on_start_internal()

@@ -30,6 +30,7 @@ A strategy goes through the following stages from start to finish:
 *   `on_reject`: Triggered when an order enters `Rejected` status.
 *   `on_session_start` / `on_session_end`: Triggered on session transitions.
 *   `on_before_trading` / `on_after_trading`: Daily trading hooks.
+*   `on_pre_open`: The last valid decision point before the open, for "pre-open signal, current open fill" workflows.
 *   `on_portfolio_update`: Triggered when portfolio snapshot changes.
 *   `on_error`: Triggered when user callback raises an exception, then exception is re-raised by default.
 *   `on_timer`: Called when a timer triggers (needs manual registration).
@@ -51,6 +52,7 @@ A strategy goes through the following stages from start to finish:
 | `on_session_start` | When session transition begins | Reset day/night session state, session-aware bookkeeping | `examples/50_framework_hooks_demo.py` |
 | `on_session_end` | When session transition ends | End-of-session cleanup and logging | `examples/50_framework_hooks_demo.py` |
 | `on_before_trading` | First entry into `Normal` session each local trading day | Pre-market checks, trading-date level signal preparation | `examples/50_framework_hooks_demo.py` |
+| `on_pre_open` | Triggered by a framework timer before the first regular event of each trading day | Auction/pre-open signal generation with default next-open order semantics | `examples/52_pre_open_demo.py` |
 | `on_daily_rebalance` | At most once per trading day, same phase as `on_before_trading` | Cross-sectional ranking and one-shot rebalance | `examples/strategies/05_stock_momentum_rotation_timer.py` |
 | `on_after_trading` | When leaving `Normal`, or replayed on the next event if needed | End-of-day summaries, post-close cleanup, archiving | `examples/50_framework_hooks_demo.py` |
 | `on_portfolio_update` | Incrementally when portfolio snapshot changes | Monitor cash/equity changes, push UI or alerts | `examples/50_framework_hooks_demo.py` |
@@ -61,6 +63,7 @@ A strategy goes through the following stages from start to finish:
 | `on_train_signal` | When ML rolling training window is triggered | Train models and swap pending model versions | `examples/10_ml_walk_forward.py` |
 
 For framework-level hooks such as `on_session_start`, `on_session_end`, `on_before_trading`, `on_after_trading`, `on_portfolio_update`, and `on_reject`, start with `examples/50_framework_hooks_demo.py` to observe trigger order and logs in one place.
+If your use case is "decide before the open, but still fill on this session's open", start with `examples/52_pre_open_demo.py` instead of trying to emulate it with a generic `on_timer`.
 If you want a single "most common callbacks" script first, start with `examples/08_event_callbacks.py`; it bundles `on_start/on_bar/on_order/on_trade/on_reject/on_timer/on_portfolio_update/on_stop` in one place.
 For class-style Tick strategies, start with `examples/51_class_tick_callbacks_demo.py`; if you prefer function-style callbacks, then continue with `examples/24_functional_tick_simulation_demo.py`.
 
@@ -75,8 +78,10 @@ For each `bar/tick/timer` event, AKQuant dispatches callbacks in this order:
 Notes:
 
 * `on_reject` is emitted once per order id when the order first becomes `Rejected`.
+* `on_pre_open` is emitted once per trading day before the first regular bar/tick callback of that day.
 * `on_before_trading` is emitted once per local trading date when session enters `Normal`.
 * `on_after_trading` is emitted once per local trading date when leaving `Normal`, or on next event if day rollover occurs first.
+* Inside `on_pre_open`, plain `buy/sell/order_target_*` calls automatically resolve to `price_basis=open, bar_offset=1, temporal=same_cycle` unless an explicit `fill_policy` is provided.
 * Set `self.enable_precise_day_boundary_hooks = True` to enable boundary-timer based precise day hooks.
 * `on_portfolio_update` is incremental: emitted once at initialization, then only on order/trade or position-relevant price changes.
 * Use `self.portfolio_update_eps` to filter tiny equity/cash changes (default `0.0`).
@@ -129,6 +134,64 @@ sequenceDiagram
     end
     FW->>Strategy: on_stop()
 ```
+
+#### 2.1.3 When To Use `on_pre_open`
+
+Use `on_pre_open` when:
+
+* You produce signals from auction data, pre-open scans, or final checks right before the open.
+* You want default order semantics to mean "fill on this session's open" without exposing a generic `open + 0` mode.
+* You want a semantic callback that clearly communicates intent to other strategy authors.
+
+Do not use a generic `on_timer` as a substitute when:
+
+* The strategy meaning is specifically "pre-open signal, current open fill".
+* You want the framework to preserve this execution intent explicitly.
+
+Roles of nearby hooks:
+
+* `on_before_trading`: trading-day semantic hook, focused on "the day has started".
+* `on_pre_open`: execution semantic hook, focused on "last chance before the open".
+* `on_timer`: generic scheduler for cadence tasks, not a dedicated open-fill abstraction.
+
+Recommended template:
+
+```python
+class AuctionSignalStrategy(Strategy):
+    def __init__(self) -> None:
+        self.pending_dates = set()
+
+    def on_start(self) -> None:
+        self.subscribe("000001")
+
+    def on_pre_open(self, event: dict[str, object]) -> None:
+        trading_date = event["trading_date"]
+        if trading_date in self.pending_dates:
+            return
+
+        self.pending_dates.add(trading_date)
+
+        signal = self.compute_pre_open_signal()
+        if signal > 0:
+            # Without an explicit fill_policy, this defaults to current-open semantics.
+            self.buy("000001", quantity=100)
+        elif signal < 0:
+            self.sell("000001", quantity=100)
+```
+
+Practical tips:
+
+* Keep `on_pre_open` focused on the final decision and order submission.
+* You can prepare scans, candidate lists, and risk checks earlier, but leave the final open-fill decision to `on_pre_open`.
+* If you pass an explicit `fill_policy`, the explicit policy wins.
+
+Timing note:
+
+* Do not treat `on_before_trading` as a stable same-day preparation stage that always runs before `on_pre_open`.
+* On the default path, `on_pre_open` runs before the first regular event, while `on_before_trading` is usually emitted on that first regular event after the session enters `Normal`.
+* Even with `enable_precise_day_boundary_hooks`, the boundary-timer version of `on_before_trading` should not be used as a deterministic same-day predecessor for `on_pre_open`.
+* For a true two-stage pattern, prepare in a later callback from the previous trading day and execute in the next trading day's `on_pre_open`, for example via a previous-day `on_timer` or `on_after_trading`.
+* See `examples/53_timer_to_pre_open_demo.py`.
 
 ## 3. Utilities
 

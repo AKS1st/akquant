@@ -171,17 +171,25 @@ fn parse_order_fill_policy_override(
         _ => 1,
     });
     if bar_offset > 1 {
-        return Err(PyValueError::new_err("fill_policy.bar_offset must be 0 or 1"));
+        return Err(PyValueError::new_err(
+            "fill_policy.bar_offset must be 0 or 1",
+        ));
     }
     match basis {
         PriceBasis::Open if bar_offset != 1 => {
-            return Err(PyValueError::new_err("fill_policy(open) requires bar_offset=1"));
+            return Err(PyValueError::new_err(
+                "fill_policy(open) requires bar_offset=1",
+            ));
         }
         PriceBasis::Ohlc4 if bar_offset != 1 => {
-            return Err(PyValueError::new_err("fill_policy(ohlc4) requires bar_offset=1"));
+            return Err(PyValueError::new_err(
+                "fill_policy(ohlc4) requires bar_offset=1",
+            ));
         }
         PriceBasis::Hl2 if bar_offset != 1 => {
-            return Err(PyValueError::new_err("fill_policy(hl2) requires bar_offset=1"));
+            return Err(PyValueError::new_err(
+                "fill_policy(hl2) requires bar_offset=1",
+            ));
         }
         _ => {}
     }
@@ -619,11 +627,8 @@ impl StrategyContext {
                 (true, false) => OrderType::Limit,
                 (false, false) => OrderType::Market,
             });
-        let fill_policy_override = parse_order_fill_policy_override(
-            fill_price_basis,
-            fill_bar_offset,
-            fill_temporal,
-        )?;
+        let fill_policy_override =
+            parse_order_fill_policy_override(fill_price_basis, fill_bar_offset, fill_temporal)?;
         let (slippage_type_override, slippage_value_override) =
             parse_order_slippage_override(fill_slippage_type, fill_slippage_value)?;
         let (commission_type_override, commission_value_override) =
@@ -727,11 +732,8 @@ impl StrategyContext {
                 (true, false) => OrderType::Limit,
                 (false, false) => OrderType::Market,
             });
-        let fill_policy_override = parse_order_fill_policy_override(
-            fill_price_basis,
-            fill_bar_offset,
-            fill_temporal,
-        )?;
+        let fill_policy_override =
+            parse_order_fill_policy_override(fill_price_basis, fill_bar_offset, fill_temporal)?;
         let (slippage_type_override, slippage_value_override) =
             parse_order_slippage_override(fill_slippage_type, fill_slippage_value)?;
         let (commission_type_override, commission_value_override) =

@@ -173,8 +173,7 @@ mod tests {
     use super::*;
     use crate::model::instrument::{FuturesInstrument, InstrumentEnum};
     use crate::model::{
-        AssetType, ExecutionPolicyCore, Instrument, OrderRole, OrderSide,
-        TimeInForce,
+        AssetType, ExecutionPolicyCore, Instrument, OrderRole, OrderSide, TimeInForce,
     };
     use rust_decimal::prelude::FromStr;
     use rust_decimal_macros::dec;

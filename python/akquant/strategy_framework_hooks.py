@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import pandas as pd
 
@@ -40,6 +40,63 @@ def _is_normal_session(session: Any) -> bool:
         return bool(session == normal)
     text = str(session).lower()
     return text == "normal" or text.endswith(".normal")
+
+
+def _is_pre_open_session(session: Any) -> bool:
+    pre_open = getattr(TradingSession, "PreOpen", None)
+    if pre_open is not None:
+        return bool(session == pre_open)
+    text = str(session).lower()
+    return text == "preopen" or text.endswith(".preopen")
+
+
+def _strategy_overrides_callback(strategy: Any, callback_name: str) -> bool:
+    method = getattr(type(strategy), callback_name, None)
+    if method is None:
+        return False
+    for base in type(strategy).mro()[1:]:
+        base_method = base.__dict__.get(callback_name)
+        if base_method is not None:
+            return method is not base_method
+    return False
+
+
+def _build_pre_open_event(
+    strategy: Any,
+    trading_date: Any,
+    source_timestamp: int,
+) -> Dict[str, Any]:
+    session = None
+    if strategy.ctx is not None:
+        session = getattr(strategy.ctx, "session", None)
+    return {
+        "session": session,
+        "session_label": "pre_open",
+        "trading_date": trading_date,
+        "timestamp": source_timestamp,
+        "expected_open_at": source_timestamp,
+        "market": "default",
+    }
+
+
+def collect_pre_open_timer_entries(strategy: Any) -> List[Tuple[int, str]]:
+    """Collect global framework pre-open timers for all trading days."""
+    if not _strategy_overrides_callback(strategy, "on_pre_open"):
+        return []
+
+    bounds = getattr(strategy, "_trading_day_bounds", None)
+    if not bounds:
+        return []
+
+    entries: List[Tuple[int, str]] = []
+    for day_key, day_bounds in bounds.items():
+        if not isinstance(day_bounds, (list, tuple)) or len(day_bounds) != 2:
+            continue
+        start_ns = int(day_bounds[0])
+        if start_ns <= 0:
+            continue
+        entries.append((start_ns, f"__framework_pre_open__|{day_key}|{start_ns}"))
+    return entries
 
 
 def _should_reraise_on_error(strategy: Any) -> bool:
@@ -113,7 +170,6 @@ def dispatch_time_hooks(strategy: Any) -> None:
     ts = pd.to_datetime(current_time, unit="ns", utc=True).tz_convert(strategy.timezone)
     current_date = ts.date()
     current_session = getattr(strategy.ctx, "session", None)
-
     if getattr(strategy, "_framework_daily_rebalance_done_date", None) != current_date:
         _dispatch_daily_rebalance_if_needed(strategy, current_date, current_time)
 
@@ -189,6 +245,29 @@ def dispatch_time_hooks(strategy: Any) -> None:
     strategy._framework_last_local_date = current_date
 
 
+def register_pre_open_timers(strategy: Any) -> None:
+    """为实现 on_pre_open 的策略注册交易日开盘前框架定时器."""
+    if getattr(strategy, "_framework_pre_open_timers_registered", False):
+        return
+    if not _strategy_overrides_callback(strategy, "on_pre_open"):
+        strategy._framework_pre_open_timers_registered = True
+        return
+    if strategy.ctx is None:
+        return
+
+    entries = collect_pre_open_timer_entries(strategy)
+    if not entries:
+        return
+
+    current_time = int(getattr(strategy.ctx, "current_time", 0))
+    for start_ns, payload in entries:
+        if current_time > 0 and start_ns <= current_time:
+            continue
+        strategy.ctx.schedule(start_ns, payload)
+
+    strategy._framework_pre_open_timers_registered = True
+
+
 def register_boundary_timers(strategy: Any) -> None:
     """注册交易日边界定时器，用于精确触发 on_before/on_after_trading."""
     if strategy.ctx is None:
@@ -260,6 +339,40 @@ def dispatch_boundary_timer(strategy: Any, payload: str) -> bool:
             strategy._framework_after_trading_done_date = day
         return True
 
+    return True
+
+
+def dispatch_pre_open_timer(strategy: Any, payload: str) -> bool:
+    """处理框架级 pre-open 定时器，返回是否已消费该 payload."""
+    if not payload.startswith("__framework_pre_open__|"):
+        return False
+
+    parts = payload.split("|", 2)
+    if len(parts) != 3:
+        return True
+
+    trading_date_text = parts[1]
+    trading_date: Any = trading_date_text
+    try:
+        trading_date = pd.to_datetime(trading_date_text).date()
+    except Exception:
+        pass
+    try:
+        source_timestamp = int(parts[2])
+    except Exception:
+        source_timestamp = int(getattr(strategy.ctx, "current_time", 0))
+
+    done_date = getattr(strategy, "_framework_pre_open_done_date", None)
+    if done_date == trading_date:
+        return True
+
+    event = _build_pre_open_event(strategy, trading_date, source_timestamp)
+    strategy._framework_in_pre_open_phase = True
+    try:
+        call_user_callback(strategy, "on_pre_open", event, payload=event)
+    finally:
+        strategy._framework_in_pre_open_phase = False
+    strategy._framework_pre_open_done_date = trading_date
     return True
 
 
@@ -412,6 +525,12 @@ def ensure_framework_state(strategy: Any) -> None:
         strategy._framework_daily_rebalance_pending_date = None
     if not hasattr(strategy, "_framework_after_trading_done_date"):
         strategy._framework_after_trading_done_date = None
+    if not hasattr(strategy, "_framework_pre_open_done_date"):
+        strategy._framework_pre_open_done_date = None
+    if not hasattr(strategy, "_framework_pre_open_timers_registered"):
+        strategy._framework_pre_open_timers_registered = False
+    if not hasattr(strategy, "_framework_in_pre_open_phase"):
+        strategy._framework_in_pre_open_phase = False
     if not hasattr(strategy, "_framework_last_portfolio_state"):
         strategy._framework_last_portfolio_state = None
     if not hasattr(strategy, "_framework_portfolio_dirty"):

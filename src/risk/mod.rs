@@ -25,7 +25,13 @@ mod tests {
     use std::sync::Arc;
 
     fn create_test_order(symbol: &str, quantity: Decimal, price: Option<Decimal>) -> Order {
-        let mut order = Order::test_new("test_order", symbol, OrderSide::Buy, OrderType::Limit, quantity);
+        let mut order = Order::test_new(
+            "test_order",
+            symbol,
+            OrderSide::Buy,
+            OrderType::Limit,
+            quantity,
+        );
         order.price = price;
         order.status = OrderStatus::New;
         order.time_in_force = TimeInForce::Day;

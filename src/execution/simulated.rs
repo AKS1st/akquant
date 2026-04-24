@@ -223,10 +223,8 @@ impl ExecutionClient for SimulatedExecutionClient {
 
                         if let Some(mut report) = report_opt {
                             let mut replacement_report: Option<Event> = None;
-                            if let Event::ExecutionReport(
-                                ref mut report_order,
-                                Some(ref mut trade),
-                            ) = report
+                            if let Event::ExecutionReport(ref mut report_order, Some(ref mut trade)) =
+                                report
                                 && trade.side == crate::model::OrderSide::Buy
                             {
                                 // Calculate estimated commission
@@ -308,7 +306,6 @@ impl ExecutionClient for SimulatedExecutionClient {
                                             Some(Event::ExecutionReport(rejected_order, None));
                                     }
                                 }
-
                             }
 
                             if let Some(new_report) = replacement_report {
@@ -328,16 +325,12 @@ impl ExecutionClient for SimulatedExecutionClient {
                                 projected_portfolio.adjust_cash(-commission);
                                 if trade.side == crate::model::OrderSide::Buy {
                                     projected_portfolio.adjust_cash(-cost);
-                                    projected_portfolio.adjust_position(
-                                        &trade.symbol,
-                                        trade.quantity,
-                                    );
+                                    projected_portfolio
+                                        .adjust_position(&trade.symbol, trade.quantity);
                                 } else {
                                     projected_portfolio.adjust_cash(cost);
-                                    projected_portfolio.adjust_position(
-                                        &trade.symbol,
-                                        -trade.quantity,
-                                    );
+                                    projected_portfolio
+                                        .adjust_position(&trade.symbol, -trade.quantity);
                                 }
                                 current_free_margin = projected_portfolio
                                     .calculate_free_margin(ctx.last_prices, ctx.instruments);
@@ -435,8 +428,13 @@ mod tests {
         price: Option<Decimal>,
     ) -> Order {
         use uuid::Uuid;
-        let mut order =
-            Order::test_new(&Uuid::new_v4().to_string(), symbol, side, order_type, quantity);
+        let mut order = Order::test_new(
+            &Uuid::new_v4().to_string(),
+            symbol,
+            side,
+            order_type,
+            quantity,
+        );
         order.price = price;
         order.time_in_force = TimeInForce::Day;
         order.status = OrderStatus::New;

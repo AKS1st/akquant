@@ -1,5 +1,7 @@
 use super::market_data::extract_decimal;
-use super::types::{ExecutionPolicyCore, OrderRole, OrderSide, OrderStatus, OrderType, TimeInForce};
+use super::types::{
+    ExecutionPolicyCore, OrderRole, OrderSide, OrderStatus, OrderType, TimeInForce,
+};
 use chrono::{FixedOffset, TimeZone, Utc};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

@@ -8,6 +8,8 @@
 - 进阶示例：[examples/23_functional_callbacks_demo.py](https://github.com/akfamily/akquant/blob/main/examples/23_functional_callbacks_demo.py)
 - 框架钩子示例：[examples/50_framework_hooks_demo.py](https://github.com/akfamily/akquant/blob/main/examples/50_framework_hooks_demo.py)
 - 类风格 Tick 示例：[examples/51_class_tick_callbacks_demo.py](https://github.com/akfamily/akquant/blob/main/examples/51_class_tick_callbacks_demo.py)
+- 盘前开盘语义示例：[examples/52_pre_open_demo.py](https://github.com/akfamily/akquant/blob/main/examples/52_pre_open_demo.py)
+- 双阶段盘前执行示例：[examples/53_timer_to_pre_open_demo.py](https://github.com/akfamily/akquant/blob/main/examples/53_timer_to_pre_open_demo.py)
 - 对应指南：[策略指南](../guide/strategy.md)
 
 建议学习路径：
@@ -16,6 +18,8 @@
 2. 再看 `examples/08_event_callbacks.py`，把订单、成交、拒单、定时器放到一张图里理解。
 3. 需要框架边界钩子时，运行 `examples/50_framework_hooks_demo.py`。
 4. 需要 Tick 级策略时，运行 `examples/51_class_tick_callbacks_demo.py`。
+5. 如果你的场景是“盘前信号，本次 open 成交”，运行 `examples/52_pre_open_demo.py`。
+6. 如果你还需要“前一日准备、次日盘前执行”的双阶段写法，运行 `examples/53_timer_to_pre_open_demo.py`。
 
 ## 快速运行与验收
 
@@ -117,6 +121,7 @@ result = aq.run_backtest(
 | `on_bar` | 主数据事件 | K 线策略、指标更新、主交易逻辑 | `examples/textbook/ch05_strategy.py` |
 | `on_tick` | 主数据事件 | Tick 级监控、盘口驱动、高频响应 | `examples/51_class_tick_callbacks_demo.py` |
 | `on_timer` | 主数据事件 | 定时任务、盘前检查、固定时点调仓 | `examples/strategies/07_stock_momentum_rotation_on_timer.py` |
+| `on_pre_open` | 主数据事件 | 开盘前最后一个合法决策点，适合“盘前信号，本次 open 成交” | `examples/52_pre_open_demo.py` |
 | `on_order` | 订单事件 | 跟踪订单状态流转、联动撤单或重置状态 | `examples/08_event_callbacks.py` |
 | `on_trade` | 订单事件 | 记录成交、成交后风控、累计成交统计 | `examples/08_event_callbacks.py` |
 | `on_reject` | 订单事件 | 记录拒单原因、发告警、触发降级策略 | `examples/50_framework_hooks_demo.py` |
@@ -134,6 +139,45 @@ result = aq.run_backtest(
 
 *   当逻辑依赖**价格数据本身**时，优先考虑 `on_bar` / `on_tick` / `on_timer`。
 *   当逻辑依赖**交易阶段边界**时，优先考虑 `on_before_trading` / `on_after_trading` / `on_session_*`，不要强行塞进 `on_bar`。
+
+关于 `on_pre_open`，再补一条非常实用的判断：
+
+*   当你真正想表达的是“盘前形成信号，但成交价希望是当日 open”，优先使用 `on_pre_open`，不要再用通用 `on_timer` 自己拼装一套开盘成交语义。
+
+它与相邻回调的职责边界可以简单记成：
+
+*   `on_before_trading`: 交易日开始了，适合做日级准备。
+*   `on_pre_open`: 开盘马上要来了，适合做本次 open 成交前的最后决策。
+*   `on_timer`: 我只是在某个时点做任务，不自带开盘成交语义。
+
+### 5.2.5 `on_pre_open` 的两种最佳实践
+
+围绕 `on_pre_open`，教材里推荐记住两种模式：
+
+1.  **单阶段模式**：信号与下单都发生在 `on_pre_open`。
+2.  **双阶段模式**：前一交易日较晚的回调先准备，下一交易日 `on_pre_open` 再执行。
+
+单阶段模式适合：
+
+*   集合竞价、盘前扫描、开盘前风控检查能在同一个回调里直接完成。
+*   你只需要表达“盘前决策，本次 open 成交”。
+*   参考示例：`examples/52_pre_open_demo.py`
+
+双阶段模式适合：
+
+*   你需要在前一交易日先计算候选池、缓存计划或生成次日执行意图。
+*   次日只想在 `on_pre_open` 做最后确认并下单。
+*   参考示例：`examples/53_timer_to_pre_open_demo.py`
+
+最重要的时序判断：
+
+*   不要把 `on_before_trading` 当成“稳定早于 `on_pre_open` 的同日准备阶段”。
+*   更稳妥的做法是：前一交易日用 `on_timer` 或 `on_after_trading` 先准备，下一交易日进入 `on_pre_open` 时再执行。
+
+教材建议直接记住下面这条经验法则：
+
+*   当你要的是“今天开盘成交”，最终下单动作就放进 `on_pre_open`。
+*   当你要的是“昨天先准备、今天开盘执行”，把准备动作放进前一交易日更晚的回调，再把执行动作放进 `on_pre_open`。
 
 如果你想系统理解这些回调的触发顺序、类风格与函数式的能力差异，以及每个回调是否有公开示例，请继续参考：[策略指南](../guide/strategy.md)。
 

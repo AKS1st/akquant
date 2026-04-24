@@ -18,7 +18,10 @@ mod tests {
         assert_eq!(engine.state.portfolio.cash, Decimal::from(100_000));
         assert!(engine.state.order_manager.orders.is_empty());
         assert!(engine.state.order_manager.trades.is_empty());
-        assert_eq!(engine.execution_policy_core_state.price_basis, PriceBasis::Open);
+        assert_eq!(
+            engine.execution_policy_core_state.price_basis,
+            PriceBasis::Open
+        );
         assert_eq!(engine.execution_policy_core_state.bar_offset, 1);
         assert_eq!(
             engine.execution_policy_core_state.temporal,

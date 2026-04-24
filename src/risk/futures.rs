@@ -50,11 +50,8 @@ impl RiskRule for FuturesMarginRule {
             );
         }
 
-        let current_exposure = calculate_gross_exposure(
-            &current_portfolio,
-            &prices_for_order,
-            ctx.instruments,
-        );
+        let current_exposure =
+            calculate_gross_exposure(&current_portfolio, &prices_for_order, ctx.instruments);
 
         let mut next_portfolio = current_portfolio.clone();
         apply_order_to_portfolio(&mut next_portfolio, order, order_price, ctx.instruments);
@@ -209,7 +206,13 @@ mod tests {
         config.maintenance_margin_ratio = 0.3;
         let order = make_order(&symbol, OrderSide::Buy, Decimal::from(400));
         let rule = FuturesMarginRule;
-        let ctx = make_context(&portfolio, &instrument, &instruments, &current_prices, &config);
+        let ctx = make_context(
+            &portfolio,
+            &instrument,
+            &instruments,
+            &current_prices,
+            &config,
+        );
 
         let err = rule.check(&order, &ctx).expect_err("should reject order");
         assert!(err.to_string().contains("maintenance margin breach"));
@@ -235,7 +238,13 @@ mod tests {
         config.maintenance_margin_ratio = 0.3;
         let order = make_order(&symbol, OrderSide::Sell, Decimal::from(100));
         let rule = FuturesMarginRule;
-        let ctx = make_context(&portfolio, &instrument, &instruments, &current_prices, &config);
+        let ctx = make_context(
+            &portfolio,
+            &instrument,
+            &instruments,
+            &current_prices,
+            &config,
+        );
 
         assert!(rule.check(&order, &ctx).is_ok());
     }

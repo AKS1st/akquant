@@ -618,6 +618,12 @@ def _resolve_effective_order_fill_policy(
 ) -> Optional[OrderFillPolicy]:
     if fill_policy is not None:
         return fill_policy
+    if bool(getattr(strategy, "_framework_in_pre_open_phase", False)):
+        return {
+            "price_basis": "open",
+            "bar_offset": 1,
+            "temporal": "same_cycle",
+        }
     owner_strategy_id = str(getattr(strategy, "_owner_strategy_id", "") or "").strip()
     if not owner_strategy_id:
         owner_strategy_id = "_default"

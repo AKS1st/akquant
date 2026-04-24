@@ -659,6 +659,7 @@ result = run_backtest(
 *   `on_session_start(session, timestamp)`: 会话切换开始时触发。
 *   `on_session_end(session, timestamp)`: 会话切换结束时触发。
 *   `on_before_trading(trading_date, timestamp)`: 每个本地交易日首次进入 Normal 会话时触发一次。
+*   `on_pre_open(event: Dict[str, Any])`: 每个交易日首个常规行情事件前触发一次。适合“盘前决策，本次 open 成交”；默认下单语义会自动解析为 `price_basis=open, bar_offset=1, temporal=same_cycle`。示例见：`examples/52_pre_open_demo.py`。
 *   `on_daily_rebalance(trading_date, timestamp)`: 交易日调仓钩子，每个交易日最多触发一次。
 *   `on_after_trading(trading_date, timestamp)`: 离开 Normal 会话时触发；若先跨日则在下一事件补发。
 *   `on_portfolio_update(snapshot)`: 账户快照变化时触发。
@@ -666,6 +667,17 @@ result = run_backtest(
 *   `on_timer(payload: str)`: 定时器触发。
 *   `on_stop()`: 策略停止时触发。
 *   `on_train_signal(context)`: 滚动训练信号触发 (ML 模式)。
+
+`on_pre_open` 推荐写法：
+
+```python
+def on_pre_open(self, event: Dict[str, Any]) -> None:
+    signal = self.compute_pre_open_signal()
+    if signal > 0:
+        self.buy("000001", quantity=100)
+```
+
+说明：若这里不显式传 `fill_policy`，框架会默认按当日 `open` 语义处理订单。
 
 **属性与快捷访问:**
 

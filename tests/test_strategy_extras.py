@@ -1,3 +1,4 @@
+import datetime as dt
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,8 +20,13 @@ from akquant import (
 )
 from akquant.akquant import Bar, OrderStatus, StrategyContext, Tick, TimeInForce
 from akquant.backtest import FunctionalStrategy
+from akquant.backtest.engine import _prime_framework_pre_open_timers
 from akquant.config import RiskConfig
 from akquant.strategy import Strategy, StrategyRuntimeConfig
+from akquant.strategy_framework_hooks import (
+    collect_pre_open_timer_entries,
+    dispatch_pre_open_timer,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -2773,6 +2779,19 @@ class FrameworkHooksStrategy(Strategy):
         self.events.append("stop")
 
 
+class FrameworkPreOpenStrategy(Strategy):
+    """Strategy for pre-open framework hook tests."""
+
+    def __init__(self) -> None:
+        """Initialize captured pre-open events."""
+        self.pre_open_events: list[dict[str, Any]] = []
+
+    def on_pre_open(self, event: dict[str, Any]) -> None:
+        """Record pre-open event and place a default market order."""
+        self.pre_open_events.append(dict(event))
+        self.buy(symbol="AAPL", quantity=1.0)
+
+
 def test_framework_hooks_session_day_reject_and_portfolio() -> None:
     """Framework hooks should fire with expected transitions."""
     strategy = FrameworkHooksStrategy()
@@ -3402,6 +3421,62 @@ def test_boundary_timers_register_and_drive_day_hooks() -> None:
     ctx.current_time = end_ts + 1
     strategy._on_timer_event("__framework_boundary__|after|2023-01-03", ctx)
     assert any(e.startswith("after:2023-01-03") for e in strategy.events)
+
+
+def test_collect_pre_open_timers_and_prime_globally_once() -> None:
+    """Pre-open timers should be deduplicated before the event loop starts."""
+    start_ts = pd.Timestamp("2023-01-03 09:30:00", tz="Asia/Shanghai").value
+    strategy_a = FrameworkPreOpenStrategy()
+    strategy_b = FrameworkPreOpenStrategy()
+    strategy_a._trading_day_bounds = {"2023-01-03": (start_ts, start_ts + 1)}
+    strategy_b._trading_day_bounds = {"2023-01-03": (start_ts, start_ts + 1)}
+
+    entries = collect_pre_open_timer_entries(strategy_a)
+    assert entries == [(start_ts, f"__framework_pre_open__|2023-01-03|{start_ts}")]
+
+    fake_engine = SimpleNamespace(add_timer=MagicMock())
+    _prime_framework_pre_open_timers([strategy_a, strategy_b], fake_engine)
+
+    scheduled = [call.args for call in fake_engine.add_timer.call_args_list]
+    assert scheduled == [(start_ts, f"__framework_pre_open__|2023-01-03|{start_ts}")]
+    assert strategy_a._framework_pre_open_timers_registered is True
+    assert strategy_b._framework_pre_open_timers_registered is True
+
+
+def test_pre_open_timer_dispatch_uses_next_open_fill_policy_by_default() -> None:
+    """Pre-open callback should default market orders to next-open semantics."""
+    strategy = FrameworkPreOpenStrategy()
+    start_ts = pd.Timestamp("2023-01-03 09:30:00", tz="Asia/Shanghai").value
+
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.buy.return_value = "pre-open-order"
+    ctx.cash = 1000.0
+    ctx.positions = {}
+    ctx.available_positions = {}
+    ctx.active_orders = []
+    ctx.recent_trades = []
+    ctx.canceled_order_ids = []
+    ctx.session = "preopen"
+    ctx.current_time = start_ts
+    strategy.ctx = ctx
+
+    consumed = dispatch_pre_open_timer(
+        strategy,
+        f"__framework_pre_open__|2023-01-03|{start_ts}",
+    )
+
+    assert consumed is True
+    assert len(strategy.pre_open_events) == 1
+    assert strategy.pre_open_events[0]["trading_date"] == dt.date(2023, 1, 3)
+    assert strategy.pre_open_events[0]["timestamp"] == start_ts
+    assert strategy.pre_open_events[0]["expected_open_at"] == start_ts
+    assert strategy._framework_in_pre_open_phase is False
+    args = ctx.buy.call_args.args
+    assert args[0:2] == ("AAPL", 1.0)
+    assert args[9:12] == ("open", 1, "same_cycle")
+
+    dispatch_pre_open_timer(strategy, f"__framework_pre_open__|2023-01-03|{start_ts}")
+    assert ctx.buy.call_count == 1
 
 
 @pytest.mark.parametrize(

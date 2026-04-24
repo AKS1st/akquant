@@ -337,7 +337,11 @@ impl OrderManager {
                     .find(|o| o.id == trade.order_id)
                     .and_then(|order| {
                         Some((
-                            order.commission_type_override.as_ref()?.trim().to_ascii_lowercase(),
+                            order
+                                .commission_type_override
+                                .as_ref()?
+                                .trim()
+                                .to_ascii_lowercase(),
                             order.commission_value_override?,
                         ))
                     });
@@ -345,8 +349,7 @@ impl OrderManager {
                     trade.commission = match override_type.as_str() {
                         "fixed" => override_value,
                         "percent" => {
-                            let turnover =
-                                trade.price * trade.quantity * instr.multiplier();
+                            let turnover = trade.price * trade.quantity * instr.multiplier();
                             turnover * override_value
                         }
                         _ => market_model.calculate_commission(
