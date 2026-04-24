@@ -116,7 +116,7 @@ result = aq.run_backtest(
 | 回调 | 类型 | 典型用途 | 推荐示例 |
 | :--- | :--- | :--- | :--- |
 | `on_start` | 生命周期 | 订阅标的、注册指标、初始化运行态资源 | `examples/textbook/ch05_strategy.py` |
-| `on_resume` | 生命周期 | 热启动恢复、打印快照续跑状态、恢复外部连接 | `examples/21_warm_start_demo.py` |
+| `on_resume` | 生命周期 | 热启动恢复、打印快照续跑状态、恢复外部连接 | `examples/21_warm_start_demo.py`、`examples/56_functional_warm_start_demo.py` |
 | `on_stop` | 生命周期 | 汇总统计、资源释放、输出最终摘要 | `examples/textbook/ch05_strategy.py` |
 | `on_bar` | 主数据事件 | K 线策略、指标更新、主交易逻辑 | `examples/textbook/ch05_strategy.py` |
 | `on_tick` | 主数据事件 | Tick 级监控、盘口驱动、高频响应 | `examples/51_class_tick_callbacks_demo.py` |
@@ -133,7 +133,7 @@ result = aq.run_backtest(
 | `on_portfolio_update` | 框架边界 | 账户权益变化监控、推送 UI 或风控告警 | `examples/50_framework_hooks_demo.py` |
 | `on_expiry` | 专项回调 | 期货/期权到期结算、换月、移除失效合约 | `examples/49_on_expiry_demo.py` |
 | `on_error` | 专项回调 | 统一处理用户回调异常、选择继续或中断 | `examples/22_strategy_runtime_config_demo.py` |
-| `on_train_signal` | 专项回调 | ML 滚动训练窗口触发时更新模型 | `examples/10_ml_walk_forward.py` |
+| `on_train_signal` | 专项回调 | ML 滚动训练窗口触发时更新模型 | `examples/10_ml_walk_forward.py`、`examples/55_functional_ml_walk_forward.py` |
 
 有两个实践判断非常重要：
 

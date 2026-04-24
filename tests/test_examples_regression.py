@@ -1,4 +1,5 @@
 import importlib.util
+import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -15,7 +16,12 @@ def _load_example_module(module_name: str, relative_path: str) -> ModuleType:
     if spec is None or spec.loader is None:
         raise RuntimeError(f"failed to load example module: {relative_path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        raise
     return module
 
 
@@ -136,3 +142,40 @@ def test_textbook_futures_example_documents_fill_policy_and_bps_slippage() -> No
     assert '"bar_offset": 0' in source
     assert '"temporal": "same_cycle"' in source
     assert 'slippage={"type": "percent", "value": 0.0002}' in source
+
+
+def test_functional_warm_start_example_main_runs(capsys: Any) -> None:
+    """Functional warm start example should run and print restored state markers."""
+    module = _load_example_module(
+        "example_functional_warm_start_demo",
+        "examples/56_functional_warm_start_demo.py",
+    )
+
+    module.main()
+    output = capsys.readouterr().out
+
+    assert "phase1_events=start:restored=0|bar:10.00|bar:10.40" in output
+    assert "resume:bars=2:starts=1" in output
+    assert "processed_closes=10.00,10.40,10.80,11.20" in output
+    assert "resume_count=1" in output
+    assert "done_functional_warm_start_demo" in output
+
+
+def test_functional_multi_slot_warm_start_example_main_runs(capsys: Any) -> None:
+    """Functional multi-slot warm start example should restore both slot states."""
+    module = _load_example_module(
+        "example_functional_multi_slot_warm_start_demo",
+        "examples/57_functional_multi_slot_warm_start_demo.py",
+    )
+
+    module.main()
+    output = capsys.readouterr().out
+
+    assert "alpha_events=alpha:start:restored=0" in output
+    assert "beta_events=beta:start:restored=0" in output
+    assert "alpha:resume:bars=2:starts=1" in output
+    assert "beta:resume:bars=2:starts=1" in output
+    assert "alpha_resume_count=1" in output
+    assert "beta_resume_count=1" in output
+    assert "slot_ids=['beta']" in output
+    assert "done_functional_multi_slot_warm_start_demo" in output

@@ -1288,11 +1288,22 @@ def _build_strategy_instance(
     logger: Any,
     initialize: Optional[Callable[[Any], None]],
     on_start: Optional[Callable[[Any], None]],
+    on_resume: Optional[Callable[[Any], None]],
+    on_train_signal: Optional[Callable[[Any], None]],
     on_stop: Optional[Callable[[Any], None]],
     on_tick: Optional[Callable[[Any, Any], None]],
     on_order: Optional[Callable[[Any, Any], None]],
     on_trade: Optional[Callable[[Any, Any], None]],
+    on_reject: Optional[Callable[[Any, Any], None]],
+    on_session_start: Optional[Callable[[Any, Any, int], None]],
+    on_session_end: Optional[Callable[[Any, Any, int], None]],
+    on_before_trading: Optional[Callable[[Any, Any, int], None]],
+    on_after_trading: Optional[Callable[[Any, Any, int], None]],
+    on_daily_rebalance: Optional[Callable[[Any, Any, int], None]],
+    on_portfolio_update: Optional[Callable[[Any, Dict[str, Any]], None]],
+    on_error: Optional[Callable[[Any, Exception, str, Any], None]],
     on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]],
+    on_pre_open: Optional[Callable[[Any, Dict[str, Any]], None]],
     on_timer: Optional[Callable[[Any, str], None]],
     context: Optional[Dict[str, Any]],
 ) -> Strategy:
@@ -1335,11 +1346,22 @@ def _build_strategy_instance(
             initialize,
             cast(Callable[[Any, Bar], None], strategy),
             on_start=on_start,
+            on_resume=on_resume,
+            on_train_signal=on_train_signal,
             on_stop=on_stop,
             on_tick=on_tick,
             on_order=on_order,
             on_trade=on_trade,
+            on_reject=on_reject,
+            on_session_start=on_session_start,
+            on_session_end=on_session_end,
+            on_before_trading=on_before_trading,
+            on_after_trading=on_after_trading,
+            on_daily_rebalance=on_daily_rebalance,
+            on_portfolio_update=on_portfolio_update,
+            on_error=on_error,
             on_expiry=on_expiry,
+            on_pre_open=on_pre_open,
             on_timer=on_timer,
             context=context,
         )
@@ -1356,11 +1378,22 @@ class FunctionalStrategy(Strategy):
         initialize: Optional[Callable[[Any], None]],
         on_bar: Optional[Callable[[Any, Bar], None]],
         on_start: Optional[Callable[[Any], None]] = None,
+        on_resume: Optional[Callable[[Any], None]] = None,
+        on_train_signal: Optional[Callable[[Any], None]] = None,
         on_stop: Optional[Callable[[Any], None]] = None,
         on_tick: Optional[Callable[[Any, Any], None]] = None,
         on_order: Optional[Callable[[Any, Any], None]] = None,
         on_trade: Optional[Callable[[Any, Any], None]] = None,
+        on_reject: Optional[Callable[[Any, Any], None]] = None,
+        on_session_start: Optional[Callable[[Any, Any, int], None]] = None,
+        on_session_end: Optional[Callable[[Any, Any, int], None]] = None,
+        on_before_trading: Optional[Callable[[Any, Any, int], None]] = None,
+        on_after_trading: Optional[Callable[[Any, Any, int], None]] = None,
+        on_daily_rebalance: Optional[Callable[[Any, Any, int], None]] = None,
+        on_portfolio_update: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
+        on_error: Optional[Callable[[Any, Exception, str, Any], None]] = None,
         on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
+        on_pre_open: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
         on_timer: Optional[Callable[[Any, str], None]] = None,
         context: Optional[Dict[str, Any]] = None,
     ):
@@ -1369,11 +1402,22 @@ class FunctionalStrategy(Strategy):
         self._initialize = initialize
         self._on_bar_func = on_bar
         self._on_start_func = on_start
+        self._on_resume_func = on_resume
+        self._on_train_signal_func = on_train_signal
         self._on_stop_func = on_stop
         self._on_tick_func = on_tick
         self._on_order_func = on_order
         self._on_trade_func = on_trade
+        self._on_reject_func = on_reject
+        self._on_session_start_func = on_session_start
+        self._on_session_end_func = on_session_end
+        self._on_before_trading_func = on_before_trading
+        self._on_after_trading_func = on_after_trading
+        self._on_daily_rebalance_func = on_daily_rebalance
+        self._on_portfolio_update_func = on_portfolio_update
+        self._on_error_func = on_error
         self._on_expiry_func = on_expiry
+        self._on_pre_open_func = on_pre_open
         self._on_timer_func = on_timer
         self._context = context or {}
 
@@ -1396,6 +1440,16 @@ class FunctionalStrategy(Strategy):
         if self._on_start_func is not None:
             self._on_start_func(self)
 
+    def on_resume(self) -> None:
+        """Delegate on_resume event to the user-provided function."""
+        if self._on_resume_func is not None:
+            self._on_resume_func(self)
+
+    def on_train_signal(self, context: Any) -> None:
+        """Delegate on_train_signal event to the user-provided function."""
+        if self._on_train_signal_func is not None:
+            self._on_train_signal_func(self)
+
     def on_stop(self) -> None:
         """Delegate on_stop event to the user-provided function."""
         if self._on_stop_func is not None:
@@ -1416,10 +1470,55 @@ class FunctionalStrategy(Strategy):
         if self._on_trade_func is not None:
             self._on_trade_func(self, trade)
 
+    def on_reject(self, order: Any) -> None:
+        """Delegate on_reject event to the user-provided function."""
+        if self._on_reject_func is not None:
+            self._on_reject_func(self, order)
+
+    def on_session_start(self, session: Any, timestamp: int) -> None:
+        """Delegate on_session_start event to the user-provided function."""
+        if self._on_session_start_func is not None:
+            self._on_session_start_func(self, session, timestamp)
+
+    def on_session_end(self, session: Any, timestamp: int) -> None:
+        """Delegate on_session_end event to the user-provided function."""
+        if self._on_session_end_func is not None:
+            self._on_session_end_func(self, session, timestamp)
+
+    def on_before_trading(self, trading_date: Any, timestamp: int) -> None:
+        """Delegate on_before_trading event to the user-provided function."""
+        if self._on_before_trading_func is not None:
+            self._on_before_trading_func(self, trading_date, timestamp)
+
+    def on_after_trading(self, trading_date: Any, timestamp: int) -> None:
+        """Delegate on_after_trading event to the user-provided function."""
+        if self._on_after_trading_func is not None:
+            self._on_after_trading_func(self, trading_date, timestamp)
+
+    def on_daily_rebalance(self, trading_date: Any, timestamp: int) -> None:
+        """Delegate on_daily_rebalance event to the user-provided function."""
+        if self._on_daily_rebalance_func is not None:
+            self._on_daily_rebalance_func(self, trading_date, timestamp)
+
+    def on_portfolio_update(self, snapshot: Dict[str, Any]) -> None:
+        """Delegate on_portfolio_update event to the user-provided function."""
+        if self._on_portfolio_update_func is not None:
+            self._on_portfolio_update_func(self, snapshot)
+
+    def on_error(self, error: Exception, source: str, payload: Any = None) -> None:
+        """Delegate on_error event to the user-provided function."""
+        if self._on_error_func is not None:
+            self._on_error_func(self, error, source, payload)
+
     def on_expiry(self, event: Dict[str, Any]) -> None:
         """Delegate on_expiry event to the user-provided function."""
         if self._on_expiry_func is not None:
             self._on_expiry_func(self, event)
+
+    def on_pre_open(self, event: Dict[str, Any]) -> None:
+        """Delegate on_pre_open event to the user-provided function."""
+        if self._on_pre_open_func is not None:
+            self._on_pre_open_func(self, event)
 
     def on_timer(self, payload: str) -> None:
         """Delegate on_timer event to the user-provided function."""
@@ -1683,11 +1782,22 @@ def run_backtest(
     t_plus_one: bool = False,
     initialize: Optional[Callable[[Any], None]] = None,
     on_start: Optional[Callable[[Any], None]] = None,
+    on_resume: Optional[Callable[[Any], None]] = None,
+    on_train_signal: Optional[Callable[[Any], None]] = None,
     on_stop: Optional[Callable[[Any], None]] = None,
     on_tick: Optional[Callable[[Any, Any], None]] = None,
     on_order: Optional[Callable[[Any, Any], None]] = None,
     on_trade: Optional[Callable[[Any, Any], None]] = None,
+    on_reject: Optional[Callable[[Any, Any], None]] = None,
+    on_session_start: Optional[Callable[[Any, Any, int], None]] = None,
+    on_session_end: Optional[Callable[[Any, Any, int], None]] = None,
+    on_before_trading: Optional[Callable[[Any, Any, int], None]] = None,
+    on_after_trading: Optional[Callable[[Any, Any, int], None]] = None,
+    on_daily_rebalance: Optional[Callable[[Any, Any, int], None]] = None,
+    on_portfolio_update: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
+    on_error: Optional[Callable[[Any, Exception, str, Any], None]] = None,
     on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
+    on_pre_open: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
     on_timer: Optional[Callable[[Any, str], None]] = None,
     context: Optional[Dict[str, Any]] = None,
     history_depth: Optional[int] = None,
@@ -2114,11 +2224,22 @@ def run_backtest(
         logger,
         initialize,
         on_start,
+        on_resume,
+        on_train_signal,
         on_stop,
         on_tick,
         on_order,
         on_trade,
+        on_reject,
+        on_session_start,
+        on_session_end,
+        on_before_trading,
+        on_after_trading,
+        on_daily_rebalance,
+        on_portfolio_update,
+        on_error,
         on_expiry,
+        on_pre_open,
         on_timer,
         context,
     )
@@ -2146,11 +2267,22 @@ def run_backtest(
                 logger,
                 initialize,
                 on_start,
+                on_resume,
+                on_train_signal,
                 on_stop,
                 on_tick,
                 on_order,
                 on_trade,
+                on_reject,
+                on_session_start,
+                on_session_end,
+                on_before_trading,
+                on_after_trading,
+                on_daily_rebalance,
+                on_portfolio_update,
+                on_error,
                 on_expiry,
+                on_pre_open,
                 on_timer,
                 context,
             )
@@ -3980,11 +4112,22 @@ def run_warm_start(
                 logger=logger,
                 initialize=None,
                 on_start=None,
+                on_resume=None,
+                on_train_signal=None,
                 on_stop=None,
                 on_tick=None,
                 on_order=None,
                 on_trade=None,
+                on_reject=None,
+                on_session_start=None,
+                on_session_end=None,
+                on_before_trading=None,
+                on_after_trading=None,
+                on_daily_rebalance=None,
+                on_portfolio_update=None,
+                on_error=None,
                 on_expiry=None,
+                on_pre_open=None,
                 on_timer=None,
                 context=None,
             )

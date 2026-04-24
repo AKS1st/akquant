@@ -919,6 +919,60 @@ class WarmStartRiskStateStrategy(Strategy):
         self.step += 1
 
 
+def _functional_slot_id(ctx: Any, default: str = "_default") -> str:
+    """Resolve functional strategy slot identity across lifecycle stages."""
+    return str(
+        getattr(ctx, "_owner_strategy_id", None)
+        or getattr(ctx, "strategy_id", None)
+        or default
+    )
+
+
+def _functional_warm_initialize(ctx: Any) -> None:
+    """Initialize state for function-style warm start tests."""
+    ctx.events = []
+    ctx.processed_closes = []
+    ctx.start_count = 0
+    ctx.resume_count = 0
+
+
+def _functional_warm_on_start(ctx: Any) -> None:
+    """Record cold/warm starts for function-style tests."""
+    ctx.start_count += 1
+    slot_id = _functional_slot_id(ctx)
+    ctx.events.append(f"{slot_id}:start:restored={int(bool(ctx.is_restored))}")
+
+
+def _functional_warm_on_resume(ctx: Any) -> None:
+    """Record warm-start-only callback events for function-style tests."""
+    ctx.resume_count += 1
+    slot_id = _functional_slot_id(ctx)
+    ctx.events.append(
+        f"{slot_id}:resume:bars={len(ctx.processed_closes)}:starts={ctx.start_count}"
+    )
+
+
+def _functional_warm_on_bar(ctx: Any, bar: Bar) -> None:
+    """Accumulate state for primary function-style warm start test."""
+    slot_id = _functional_slot_id(ctx, "alpha")
+    ctx.processed_closes.append(float(bar.close))
+    ctx.events.append(f"{slot_id}:bar:{bar.close:.2f}")
+
+
+def _functional_warm_alpha_on_bar(ctx: Any, bar: Bar) -> None:
+    """Accumulate state for primary slot in multi-slot warm start test."""
+    slot_id = _functional_slot_id(ctx, "alpha")
+    ctx.processed_closes.append(float(bar.close))
+    ctx.events.append(f"{slot_id}:bar:{bar.close:.2f}")
+
+
+def _functional_warm_beta_on_bar(ctx: Any, bar: Bar) -> None:
+    """Accumulate state for secondary slot in multi-slot warm start test."""
+    slot_id = _functional_slot_id(ctx, "beta")
+    ctx.processed_closes.append(float(bar.close))
+    ctx.events.append(f"{slot_id}:bar:{bar.close:.2f}")
+
+
 class DeferredDailyRebalanceStrategy(Strategy):
     """Regression strategy for daily rebalance timing determinism."""
 
@@ -1481,6 +1535,108 @@ def test_run_warm_start_end_to_end_lifecycle(tmp_path: Path) -> None:
     assert strategy.events[resume_idx + 1] == "on_start"
     assert strategy.events[-1] == "on_bar:7"
     assert result2.metrics.initial_market_value == result1.metrics.end_market_value
+
+
+def test_run_warm_start_functional_lifecycle(tmp_path: Path) -> None:
+    """Functional warm start should preserve callbacks, order, and state."""
+    checkpoint = tmp_path / "snapshot_functional.pkl"
+    phase1 = _make_bars("2023-01-01", 2, symbol="FUNC")
+    phase2 = _make_bars("2023-01-03", 2, symbol="FUNC", start_price=102.0)
+
+    result1 = run_backtest(
+        data=phase1,
+        strategy=_functional_warm_on_bar,
+        initialize=_functional_warm_initialize,
+        on_start=_functional_warm_on_start,
+        on_resume=_functional_warm_on_resume,
+        symbols="FUNC",
+        initial_cash=100000.0,
+        show_progress=False,
+    )
+
+    save_snapshot(result1.engine, result1.strategy, str(checkpoint))  # type: ignore[arg-type]
+
+    result2 = run_warm_start(
+        checkpoint_path=str(checkpoint),
+        data=phase2,
+        symbols="FUNC",
+        show_progress=False,
+    )
+
+    strategy = result2.strategy
+    assert strategy is not None
+    assert strategy.events == [
+        "_default:start:restored=0",
+        "_default:bar:100.50",
+        "_default:bar:101.50",
+        "_default:resume:bars=2:starts=1",
+        "_default:start:restored=1",
+        "_default:bar:102.50",
+        "_default:bar:103.50",
+    ]
+    assert strategy.processed_closes == [100.5, 101.5, 102.5, 103.5]
+    assert strategy.start_count == 2
+    assert strategy.resume_count == 1
+
+
+def test_run_warm_start_restores_functional_slot_strategies(tmp_path: Path) -> None:
+    """Functional multi-slot warm start should restore slot strategy instances."""
+    checkpoint = tmp_path / "snapshot_functional_slots.pkl"
+    phase1 = _make_bars("2023-01-01", 2, symbol="FUNC_SLOT")
+    phase2 = _make_bars("2023-01-03", 2, symbol="FUNC_SLOT", start_price=102.0)
+
+    result1 = run_backtest(
+        data=phase1,
+        strategy=_functional_warm_alpha_on_bar,
+        initialize=_functional_warm_initialize,
+        on_start=_functional_warm_on_start,
+        on_resume=_functional_warm_on_resume,
+        symbols="FUNC_SLOT",
+        initial_cash=100000.0,
+        show_progress=False,
+        strategy_id="alpha",
+        strategies_by_slot={"beta": _functional_warm_beta_on_bar},
+    )
+
+    save_snapshot(result1.engine, result1.strategy, str(checkpoint))  # type: ignore[arg-type]
+
+    result2 = run_warm_start(
+        checkpoint_path=str(checkpoint),
+        data=phase2,
+        symbols="FUNC_SLOT",
+        show_progress=False,
+    )
+
+    alpha_strategy = result2.strategy
+    assert alpha_strategy is not None
+    slot_strategies = getattr(alpha_strategy, "_slot_strategies", {})
+    beta_strategy = slot_strategies.get("beta")
+    assert beta_strategy is not None
+    assert alpha_strategy.events == [
+        "alpha:start:restored=0",
+        "alpha:bar:100.50",
+        "alpha:bar:101.50",
+        "alpha:resume:bars=2:starts=1",
+        "alpha:start:restored=1",
+        "alpha:bar:102.50",
+        "alpha:bar:103.50",
+    ]
+    assert beta_strategy.events == [
+        "beta:start:restored=0",
+        "beta:bar:100.50",
+        "beta:bar:101.50",
+        "beta:resume:bars=2:starts=1",
+        "beta:start:restored=1",
+        "beta:bar:102.50",
+        "beta:bar:103.50",
+    ]
+    assert alpha_strategy.processed_closes == [100.5, 101.5, 102.5, 103.5]
+    assert beta_strategy.processed_closes == [100.5, 101.5, 102.5, 103.5]
+    assert alpha_strategy.start_count == 2
+    assert beta_strategy.start_count == 2
+    assert alpha_strategy.resume_count == 1
+    assert beta_strategy.resume_count == 1
+    assert sorted(slot_strategies.keys()) == ["beta"]
 
 
 def test_run_warm_start_accepts_symbols_alias(tmp_path: Path) -> None:

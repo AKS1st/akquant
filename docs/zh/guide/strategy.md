@@ -44,7 +44,7 @@
 | 回调 | 何时触发 | 典型用途 | 示例入口 |
 | :--- | :--- | :--- | :--- |
 | `on_start` | 策略实例启动后 | 订阅标的、注册指标、初始化运行态资源 | `examples/textbook/ch05_strategy.py` |
-| `on_resume` | 热启动恢复时，且早于 `on_start` | 恢复连接、打印恢复状态、处理快照续跑逻辑 | `examples/21_warm_start_demo.py` |
+| `on_resume` | 热启动恢复时，且早于 `on_start` | 恢复连接、打印恢复状态、处理快照续跑逻辑 | `examples/21_warm_start_demo.py`、`examples/56_functional_warm_start_demo.py` |
 | `on_bar` | 每根 Bar 闭合时 | 主交易逻辑、指标更新、信号计算 | `examples/01_quickstart.py` |
 | `on_tick` | 每个 Tick 到达时 | 高频/盘口响应、逐笔监控 | `examples/51_class_tick_callbacks_demo.py` |
 | `on_order` | 订单状态变化时 | 跟踪下单生命周期、联动撤单/重置状态 | `examples/08_event_callbacks.py` |
@@ -61,7 +61,7 @@
 | `on_timer` | 定时器到点时 | 定时调仓、盘前任务、节律性检查 | `examples/strategies/07_stock_momentum_rotation_on_timer.py` |
 | `on_stop` | 策略停止时 | 汇总统计、资源释放、打印总结 | `examples/textbook/ch05_strategy.py` |
 | `on_expiry` | 引擎实际执行到期结算/移除后 | 处理换月、记录结算、清理失效合约 | `examples/49_on_expiry_demo.py` |
-| `on_train_signal` | ML 滚动训练窗口触发时 | 训练模型、切换待激活模型 | `examples/10_ml_walk_forward.py` |
+| `on_train_signal` | ML 滚动训练窗口触发时 | 训练模型、切换待激活模型 | `examples/10_ml_walk_forward.py`、`examples/55_functional_ml_walk_forward.py` |
 
 其中，`on_session_start`、`on_session_end`、`on_before_trading`、`on_after_trading`、`on_portfolio_update`、`on_reject` 这类框架级钩子，推荐直接运行 `examples/50_framework_hooks_demo.py` 观察触发顺序与日志输出。
 如果你的目标是“盘前决策，但希望成交价仍是当日 open”，优先看 `examples/52_pre_open_demo.py`，不要再用通用 `on_timer` 模拟该语义。
@@ -498,6 +498,7 @@ AKQuant 提供了两种风格的策略开发接口：
 | `on_order(ctx, order)` | 策略上下文中观察到订单状态变化 | 每轮事件循环中先于主事件回调触发 |
 | `on_trade(ctx, trade)` | `recent_trades` 中出现成交回报 | 框架会进行成交去重，避免重复触发 |
 | `on_expiry(ctx, event)` | 引擎实际执行到期结算/移除 | 仅在 `expiry_date` 驱动的结算真正发生后触发，且触发时账户状态已更新 |
+| `on_pre_open(ctx, event)` | 每个交易日首个常规行情事件前，由框架预注册 timer 抢先触发 | 适合函数式“盘前决策，本次 open 成交”场景 |
 | `on_timer(ctx, payload)` | 已注册的定时器到点触发 | 支持单次定时与每日定时 payload |
 
 ### 5.2 类风格 vs 函数式回调对照
@@ -511,22 +512,26 @@ AKQuant 提供了两种风格的策略开发接口：
 | `on_order(self, order)` | `on_order(ctx, order)` | 订单状态回调，两种风格都支持 | `examples/08_event_callbacks.py` |
 | `on_trade(self, trade)` | `on_trade(ctx, trade)` | 成交回报回调，两种风格都支持 | `examples/08_event_callbacks.py` |
 | `on_expiry(self, event)` | `on_expiry(ctx, event)` | 到期结算回调，两种风格都支持 | `examples/49_on_expiry_demo.py` |
+| `on_pre_open(self, event)` | `on_pre_open(ctx, event)` | 盘前开盘语义回调，两种风格都支持 | `examples/52_pre_open_demo.py` |
 | `on_timer(self, payload)` | `on_timer(ctx, payload)` | 定时器回调，两种风格都支持 | `examples/08_event_callbacks.py`、`examples/23_functional_callbacks_demo.py` |
-| `on_resume(self)` | 不支持 | 热启动恢复钩子，目前仅类风格支持 | `examples/21_warm_start_demo.py` |
-| `on_reject(self, order)` | 不支持 | 拒单回调，目前仅类风格支持 | `examples/08_event_callbacks.py`、`examples/50_framework_hooks_demo.py` |
-| `on_session_start(self, session, timestamp)` | 不支持 | 会话边界钩子，目前仅类风格支持 | `examples/50_framework_hooks_demo.py` |
-| `on_session_end(self, session, timestamp)` | 不支持 | 会话边界钩子，目前仅类风格支持 | `examples/50_framework_hooks_demo.py` |
-| `on_before_trading(self, trading_date, timestamp)` | 不支持 | 交易日前边界钩子，目前仅类风格支持 | `examples/50_framework_hooks_demo.py` |
-| `on_after_trading(self, trading_date, timestamp)` | 不支持 | 交易日后边界钩子，目前仅类风格支持 | `examples/50_framework_hooks_demo.py` |
-| `on_daily_rebalance(self, trading_date, timestamp)` | 不支持 | 交易日调仓钩子，目前仅类风格支持 | `examples/strategies/05_stock_momentum_rotation_timer.py` |
-| `on_portfolio_update(self, snapshot)` | 不支持 | 账户快照回调，目前仅类风格支持 | `examples/50_framework_hooks_demo.py` |
-| `on_error(self, error, source, payload)` | 不支持 | 用户异常回调，目前仅类风格支持 | `examples/22_strategy_runtime_config_demo.py` |
-| `on_train_signal(self, context)` | 不支持 | ML 滚动训练钩子，目前仅类风格支持 | `examples/10_ml_walk_forward.py` |
+| `on_resume(self)` | `on_resume(ctx)` | 热启动恢复钩子，两种风格都支持；仅在从快照恢复时触发，且先于 `on_start` | `examples/21_warm_start_demo.py`、`examples/56_functional_warm_start_demo.py` |
+| `on_reject(self, order)` | `on_reject(ctx, order)` | 拒单回调，两种风格都支持 | `examples/08_event_callbacks.py`、`examples/50_framework_hooks_demo.py` |
+| `on_session_start(self, session, timestamp)` | `on_session_start(ctx, session, timestamp)` | 会话边界钩子，两种风格都支持 | `examples/50_framework_hooks_demo.py` |
+| `on_session_end(self, session, timestamp)` | `on_session_end(ctx, session, timestamp)` | 会话边界钩子，两种风格都支持 | `examples/50_framework_hooks_demo.py` |
+| `on_before_trading(self, trading_date, timestamp)` | `on_before_trading(ctx, trading_date, timestamp)` | 交易日前边界钩子，两种风格都支持 | `examples/50_framework_hooks_demo.py` |
+| `on_after_trading(self, trading_date, timestamp)` | `on_after_trading(ctx, trading_date, timestamp)` | 交易日后边界钩子，两种风格都支持 | `examples/50_framework_hooks_demo.py` |
+| `on_daily_rebalance(self, trading_date, timestamp)` | `on_daily_rebalance(ctx, trading_date, timestamp)` | 交易日调仓钩子，两种风格都支持 | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_portfolio_update(self, snapshot)` | `on_portfolio_update(ctx, snapshot)` | 账户快照回调，两种风格都支持 | `examples/50_framework_hooks_demo.py` |
+| `on_error(self, error, source, payload)` | `on_error(ctx, error, source, payload)` | 用户异常回调，两种风格都支持 | `examples/22_strategy_runtime_config_demo.py` |
+| `on_train_signal(self, context)` | `on_train_signal(ctx)` | ML 滚动训练钩子，两种风格都支持；仅在 ML 滚动训练窗口触发时调用 | `examples/10_ml_walk_forward.py`、`examples/55_functional_ml_walk_forward.py` |
 
 建议：
 
-*   如果你需要 `on_session_*`、`on_before_trading`、`on_after_trading`、`on_portfolio_update`、`on_error` 这类框架钩子，优先选择类风格。
 *   如果你只是做快速原型，且只依赖 `on_bar/on_tick/on_order/on_trade/on_timer`，函数式入口通常更轻量。
+*   如果你的目标是“盘前信号，本次 open 成交”，函数式入口现在也可以直接使用 `on_pre_open(ctx, event)`。
+*   如果你使用 checkpoint 热启动，函数式入口现在也支持 `on_resume(ctx)`，适合恢复外部连接或非持久化资源，参考 `examples/56_functional_warm_start_demo.py`。
+*   如果你做 ML walk-forward，函数式入口现在也支持 `on_train_signal(ctx)`，可用于自定义训练或仅记录训练窗口，参考 `examples/55_functional_ml_walk_forward.py`。
+*   如果你偏好脚本式策略，函数式入口现在也支持 `on_reject/on_session_*/on_before_trading/on_after_trading/on_daily_rebalance/on_portfolio_update` 这批框架级钩子。
 
 ### 5.3 相关示例
 

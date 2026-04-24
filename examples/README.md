@@ -56,6 +56,9 @@
 - [51_class_tick_callbacks_demo.py](./51_class_tick_callbacks_demo.py): 类风格 `on_tick` 最小示例（含 `on_order/on_trade/on_timer` 相邻回调）。
 - [52_pre_open_demo.py](./52_pre_open_demo.py): `on_pre_open` 最小示例，演示“盘前决策，本次 open 成交”的推荐写法。
 - [53_timer_to_pre_open_demo.py](./53_timer_to_pre_open_demo.py): “前一交易日更晚的 `on_timer` 准备，下一交易日 `on_pre_open` 执行”的双阶段示例。
+- [55_functional_ml_walk_forward.py](./55_functional_ml_walk_forward.py): 函数式 `on_train_signal(ctx)` + Walk-Forward 训练评估示例。
+- [56_functional_warm_start_demo.py](./56_functional_warm_start_demo.py): 函数式 `on_resume(ctx)` 热启动续跑最小示例。
+- [57_functional_multi_slot_warm_start_demo.py](./57_functional_multi_slot_warm_start_demo.py): 函数式多 slot `on_resume(ctx)` 热启动续跑示例。
 
 ## 流式回测与实时报告
 

@@ -99,6 +99,14 @@ class LiveRunner:
         on_tick: Optional[Callable[[Any, Any], None]] = None,
         on_order: Optional[Callable[[Any, Any], None]] = None,
         on_trade: Optional[Callable[[Any, Any], None]] = None,
+        on_reject: Optional[Callable[[Any, Any], None]] = None,
+        on_session_start: Optional[Callable[[Any, Any, int], None]] = None,
+        on_session_end: Optional[Callable[[Any, Any, int], None]] = None,
+        on_before_trading: Optional[Callable[[Any, Any, int], None]] = None,
+        on_after_trading: Optional[Callable[[Any, Any, int], None]] = None,
+        on_daily_rebalance: Optional[Callable[[Any, Any, int], None]] = None,
+        on_portfolio_update: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
+        on_error: Optional[Callable[[Any, Exception, str, Any], None]] = None,
         on_timer: Optional[Callable[[Any, str], None]] = None,
         context: Optional[Dict[str, Any]] = None,
         strategy_max_order_value: Optional[Dict[str, float]] = None,
@@ -137,6 +145,15 @@ class LiveRunner:
         :param on_tick: Optional function-style on_tick callback.
         :param on_order: Optional function-style on_order callback.
         :param on_trade: Optional function-style on_trade callback.
+        :param on_reject: Optional function-style on_reject callback.
+        :param on_session_start: Optional function-style on_session_start callback.
+        :param on_session_end: Optional function-style on_session_end callback.
+        :param on_before_trading: Optional function-style on_before_trading callback.
+        :param on_after_trading: Optional function-style on_after_trading callback.
+        :param on_daily_rebalance: Optional function-style on_daily_rebalance callback.
+        :param on_portfolio_update:
+            Optional function-style on_portfolio_update callback.
+        :param on_error: Optional function-style on_error callback.
         :param on_timer: Optional function-style on_timer callback.
         :param context: Optional context dict injected into function-style strategy.
         :param on_broker_event: Optional broker event observer callback.
@@ -165,6 +182,14 @@ class LiveRunner:
         self.on_tick = on_tick
         self.on_order = on_order
         self.on_trade = on_trade
+        self.on_reject = on_reject
+        self.on_session_start = on_session_start
+        self.on_session_end = on_session_end
+        self.on_before_trading = on_before_trading
+        self.on_after_trading = on_after_trading
+        self.on_daily_rebalance = on_daily_rebalance
+        self.on_portfolio_update = on_portfolio_update
+        self.on_error = on_error
         self.on_timer = on_timer
         self.context = context or {}
         self.strategy_max_order_value = self._normalize_strategy_float_map(
@@ -321,6 +346,14 @@ class LiveRunner:
                 on_tick=self.on_tick,
                 on_order=self.on_order,
                 on_trade=self.on_trade,
+                on_reject=self.on_reject,
+                on_session_start=self.on_session_start,
+                on_session_end=self.on_session_end,
+                on_before_trading=self.on_before_trading,
+                on_after_trading=self.on_after_trading,
+                on_daily_rebalance=self.on_daily_rebalance,
+                on_portfolio_update=self.on_portfolio_update,
+                on_error=self.on_error,
                 on_timer=self.on_timer,
                 context=self.context,
             )

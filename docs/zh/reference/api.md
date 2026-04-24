@@ -149,8 +149,8 @@ def run_warm_start(
 
 *   `data`: 回测数据。支持单个 DataFrame，`{symbol: DataFrame}` 字典，`List[Bar]`，或实现 `DataFeedAdapter.load(request)` 的对象。
 *   `strategy`: 策略类、策略实例，或 `on_bar` 函数（函数式编程风格）。
-*   `initialize` / `on_start` / `on_stop`: 函数式策略生命周期回调，分别对应初始化、启动、停止阶段。
-*   `on_tick` / `on_order` / `on_trade` / `on_expiry` / `on_timer`: 函数式策略事件回调；其中 `on_expiry(ctx, event)` 在引擎实际执行到期结算后触发。
+*   `initialize` / `on_start` / `on_resume` / `on_stop`: 函数式策略生命周期回调；其中 `on_resume(ctx)` 仅在 checkpoint 恢复后的热启动阶段触发，且先于 `on_start(ctx)`。
+*   `on_tick` / `on_order` / `on_trade` / `on_reject` / `on_session_start` / `on_session_end` / `on_before_trading` / `on_after_trading` / `on_daily_rebalance` / `on_portfolio_update` / `on_error` / `on_expiry` / `on_pre_open` / `on_timer` / `on_train_signal`: 函数式策略事件回调；其中 `on_expiry(ctx, event)` 在引擎实际执行到期结算后触发，`on_pre_open(ctx, event)` 在每个交易日首个常规行情事件前触发，适合“盘前决策，本次 open 成交”；`on_error(ctx, error, source, payload)` 会在其他用户回调抛出异常时触发；`on_train_signal(ctx)` 仅在 ML 滚动训练窗口触发。
 *   `symbols`: 标的代码或代码列表。
 *   `initial_cash`: 初始资金 (默认 100,000.0)。
 *   legacy 价格基准参数：已移除。

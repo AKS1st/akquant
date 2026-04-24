@@ -11,6 +11,25 @@ except metadata.PackageNotFoundError:
     _VERSION = "0.0.0+unknown"
 
 
+def _iter_strategy_graph(root_strategy: Any) -> list[Any]:
+    """Collect primary and slot strategies for transient attr stripping."""
+    stack = [root_strategy]
+    collected: list[Any] = []
+    seen: set[int] = set()
+    while stack:
+        current = stack.pop()
+        current_id = id(current)
+        if current_id in seen:
+            continue
+        seen.add(current_id)
+        collected.append(current)
+        raw_slots = getattr(current, "_slot_strategies", None)
+        if isinstance(raw_slots, dict):
+            for slot_strategy in raw_slots.values():
+                stack.append(slot_strategy)
+    return collected
+
+
 def save_snapshot(engine: Engine, strategy: Any, filepath: str) -> None:
     """
     保存当前运行状态到文件.
@@ -71,17 +90,21 @@ def save_snapshot(engine: Engine, strategy: Any, filepath: str) -> None:
         "version": _VERSION,
     }
 
-    transient_backups: dict[str, Any] = {}
-    for attr_name in ("_slot_strategies", "_engine", "_analyzer_manager"):
-        if hasattr(strategy, attr_name):
-            transient_backups[attr_name] = getattr(strategy, attr_name)
-            delattr(strategy, attr_name)
+    transient_backups: list[tuple[Any, dict[str, Any]]] = []
+    for current_strategy in _iter_strategy_graph(strategy):
+        attr_backup: dict[str, Any] = {}
+        for attr_name in ("_engine", "_analyzer_manager"):
+            if hasattr(current_strategy, attr_name):
+                attr_backup[attr_name] = getattr(current_strategy, attr_name)
+                delattr(current_strategy, attr_name)
+        transient_backups.append((current_strategy, attr_backup))
     try:
         with open(filepath, "wb") as f:
             pickle.dump(snapshot, f)
     finally:
-        for attr_name, attr_value in transient_backups.items():
-            setattr(strategy, attr_name, attr_value)
+        for current_strategy, attr_backup in transient_backups:
+            for attr_name, attr_value in attr_backup.items():
+                setattr(current_strategy, attr_name, attr_value)
     print(f"Snapshot saved to {filepath}")
 
 

@@ -71,7 +71,7 @@ result2 = aq.run_warm_start(
 AKQuant 为策略提供了两个关键的启动钩子：
 
 *   `on_start()`: 无论冷启动还是热启动，**都会调用**。用于通用初始化（如订阅行情）。
-*   `on_resume()`: **仅在热启动时**调用（在 `on_start` 之前）。用于恢复特定的连接或资源。
+*   `on_resume()`: **仅在热启动时**调用（在 `on_start` 之前）。用于恢复特定的连接或资源。函数式入口对应 `on_resume(ctx)`。
 
 ### 3.2 避免覆盖状态
 
@@ -122,7 +122,7 @@ AKQuant 内置的指标（如 `SMA`, `EMA`）已经支持 Pickle 序列化。如
 
 ## 5. 完整示例
 
-请参考项目中的 [21_warm_start_demo.py](https://github.com/akfamily/akquant/blob/main/examples/21_warm_start_demo.py) 获取完整的可运行代码。
+请参考项目中的 [21_warm_start_demo.py](https://github.com/akfamily/akquant/blob/main/examples/21_warm_start_demo.py) 获取类风格完整示例；如果你使用函数式入口，可直接参考 [56_functional_warm_start_demo.py](https://github.com/akfamily/akquant/blob/main/examples/56_functional_warm_start_demo.py)；如果你还需要验证 `strategies_by_slot` 下多 slot 一起恢复，可参考 [57_functional_multi_slot_warm_start_demo.py](https://github.com/akfamily/akquant/blob/main/examples/57_functional_multi_slot_warm_start_demo.py)。
 
 ```python
 # 示例摘要

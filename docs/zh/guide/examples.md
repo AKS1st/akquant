@@ -11,12 +11,16 @@
 *   [框架钩子示例](https://github.com/akfamily/akquant/blob/main/examples/50_framework_hooks_demo.py): 演示 `on_session_start/on_session_end/on_before_trading/on_after_trading/on_portfolio_update/on_reject` 的触发顺序与典型用途。
 *   [盘前开盘语义示例](https://github.com/akfamily/akquant/blob/main/examples/52_pre_open_demo.py): 演示 `on_pre_open(event)` 如何表达“盘前决策，本次 open 成交”。
 *   [前一日定时准备到次日盘前执行示例](https://github.com/akfamily/akquant/blob/main/examples/53_timer_to_pre_open_demo.py): 演示“前一交易日更晚的 `on_timer` 准备，下一交易日 `on_pre_open` 下单”的双阶段写法。
+*   [函数式盘前开盘语义示例](https://github.com/akfamily/akquant/blob/main/examples/54_functional_pre_open_demo.py): 演示函数式 `on_pre_open(ctx, event)` 如何表达“盘前决策，本次 open 成交”。
+*   [函数式 ML Walk-Forward 示例](https://github.com/akfamily/akquant/blob/main/examples/55_functional_ml_walk_forward.py): 演示函数式 `initialize(ctx)`、`on_train_signal(ctx)`、`on_bar(ctx, bar)` 如何组合完成滚动训练与推理。
+*   [函数式热启动示例](https://github.com/akfamily/akquant/blob/main/examples/56_functional_warm_start_demo.py): 演示函数式 `on_resume(ctx)`、`on_start(ctx)` 与 checkpoint 恢复后的状态延续。
+*   [函数式多 slot 热启动示例](https://github.com/akfamily/akquant/blob/main/examples/57_functional_multi_slot_warm_start_demo.py): 演示 `strategies_by_slot` 下主 slot 与副 slot 如何一起从 checkpoint 恢复，并分别触发 `on_resume(ctx)`。
 *   [多标的目标权重调仓最短路径](https://github.com/akfamily/akquant/blob/main/examples/43_target_weights_rebalance.py): TopN 动态调仓示例，展示同时间切片收齐后基于动量的组合再平衡。
 *   [指标组合 Playbook 示例](https://github.com/akfamily/akquant/blob/main/examples/45_talib_indicator_playbook_demo.py): 演示 `EMA/ADX/NATR` 与 `BBANDS/RSI/MOM` 组合在同一策略中的落地方式，并支持 `--data-source akshare` 真实数据模式。
 
 > 数据源约定：除特别标注需要模拟数据外，本页示例默认使用 AKShare 获取真实市场数据。
 >
-> 风格建议：想先学类风格事件回调，优先从 `08_event_callbacks.py`、`50_framework_hooks_demo.py`、`51_class_tick_callbacks_demo.py` 开始；如果你的场景是“盘前信号，本次 open 成交”，先看 `52_pre_open_demo.py`；如果你还需要“前一日准备、次日盘前执行”的双阶段写法，再看 `53_timer_to_pre_open_demo.py`；想迁移脚本式策略，再看 `23_functional_callbacks_demo.py`、`24_functional_tick_simulation_demo.py`。
+> 风格建议：想先学类风格事件回调，优先从 `08_event_callbacks.py`、`50_framework_hooks_demo.py`、`51_class_tick_callbacks_demo.py` 开始；如果你的场景是“盘前信号，本次 open 成交”，类风格先看 `52_pre_open_demo.py`，函数式可直接看 `54_functional_pre_open_demo.py`；如果你还需要“前一日准备、次日盘前执行”的双阶段写法，再看 `53_timer_to_pre_open_demo.py`；想迁移脚本式策略，再看 `23_functional_callbacks_demo.py`、`24_functional_tick_simulation_demo.py`；如果你做函数式 ML 滚动训练，直接看 `55_functional_ml_walk_forward.py`；如果你做函数式 checkpoint 恢复，先看 `56_functional_warm_start_demo.py`；如果你还要验证多 slot 一起恢复，再看 `57_functional_multi_slot_warm_start_demo.py`。
 
 ### 页面化参数配置（PARAM_MODEL）
 
@@ -428,6 +432,18 @@ class AdjSignal(Strategy):
 *   **[24_functional_tick_simulation_demo.py](https://github.com/akfamily/akquant/blob/main/examples/24_functional_tick_simulation_demo.py)**:
     *   演示函数式 `on_tick` 回调在模拟 Tick 事件分发下的触发方式。
     *   输出 tick/order/trade/timer 计数，并以 `done_functional_tick_simulation_demo` 作为结束标记。
+
+*   **[55_functional_ml_walk_forward.py](https://github.com/akfamily/akquant/blob/main/examples/55_functional_ml_walk_forward.py)**:
+    *   演示函数式 `initialize(ctx)`、`on_train_signal(ctx)` 与 `on_bar(ctx, bar)` 在 ML walk-forward 场景下的配合方式。
+    *   复用公开 API 完成训练窗口数据提取、特征构造、模型训练与预测，并以 `done_functional_ml_walk_forward` 作为结束标记。
+
+*   **[56_functional_warm_start_demo.py](https://github.com/akfamily/akquant/blob/main/examples/56_functional_warm_start_demo.py)**:
+    *   演示函数式 `on_resume(ctx)` 与 `on_start(ctx)` 在 checkpoint 恢复场景下的触发顺序，以及策略状态如何跨阶段延续。
+    *   使用两段合成 `Bar` 数据完成最小热启动闭环，并以 `done_functional_warm_start_demo` 作为结束标记。
+
+*   **[57_functional_multi_slot_warm_start_demo.py](https://github.com/akfamily/akquant/blob/main/examples/57_functional_multi_slot_warm_start_demo.py)**:
+    *   演示函数式主 slot 与 `strategies_by_slot` 副 slot 如何各自保存状态，并在 `run_warm_start()` 后分别触发 `on_resume(ctx)` 与 `on_start(ctx)`。
+    *   输出主副 slot 的事件序列、累计 close 列表与恢复计数，并以 `done_functional_multi_slot_warm_start_demo` 作为结束标记。
 
 *   **[25_streaming_backtest_demo.py](https://github.com/akfamily/akquant/blob/main/examples/25_streaming_backtest_demo.py)**:
     *   演示 `run_backtest(..., on_event=...)` 在 `stream_error_mode="continue"` 与 `"fail_fast"` 两种模式下的行为差异。
