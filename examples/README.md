@@ -59,6 +59,7 @@
 - [55_functional_ml_walk_forward.py](./55_functional_ml_walk_forward.py): 函数式 `on_train_signal(ctx)` + Walk-Forward 训练评估示例。
 - [56_functional_warm_start_demo.py](./56_functional_warm_start_demo.py): 函数式 `on_resume(ctx)` 热启动续跑最小示例。
 - [57_functional_multi_slot_warm_start_demo.py](./57_functional_multi_slot_warm_start_demo.py): 函数式多 slot `on_resume(ctx)` 热启动续跑示例。
+- [58_incremental_bootstrap_demo.py](./58_incremental_bootstrap_demo.py): 增量指标“历史预热 + 实时更新”最小示例，演示 `indicator_factory` 与 `warmup_bars`。
 
 ## 流式回测与实时报告
 

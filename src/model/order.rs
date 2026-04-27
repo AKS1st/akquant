@@ -639,7 +639,7 @@ mod tests {
 
     #[test]
     fn test_format_timestamp_str_uses_asia_shanghai() {
-        let timestamp = 1_735_802_000_000_000_000_i64; // 2025-01-02 15:00:00+08:00
+        let timestamp = 1_735_801_200_000_000_000_i64; // 2025-01-02 15:00:00+08:00
         assert_eq!(format_timestamp_str(timestamp), "2025-01-02 15:00:00");
     }
 
@@ -652,7 +652,7 @@ mod tests {
             OrderType::Limit,
             Decimal::from(10),
         );
-        let timestamp = 1_735_802_000_000_000_000_i64;
+        let timestamp = 1_735_801_200_000_000_000_i64;
         order.created_at = timestamp;
         order.updated_at = timestamp;
 
@@ -670,7 +670,7 @@ mod tests {
             quantity: Decimal::from(10),
             price: Decimal::from(100),
             commission: Decimal::ZERO,
-            timestamp: 1_735_802_000_000_000_000_i64,
+            timestamp: 1_735_801_200_000_000_000_i64,
             bar_index: 0,
             owner_strategy_id: None,
         };

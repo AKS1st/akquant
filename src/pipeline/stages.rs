@@ -485,11 +485,46 @@ impl DataProcessor {
         }
     }
 
-    fn finalize_current_timestamp(&mut self, engine: &Engine) {
+    fn reject_missing_symbol_orders(&self, engine: &mut Engine) {
+        if self.last_timestamp == 0 {
+            return;
+        }
+
+        let rejected_orders: Vec<Order> = engine
+            .state
+            .order_manager
+            .active_orders
+            .iter()
+            .filter(|order| {
+                matches!(order.status, OrderStatus::New | OrderStatus::Submitted)
+                    && order.created_at == self.last_timestamp
+                    && !self.seen_symbols.contains(&order.symbol)
+                    && effective_execution_policy_for_order(engine, order).bar_offset == 1
+            })
+            .cloned()
+            .map(|mut order| {
+                order.status = OrderStatus::Rejected;
+                order.updated_at = self.last_timestamp;
+                order.reject_reason = format!(
+                    "Missing market data for symbol {} at execution timestamp {}",
+                    order.symbol, self.last_timestamp
+                );
+                order
+            })
+            .collect();
+
+        for order in rejected_orders {
+            engine.execution_model.on_cancel(&order.id);
+            let _ = engine.event_manager.send(Event::ExecutionReport(order, None));
+        }
+    }
+
+    fn finalize_current_timestamp(&mut self, engine: &mut Engine) {
         if self.last_timestamp == 0 || self.finalized_timestamp == self.last_timestamp {
             return;
         }
         self.fill_missing_bars(engine);
+        self.reject_missing_symbol_orders(engine);
         self.finalized_timestamp = self.last_timestamp;
     }
 }
@@ -1039,7 +1074,10 @@ impl Processor for StatisticsProcessor {
 mod tests {
     use super::*;
     use crate::engine::Engine;
-    use crate::model::{AssetType, Bar, Instrument, InstrumentEnum, StockInstrument};
+    use crate::model::{
+        AssetType, Bar, Instrument, InstrumentEnum, Order, OrderSide, OrderType, StockInstrument,
+        TimeInForce,
+    };
     use rust_decimal_macros::dec;
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -1143,6 +1181,96 @@ mod tests {
                 assert_eq!(hist_a.closes[1], 100.0);
                 assert_eq!(hist_a.volumes[1], 0.0);
             }
+        });
+    }
+
+    #[test]
+    fn test_missing_symbol_next_open_order_is_rejected_and_removed_from_active_orders() {
+        pyo3::Python::initialize();
+
+        let mut engine = Engine::new();
+        engine
+            .instruments
+            .insert("A".to_string(), create_instrument("A"));
+        engine
+            .instruments
+            .insert("B".to_string(), create_instrument("B"));
+        engine.state.portfolio.cash = dec!(50000);
+        engine.last_prices.insert("A".to_string(), dec!(100));
+        engine.last_prices.insert("B".to_string(), dec!(100));
+
+        let mut pending_order =
+            Order::test_new("order-b", "B", OrderSide::Buy, OrderType::Limit, dec!(300));
+        pending_order.price = Some(dec!(100));
+        pending_order.time_in_force = TimeInForce::GTC;
+        pending_order.created_at = 1000;
+        pending_order.updated_at = 1000;
+
+        engine.execution_model.on_order(pending_order.clone());
+        engine.state.order_manager.add_active_order(pending_order);
+
+        let mut data_processor = DataProcessor::new();
+        let mut channel_processor = ChannelProcessor;
+        let mut cleanup_processor = CleanupProcessor;
+
+        let bar_t1_a = Bar {
+            timestamp: 1000,
+            symbol: "A".to_string(),
+            open: dec!(100),
+            high: dec!(100),
+            low: dec!(100),
+            close: dec!(100),
+            volume: dec!(100),
+            extra: HashMap::new(),
+        };
+        let bar_t2_a = Bar {
+            timestamp: 2000,
+            symbol: "A".to_string(),
+            open: dec!(101),
+            high: dec!(101),
+            low: dec!(101),
+            close: dec!(101),
+            volume: dec!(100),
+            extra: HashMap::new(),
+        };
+
+        engine.state.feed.add_bar(bar_t1_a).unwrap();
+        engine.state.feed.add_bar(bar_t2_a).unwrap();
+
+        pyo3::Python::attach(|py| {
+            let locals = py.import("builtins").unwrap();
+            let strategy = locals.getattr("None").unwrap();
+
+            data_processor.process(&mut engine, py, &strategy).unwrap();
+            channel_processor.process(&mut engine, py, &strategy).unwrap();
+            data_processor.process(&mut engine, py, &strategy).unwrap();
+            channel_processor.process(&mut engine, py, &strategy).unwrap();
+            cleanup_processor
+                .process(&mut engine, py, &strategy)
+                .unwrap();
+
+
+            let rejected_order = engine
+                .state
+                .order_manager
+                .get_all_orders()
+                .into_iter()
+                .find(|order| order.id == "order-b")
+                .unwrap();
+            assert_eq!(rejected_order.status, OrderStatus::Rejected);
+            assert!(rejected_order.reject_reason.contains("Missing market data"));
+            assert_eq!(
+                engine.state.order_manager.current_step_rejected_orders.len(),
+                1
+            );
+            assert!(
+                !engine
+                    .state
+                    .order_manager
+                    .active_orders
+                    .iter()
+                    .any(|order| order.id == "order-b")
+            );
         });
     }
 

@@ -760,6 +760,8 @@ mod tests {
             Decimal::from(1000),
             None,
         );
+        let mut order = order;
+        order.allow_quantity_auto_resize = true;
         sim.on_order(order);
 
         let bar = create_test_bar(

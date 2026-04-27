@@ -748,6 +748,41 @@ class IncrementalIndicatorStrategy(Strategy):
             self.buy(bar.symbol, 100)
 ```
 
+Incremental mode now supports two recommended capabilities:
+
+* `indicator_factory`: creates an isolated indicator instance per `symbol`, which is the recommended pattern for multi-symbol strategies.
+* `warmup_bars`: bootstraps incremental indicators with bars before `start_time` before the live event stream begins.
+
+```python
+from akquant import Bar, SMA, Strategy
+
+class MultiSymbolIncrementalStrategy(Strategy):
+    def __init__(self):
+        self.indicator_mode = "incremental"
+
+    def on_start(self):
+        self.register_incremental_indicator(
+            "sma20",
+            indicator_factory=lambda: SMA(20),
+            source="close",
+            symbols=["AAPL", "MSFT"],
+            warmup_bars=20,
+        )
+
+    def on_bar(self, bar: Bar):
+        val = self.sma20.value
+        if val is None:
+            return
+        if bar.close > val:
+            self.buy(bar.symbol, 100)
+```
+
+Notes:
+
+* The legacy single-symbol form `register_incremental_indicator("sma20", self.sma20, ...)` remains supported.
+* If one shared instance is reused across multiple symbols, AKQuant raises an explicit error and points users to `indicator_factory`.
+* `warmup_bars` only consumes history before the active start boundary and does not double-consume the first active bar.
+
 ## 7. Strategy Cookbook
 
 ### 7.1 Trailing Stop

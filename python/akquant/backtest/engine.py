@@ -1571,6 +1571,23 @@ def _should_prepare_precomputed_indicators(strategy_instance: Strategy) -> bool:
     return str(strategy_instance.indicator_mode).strip().lower() == "precompute"
 
 
+def _resolve_incremental_indicator_warmup_depth(strategy_instance: Strategy) -> int:
+    """提取增量指标注册中声明的最大历史预热深度."""
+    if str(strategy_instance.indicator_mode).strip().lower() != "incremental":
+        return 0
+    registrations = getattr(strategy_instance, "_incremental_indicators", {}) or {}
+    max_warmup = 0
+    for item in registrations.values():
+        warmup_bars = 0
+        if hasattr(item, "warmup_bars"):
+            warmup_bars = int(getattr(item, "warmup_bars", 0) or 0)
+        elif isinstance(item, dict):
+            warmup_bars = int(item.get("warmup_bars", 0) or 0)
+        if warmup_bars > max_warmup:
+            max_warmup = warmup_bars
+    return max_warmup
+
+
 def _resolve_runtime_warmup_depth(
     strategy_instance: Strategy,
     history_depth: int,
@@ -2537,7 +2554,11 @@ def run_backtest(
         int(getattr(current_strategy, "_history_depth", 0))
         for current_strategy in all_strategy_instances
     )
-    effective_depth = max(effective_depth, manual_history_depth)
+    indicator_warmup_depth = max(
+        _resolve_incremental_indicator_warmup_depth(current_strategy)
+        for current_strategy in all_strategy_instances
+    )
+    effective_depth = max(effective_depth, manual_history_depth, indicator_warmup_depth)
     preserve_pre_start_history = bool(start_time) and effective_depth > 0
     load_start_time = None if preserve_pre_start_history else start_time
     active_start_time_ns = (
@@ -3760,6 +3781,10 @@ def run_backtest(
                 current_strategy, "_prepare_indicators"
             ):
                 current_strategy._prepare_indicators(data_map_for_indicators)
+            if hasattr(current_strategy, "_bootstrap_incremental_indicators"):
+                current_strategy._bootstrap_incremental_indicators(
+                    data_map_for_indicators
+                )
 
     engine_summary: str = ""
     try:
@@ -4624,6 +4649,16 @@ def run_warm_start(
                     current_strategy._prepare_indicators(data_map_for_indicators)
                 except Exception as e:
                     logger.error(f"Failed to update indicators for warm start: {e}")
+            if hasattr(current_strategy, "_bootstrap_incremental_indicators"):
+                try:
+                    current_strategy._bootstrap_incremental_indicators(
+                        data_map_for_indicators
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Failed to bootstrap incremental indicators for warm start: "
+                        f"{e}"
+                    )
 
     # 4. 运行
     engine_summary: str = ""

@@ -889,8 +889,44 @@ class IncrementalIndicatorStrategy(Strategy):
             return
         if bar.close > val:
             self.buy(bar.symbol, 100)
+```
 
+增量模式新增了两项推荐能力：
+
+*   `indicator_factory`: 为每个 `symbol` 创建独立指标实例，适合多标的策略，避免状态串线。
+*   `warmup_bars`: 在进入正式事件流前，先用 `start_time` 之前的历史 Bar 预热增量指标。
+
+```python
+from akquant import Bar, SMA, Strategy
+
+class MultiSymbolIncrementalStrategy(Strategy):
+    def __init__(self):
+        self.indicator_mode = "incremental"
+
+    def on_start(self):
+        self.register_incremental_indicator(
+            "sma20",
+            indicator_factory=lambda: SMA(20),
+            source="close",
+            symbols=["AAPL", "MSFT"],
+            warmup_bars=20,
+        )
+
+    def on_bar(self, bar: Bar):
+        val = self.sma20.value
+        if val is None:
+            return
+        if bar.close > val:
+            self.buy(bar.symbol, 100)
+
+
+说明：
+
+*   单标的旧写法 `register_incremental_indicator("sma20", self.sma20, ...)` 仍然兼容。
+*   如果一个共享实例被多个 `symbol` 复用，框架会显式报错，提示改为 `indicator_factory`。
+*   `warmup_bars` 只会消费正式开始时间之前的历史数据，不会重复消费第一根有效 Bar。
 ## 8. 高级特性：热启动 (Warm Start)
+
 
 AKQuant 支持**热启动 (Warm Start)** 功能，允许你保存回测状态并在未来恢复。这对于长周期分段回测、滚动训练或模拟实盘环境非常有用。
 

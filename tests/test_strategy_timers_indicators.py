@@ -1,6 +1,7 @@
 from typing import Any, cast
 from unittest.mock import MagicMock
 
+import akquant
 import pandas as pd
 import pytest
 from akquant.akquant import StrategyContext
@@ -20,6 +21,8 @@ class SMA(Indicator):
 
 class MyTimerStrategy(Strategy):
     """Mock strategy for timer testing."""
+
+    inc_sma: Any
 
     def __init__(self) -> None:
         """Initialize."""
@@ -203,3 +206,100 @@ def test_incremental_indicator_symbol_filter() -> None:
     )
 
     assert indicator.values == [13.0]
+
+
+def test_incremental_indicator_uses_symbol_scoped_instances() -> None:
+    """不同 symbol 的增量指标应维护独立状态."""
+
+    class IncrementalIndicator:
+        def __init__(self) -> None:
+            self.values: list[float] = []
+
+        def update(self, value: float) -> None:
+            self.values.append(value)
+
+    class FakeBar:
+        def __init__(self, symbol: str, close: float) -> None:
+            self.symbol = symbol
+            self.open = close
+            self.high = close
+            self.low = close
+            self.close = close
+            self.volume = 0.0
+
+    strategy = MyTimerStrategy()
+    strategy.indicator_mode = "incremental"
+    strategy.register_incremental_indicator(
+        "inc_sma",
+        indicator_factory=IncrementalIndicator,
+        source="close",
+    )
+
+    strategy._update_incremental_indicators(cast(Any, FakeBar("000001.SZ", 10.0)))
+    strategy._update_incremental_indicators(cast(Any, FakeBar("000002.SZ", 20.0)))
+    strategy.current_bar = cast(Any, FakeBar("000001.SZ", 10.0))
+    first_symbol_values = strategy.inc_sma.values
+    strategy.current_bar = cast(Any, FakeBar("000002.SZ", 20.0))
+    second_symbol_values = strategy.inc_sma.values
+
+    assert first_symbol_values == [10.0]
+    assert second_symbol_values == [20.0]
+
+
+def test_incremental_indicator_bootstrap_respects_active_start_boundary() -> None:
+    """历史预热只使用 start_time 之前的 bars，不提前消费首根有效 bar."""
+
+    class IncrementalIndicator:
+        def __init__(self) -> None:
+            self.values: list[float] = []
+
+        def update(self, value: float) -> None:
+            self.values.append(value)
+
+    class BootstrapStrategy(Strategy):
+        inc_sma: Any
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.runtime_config = {"indicator_mode": "incremental"}
+
+        def on_start(self) -> None:
+            self.register_incremental_indicator(
+                "inc_sma",
+                indicator_factory=IncrementalIndicator,
+                source="close",
+                warmup_bars=2,
+            )
+
+        def on_bar(self, bar: Any) -> None:
+            pass
+
+    symbol = "BOOTSTRAP_TEST"
+    timestamps = pd.date_range("2024-01-01 09:30:00", periods=4, freq="min", tz="UTC")
+    data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "open": [10.0, 11.0, 12.0, 13.0],
+            "high": [10.0, 11.0, 12.0, 13.0],
+            "low": [10.0, 11.0, 12.0, 13.0],
+            "close": [10.0, 11.0, 12.0, 13.0],
+            "volume": [1.0, 1.0, 1.0, 1.0],
+            "symbol": [symbol, symbol, symbol, symbol],
+        }
+    )
+
+    result = akquant.run_backtest(
+        strategy=BootstrapStrategy,
+        data=data,
+        symbols=[symbol],
+        start_time=timestamps[2],
+        end_time=timestamps[-1],
+        initial_cash=100000.0,
+        show_progress=False,
+        timezone="UTC",
+    )
+
+    strategy = result.strategy
+    assert strategy is not None
+    indicator = strategy.inc_sma.get_instance(symbol)
+    assert indicator.values == [10.0, 11.0, 12.0, 13.0]

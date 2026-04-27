@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Deque,
     Dict,
     List,
@@ -200,6 +201,51 @@ InstrumentOptionTypeName = Literal["CALL", "PUT"]
 InstrumentSettlementMode = Literal["CASH", "SETTLEMENT_PRICE", "FORCE_CLOSE"]
 
 
+@dataclass
+class IncrementalIndicatorRegistration:
+    """增量指标注册定义."""
+
+    source: str
+    symbols: Optional[set[str]]
+    input_mode: str = "source"
+    warmup_bars: int = 0
+    factory: Optional[Callable[[], Any]] = None
+    base_indicator: Any = None
+    primary_symbol: Optional[str] = None
+    instances: Dict[str, Any] = field(default_factory=dict)
+
+
+class IncrementalIndicatorBinding:
+    """按当前 symbol 访问底层增量指标实例的轻量代理."""
+
+    def __init__(self, strategy: "Strategy", name: str) -> None:
+        """绑定策略实例与指标名，延迟解析当前 symbol 对应的真实指标."""
+        self._strategy = strategy
+        self._name = name
+
+    def get_instance(self, symbol: Optional[str] = None) -> Any:
+        """返回指定 symbol 对应的底层指标实例."""
+        return self._strategy._get_incremental_indicator_instance(self._name, symbol)
+
+    @property
+    def value(self) -> Any:
+        """获取当前 symbol 的最新指标值."""
+        return getattr(self.get_instance(), "value", None)
+
+    @property
+    def is_ready(self) -> bool:
+        """获取当前 symbol 的 ready 状态."""
+        return bool(getattr(self.get_instance(), "is_ready", False))
+
+    def update(self, *args: Any, **kwargs: Any) -> Any:
+        """兼容手动调用 update 的现有写法."""
+        return self.get_instance().update(*args, **kwargs)
+
+    def __getattr__(self, attr: str) -> Any:
+        """将未知属性代理到底层当前 symbol 的增量指标实例."""
+        return getattr(self.get_instance(), attr)
+
+
 @dataclass(frozen=True)
 class InstrumentSnapshot:
     """策略侧可访问的标的静态属性快照."""
@@ -236,7 +282,7 @@ class Strategy:
     # Python side accesses it via self.ctx.history() (efficient copy).
     # No duplicate storage in Python.
     _precomputed_indicators: List["Indicator"]
-    _incremental_indicators: Dict[str, Dict[str, Any]]
+    _incremental_indicators: Dict[str, IncrementalIndicatorRegistration]
     _subscriptions: List[str]
     _last_prices: Dict[str, float]
     _rolling_train_window: int
@@ -457,6 +503,11 @@ class Strategy:
             del state["_framework_stop_flushed"]
         if "_framework_boundary_timers_registered" in state:
             del state["_framework_boundary_timers_registered"]
+        incremental_indicators = state.get("_incremental_indicators")
+        if isinstance(incremental_indicators, dict):
+            for name in incremental_indicators.keys():
+                if state.get(name).__class__ is IncrementalIndicatorBinding:
+                    del state[name]
         return state
 
     def __setstate__(self, state: Dict[str, Any]) -> None:
@@ -492,6 +543,8 @@ class Strategy:
         self._start_initialized = False
         if not hasattr(self, "_seen_trade_keys"):
             self._seen_trade_keys = set()
+        if not hasattr(self, "_incremental_indicators"):
+            self._incremental_indicators = {}
         if not hasattr(self, "_seen_trade_key_order"):
             self._seen_trade_key_order = deque()
         if not hasattr(self, "_oco_groups"):
@@ -538,6 +591,8 @@ class Strategy:
             self._ml_pending_window_start_bar = None
         if not hasattr(self, "_ml_pending_window_end_bar"):
             self._ml_pending_window_end_bar = None
+        for name in list(getattr(self, "_incremental_indicators", {}).keys()):
+            setattr(self, name, IncrementalIndicatorBinding(self, name))
         _ensure_framework_state_impl(self)
 
     @property
@@ -1049,25 +1104,41 @@ class Strategy:
     def register_incremental_indicator(
         self,
         name: str,
-        indicator: Any,
+        indicator: Any = None,
         source: str = "close",
         symbols: Optional[Union[str, List[str], Tuple[str, ...], set[str]]] = None,
+        *,
+        warmup_bars: int = 0,
+        indicator_factory: Optional[Callable[[], Any]] = None,
+        input_mode: str = "source",
     ) -> None:
         """注册增量指标."""
         if self.indicator_mode != "incremental":
             raise ValueError(
                 "register_incremental_indicator requires indicator_mode='incremental'"
             )
-        source_key = str(source).strip().lower()
-        if source_key not in {"open", "high", "low", "close", "volume"}:
-            raise ValueError("source must be one of: open, high, low, close, volume")
+        if self.is_restored and name in self._incremental_indicators:
+            setattr(self, name, IncrementalIndicatorBinding(self, name))
+            return
         symbol_filter = self._normalize_indicator_symbols(symbols)
-        self._incremental_indicators[name] = {
-            "indicator": indicator,
-            "source": source_key,
-            "symbols": symbol_filter,
-        }
-        setattr(self, name, indicator)
+        source_key = str(source).strip().lower()
+        input_mode_key = self._normalize_incremental_input_mode(source_key, input_mode)
+        if indicator is not None and indicator_factory is not None:
+            raise ValueError("indicator and indicator_factory cannot both be provided")
+        if indicator is None and indicator_factory is None:
+            raise ValueError("indicator or indicator_factory is required")
+        warmup_bars_value = int(warmup_bars)
+        if warmup_bars_value < 0:
+            raise ValueError("warmup_bars must be >= 0")
+        self._incremental_indicators[name] = IncrementalIndicatorRegistration(
+            source=source_key,
+            symbols=symbol_filter,
+            input_mode=input_mode_key,
+            warmup_bars=warmup_bars_value,
+            factory=indicator_factory,
+            base_indicator=indicator,
+        )
+        setattr(self, name, IncrementalIndicatorBinding(self, name))
 
     def subscribe(self, instrument_id: str) -> None:
         """
@@ -1095,14 +1166,73 @@ class Strategy:
             return
         if not self._incremental_indicators:
             return
-        for item in self._incremental_indicators.values():
-            symbol_filter = item["symbols"]
-            if symbol_filter is not None and bar.symbol not in symbol_filter:
+        bar_symbol = getattr(bar, "symbol", None)
+        active_start_time_ns = getattr(self, "_active_start_time_ns", None)
+        if (
+            getattr(self, "_incremental_bootstrap_applied", False)
+            and active_start_time_ns is not None
+            and int(getattr(bar, "timestamp", active_start_time_ns))
+            < int(active_start_time_ns)
+        ):
+            return
+        for name in list(self._incremental_indicators.keys()):
+            item = self._get_incremental_registration(name)
+            symbol_filter = item.symbols
+            if symbol_filter is not None and bar_symbol not in symbol_filter:
                 continue
-            ind = item["indicator"]
-            source = item["source"]
-            value = getattr(bar, source)
-            ind.update(value)
+            ind = self._get_incremental_indicator_instance(name, bar_symbol)
+            args = self._build_incremental_indicator_args(
+                payload=bar,
+                source=item.source,
+                input_mode=item.input_mode,
+            )
+            ind.update(*args)
+
+    def _bootstrap_incremental_indicators(self, data: Dict[str, pd.DataFrame]) -> None:
+        """在实时增量更新前，用历史数据预热增量指标."""
+        if self.indicator_mode != "incremental" or self.is_restored:
+            return
+        if not self._incremental_indicators:
+            return
+        available_symbols = set(data.keys())
+        active_start_time_ns = getattr(self, "_active_start_time_ns", None)
+        if active_start_time_ns is None:
+            return
+        bootstrap_applied = False
+        for name in list(self._incremental_indicators.keys()):
+            item = self._get_incremental_registration(name)
+            if item.warmup_bars <= 0:
+                continue
+            target_symbols = (
+                sorted(item.symbols)
+                if item.symbols is not None
+                else sorted(available_symbols)
+            )
+            for symbol in target_symbols:
+                df = data.get(symbol)
+                if df is None or df.empty:
+                    continue
+                if active_start_time_ns is not None and isinstance(
+                    df.index, pd.DatetimeIndex
+                ):
+                    boundary = pd.Timestamp(active_start_time_ns, unit="ns", tz="UTC")
+                    if df.index.tz is None:
+                        boundary = boundary.tz_localize(None)
+                    else:
+                        boundary = boundary.tz_convert(df.index.tz)
+                    df = df[df.index < boundary]
+                    if df.empty:
+                        continue
+                indicator = self._get_incremental_indicator_instance(name, symbol)
+                for _, row in df.tail(item.warmup_bars).iterrows():
+                    args = self._build_incremental_indicator_args(
+                        payload=row,
+                        source=item.source,
+                        input_mode=item.input_mode,
+                    )
+                    indicator.update(*args)
+                    bootstrap_applied = True
+        self._incremental_bootstrap_applied = bootstrap_applied
 
     def _normalize_indicator_symbols(
         self,
@@ -1126,6 +1256,98 @@ class Strategy:
                 raise ValueError("symbols cannot be empty")
             return normalized
         raise TypeError("symbols must be str, list[str], tuple[str, ...], set[str]")
+
+    def _normalize_incremental_input_mode(self, source: str, input_mode: str) -> str:
+        input_mode_key = str(input_mode).strip().lower()
+        valid_modes = {"source", "hl", "hlc", "ohlc", "close_volume"}
+        if input_mode_key not in valid_modes:
+            raise ValueError(
+                "input_mode must be one of: source, hl, hlc, ohlc, close_volume"
+            )
+        if input_mode_key == "source" and source not in {
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        }:
+            raise ValueError("source must be one of: open, high, low, close, volume")
+        return input_mode_key
+
+    def _get_incremental_registration(
+        self, name: str
+    ) -> IncrementalIndicatorRegistration:
+        item = self._incremental_indicators[name]
+        if isinstance(item, IncrementalIndicatorRegistration):
+            return item
+        legacy_item = cast(Dict[str, Any], item)
+        registration = IncrementalIndicatorRegistration(
+            source=str(legacy_item.get("source", "close")).strip().lower(),
+            symbols=legacy_item.get("symbols"),
+            input_mode=str(legacy_item.get("input_mode", "source")).strip().lower(),
+            warmup_bars=int(legacy_item.get("warmup_bars", 0) or 0),
+            factory=legacy_item.get("indicator_factory"),
+            base_indicator=legacy_item.get("indicator"),
+        )
+        self._incremental_indicators[name] = registration
+        return registration
+
+    def _get_incremental_indicator_instance(
+        self, name: str, symbol: Optional[str] = None
+    ) -> Any:
+        registration = self._get_incremental_registration(name)
+        resolved_symbol = self._resolve_incremental_indicator_symbol(
+            registration, symbol
+        )
+        if resolved_symbol in registration.instances:
+            return registration.instances[resolved_symbol]
+        if registration.factory is not None:
+            indicator = registration.factory()
+        elif registration.primary_symbol is None:
+            indicator = registration.base_indicator
+            registration.primary_symbol = resolved_symbol
+        elif registration.primary_symbol == resolved_symbol:
+            indicator = registration.base_indicator
+        else:
+            raise ValueError(
+                f"Incremental indicator '{name}' was registered with a shared instance "
+                "and cannot be used across multiple symbols. Use indicator_factory "
+                "for multi-symbol incremental indicators."
+            )
+        registration.instances[resolved_symbol] = indicator
+        return indicator
+
+    def _resolve_incremental_indicator_symbol(
+        self, registration: IncrementalIndicatorRegistration, symbol: Optional[str]
+    ) -> str:
+        if symbol is not None:
+            return str(symbol)
+        if self.current_bar is not None:
+            return str(self.current_bar.symbol)
+        if self.current_tick is not None:
+            return str(self.current_tick.symbol)
+        if registration.primary_symbol is not None:
+            return registration.primary_symbol
+        if len(registration.instances) == 1:
+            return next(iter(registration.instances))
+        if registration.symbols is not None and len(registration.symbols) == 1:
+            return next(iter(registration.symbols))
+        return "__default__"
+
+    def _build_incremental_indicator_args(
+        self, payload: Any, source: str, input_mode: str
+    ) -> Tuple[Any, ...]:
+        if input_mode == "source":
+            return (getattr(payload, source),)
+        if input_mode == "hl":
+            return (payload.high, payload.low)
+        if input_mode == "hlc":
+            return (payload.high, payload.low, payload.close)
+        if input_mode == "ohlc":
+            return (payload.open, payload.high, payload.low, payload.close)
+        if input_mode == "close_volume":
+            return (payload.close, payload.volume)
+        raise ValueError(f"Unsupported input_mode: {input_mode}")
 
     def on_order(self, order: Any) -> None:
         """
