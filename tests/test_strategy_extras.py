@@ -1,5 +1,6 @@
 import datetime as dt
 import logging
+import pickle
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Iterator, cast
@@ -869,6 +870,21 @@ class WarmStartE2EStrategy(Strategy):
         self.events.append(f"on_bar:{self.bar_seen}")
 
 
+class WarmStartHistoryContinuityStrategy(Strategy):
+    """Strategy for warm-start history-buffer continuity tests."""
+
+    def __init__(self) -> None:
+        """Track close-history snapshots across bars."""
+        self.set_history_depth(3)
+        self.samples: list[tuple[int, np.ndarray]] = []
+
+    def on_bar(self, bar: Bar) -> None:
+        """Capture the rolling close window seen on each bar."""
+        self.samples.append(
+            (bar.timestamp, self.get_history(count=3, field="close").copy())
+        )
+
+
 class RuntimeConfigWarmStartStrategy(Strategy):
     """Strategy for warm start runtime config injection test."""
 
@@ -1535,6 +1551,83 @@ def test_run_warm_start_end_to_end_lifecycle(tmp_path: Path) -> None:
     assert strategy.events[resume_idx + 1] == "on_start"
     assert strategy.events[-1] == "on_bar:7"
     assert result2.metrics.initial_market_value == result1.metrics.end_market_value
+
+
+def test_run_warm_start_preserves_get_history_window(tmp_path: Path) -> None:
+    """Warm start should restore get_history windows without extra lookback input."""
+    checkpoint = tmp_path / "snapshot_history.pkl"
+    phase1 = _make_bars("2023-01-01", 4)
+    phase2 = _make_bars("2023-01-05", 3, start_price=104.0)
+
+    full_result = run_backtest(
+        data=phase1 + phase2,
+        strategy=WarmStartHistoryContinuityStrategy,
+        symbols="TEST",
+        initial_cash=100000.0,
+        show_progress=False,
+    )
+    result1 = run_backtest(
+        data=phase1,
+        strategy=WarmStartHistoryContinuityStrategy,
+        symbols="TEST",
+        initial_cash=100000.0,
+        show_progress=False,
+    )
+    save_snapshot(result1.engine, result1.strategy, str(checkpoint))  # type: ignore[arg-type]
+    warm_result = run_warm_start(
+        checkpoint_path=str(checkpoint),
+        data=phase2,
+        symbols="TEST",
+        show_progress=False,
+    )
+
+    full_strategy = full_result.strategy
+    warm_strategy = warm_result.strategy
+    assert full_strategy is not None
+    assert warm_strategy is not None
+
+    full_samples = {timestamp: history for timestamp, history in full_strategy.samples}
+    warm_samples = {timestamp: history for timestamp, history in warm_strategy.samples}
+    assert list(sorted(warm_samples)) == list(sorted(full_samples))
+    for timestamp, full_history in full_samples.items():
+        np.testing.assert_allclose(
+            warm_samples[timestamp],
+            full_history,
+            equal_nan=True,
+        )
+
+
+def test_run_warm_start_warns_for_legacy_checkpoint_without_history_feature_marker(
+    tmp_path: Path,
+) -> None:
+    """Warm start should warn when a checkpoint lacks the history-buffer marker."""
+    checkpoint = tmp_path / "snapshot_legacy_history.pkl"
+    phase1 = _make_bars("2023-01-01", 4)
+    phase2 = _make_bars("2023-01-05", 2, start_price=104.0)
+
+    result1 = run_backtest(
+        data=phase1,
+        strategy=WarmStartHistoryContinuityStrategy,
+        symbols="TEST",
+        initial_cash=100000.0,
+        show_progress=False,
+    )
+    save_snapshot(result1.engine, result1.strategy, str(checkpoint))  # type: ignore[arg-type]
+
+    with checkpoint.open("rb") as fh:
+        snapshot = pickle.load(fh)
+    snapshot.pop("snapshot_features", None)
+    with checkpoint.open("wb") as fh:
+        pickle.dump(snapshot, fh)
+
+    with pytest.warns(RuntimeWarning, match="history buffer snapshot"):
+        result2 = run_warm_start(
+            checkpoint_path=str(checkpoint),
+            data=phase2,
+            symbols="TEST",
+            show_progress=False,
+        )
+    assert result2.strategy is not None
 
 
 def test_run_warm_start_functional_lifecycle(tmp_path: Path) -> None:

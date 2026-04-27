@@ -80,6 +80,7 @@ mod tests {
     #[test]
     fn test_engine_snapshot_serialization() {
         use crate::engine::state::EngineSnapshot;
+        use crate::history::HistoryBufferSnapshot;
         use crate::order_manager::OrderManager;
         use crate::portfolio::Portfolio;
         use std::collections::HashMap;
@@ -107,6 +108,10 @@ mod tests {
             current_time: 123456789,
             portfolio,
             order_manager,
+            history_state: Some(HistoryBufferSnapshot {
+                data: HashMap::new(),
+                default_capacity: 3,
+            }),
             strategy_risk_state: Default::default(),
         };
 
@@ -115,5 +120,12 @@ mod tests {
 
         assert_eq!(decoded.current_time, 123456789);
         assert_eq!(decoded.portfolio.cash, Decimal::from(50000));
+        assert_eq!(
+            decoded
+                .history_state
+                .as_ref()
+                .map(|snapshot| snapshot.default_capacity),
+            Some(3)
+        );
     }
 }

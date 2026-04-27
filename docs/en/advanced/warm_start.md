@@ -108,9 +108,10 @@ Built-in indicators (`SMA`, `EMA`, etc.) support pickle serialization. For custo
 2. **MarketModel reset**: Fee settings and trading rules (for example T+1) are not persisted in snapshots. Re-pass them via explicit args or `config.strategy_config` on resume.
 3. **Initial cash display**: `result2.metrics.initial_cash` is adjusted to resumed-phase starting cash, so phase-2 return metrics remain interpretable.
 4. **Data continuity**: Keep phase-1 end and phase-2 start continuous to avoid indicator jumps.
-5. **Runtime config injection**: Use `strategy_runtime_config` in `run_warm_start` to override runtime behavior at resume.
-6. **Strategy-level risk state continuity**: Strategy limits, strategy cashflow, daily-loss baseline, drawdown peak, and reduce-only activation state are persisted and restored.
-7. **Default timezone**: If `timezone` is not explicitly provided to `run_warm_start`, default is `Asia/Shanghai`.
+5. **`get_history()` continuity**: New snapshots also persist the history buffer, so `get_history()` and `get_history_map()` resume with the phase-1 rolling window intact. In the normal warm-start path you no longer need to manually prepend extra lookback bars.
+6. **Runtime config injection**: Use `strategy_runtime_config` in `run_warm_start` to override runtime behavior at resume.
+7. **Strategy-level risk state continuity**: Strategy limits, strategy cashflow, daily-loss baseline, drawdown peak, and reduce-only activation state are persisted and restored.
+8. **Default timezone**: If `timezone` is not explicitly provided to `run_warm_start`, default is `Asia/Shanghai`.
 
 ## 5. Full Example
 

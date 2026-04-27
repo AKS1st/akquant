@@ -200,9 +200,8 @@ def main() -> None:
     print("=" * 50)
 
     # 获取后半段数据
-    # 注意：为了让指标（如 SMA-30）在 7 月 1 日开盘时能立即计算，
-    # 我们需要提供一段"Lookback"历史数据。
-    # 这里我们取阶段一的最后 30 天数据与阶段二数据拼接。
+    # 新版本快照会恢复 get_history() 所依赖的历史缓冲，
+    # 正常 warm start 不需要再手工拼接额外的 lookback 数据。
     # lookback_days = 30
     # data_lookback = data_phase1[-lookback_days:]
     data_new = get_real_data(symbol, "2022-01-01", "2023-12-31")

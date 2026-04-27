@@ -87,6 +87,9 @@ def save_snapshot(engine: Engine, strategy: Any, filepath: str) -> None:
             "default_strategy_id": default_strategy_id,
             "slot_ids": slot_ids,
         },
+        "snapshot_features": {
+            "history_buffer_snapshot": True,
+        },
         "version": _VERSION,
     }
 
@@ -129,6 +132,9 @@ def warm_start(
     topology = snapshot.get("strategy_topology", {})
     if not isinstance(topology, dict):
         topology = {}
+    snapshot_features = snapshot.get("snapshot_features", {})
+    if not isinstance(snapshot_features, dict):
+        snapshot_features = {}
 
     # 2. Initialize new Engine
     engine = Engine()
@@ -156,6 +162,7 @@ def warm_start(
         ]
         if normalized_slot_ids:
             setattr(strategy, "_strategy_slot_ids", normalized_slot_ids)
+    setattr(strategy, "_warm_start_snapshot_features", dict(snapshot_features))
     # print(f"Warm start loaded from {filepath}. Snapshot time: {engine.snapshot_time}")
 
     return engine, strategy

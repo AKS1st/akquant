@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::data::DataFeed;
+use crate::history::HistoryBufferSnapshot;
 use crate::order_manager::OrderManager;
 use crate::portfolio::Portfolio;
 
@@ -34,6 +35,8 @@ pub struct EngineSnapshot {
     pub current_time: i64,
     pub portfolio: Portfolio,
     pub order_manager: OrderManager,
+    #[serde(default)]
+    pub history_state: Option<HistoryBufferSnapshot>,
     #[serde(default)]
     pub strategy_risk_state: StrategyRiskStateSnapshot,
 }

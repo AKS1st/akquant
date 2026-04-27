@@ -553,10 +553,14 @@ impl Engine {
 
     /// 导出当前状态为二进制数据
     fn get_state_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let history_state = Some(crate::history::HistoryBufferSnapshot::from(
+            &*self.history_buffer.read().unwrap(),
+        ));
         let snapshot = crate::engine::state::EngineSnapshot {
             current_time: self.clock.timestamp().unwrap_or(0),
             portfolio: self.state.portfolio.clone(),
             order_manager: self.state.order_manager.clone(),
+            history_state,
             strategy_risk_state: crate::engine::state::StrategyRiskStateSnapshot {
                 default_strategy_id: self.default_strategy_id.clone(),
                 strategy_slots: self
@@ -603,6 +607,10 @@ impl Engine {
 
         self.state.portfolio = snapshot.portfolio;
         self.state.order_manager = snapshot.order_manager;
+        let history_buffer = snapshot.history_state.map(crate::history::HistoryBuffer::from);
+        if let Some(buffer) = history_buffer {
+            self.history_buffer = Arc::new(RwLock::new(buffer));
+        }
         self.snapshot_time = snapshot.current_time;
         self.default_strategy_id = snapshot.strategy_risk_state.default_strategy_id;
         self.strategy_slots = snapshot
@@ -656,6 +664,13 @@ impl Engine {
     /// :param depth: 历史数据长度
     fn set_history_depth(&mut self, depth: usize) {
         self.history_buffer.write().unwrap().set_capacity(depth);
+    }
+
+    fn configure_history_depth(&mut self, depth: usize) {
+        self.history_buffer
+            .write()
+            .unwrap()
+            .set_capacity_preserve_existing(depth);
     }
 
     /// 设置时区偏移 (秒)
@@ -1018,7 +1033,7 @@ impl Engine {
             && let Ok(depth) = depth_attr.extract::<usize>()
             && depth > 0
         {
-            self.set_history_depth(depth);
+            self.configure_history_depth(depth);
         }
 
         if strategy.hasattr("_on_start_internal")? {

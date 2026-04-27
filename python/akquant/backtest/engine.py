@@ -4462,6 +4462,25 @@ def run_warm_start(
         cast(Any, engine).set_strategy_risk_cooldown_bars(normalized_cooldown_bars)
 
     all_strategy_instances = [strategy_instance, *slot_strategy_instances.values()]
+    snapshot_features = getattr(strategy_instance, "_warm_start_snapshot_features", {})
+    if not isinstance(snapshot_features, dict):
+        snapshot_features = {}
+    history_buffer_snapshot_available = bool(
+        snapshot_features.get("history_buffer_snapshot", False)
+    )
+    history_tracking_enabled = any(
+        int(getattr(current_strategy, "_history_depth", 0)) > 0
+        for current_strategy in all_strategy_instances
+    )
+    if history_tracking_enabled and not history_buffer_snapshot_available:
+        warning_message = (
+            "The checkpoint was created by an older AKQuant version and does not "
+            "include the history buffer snapshot. Warm start can continue, but "
+            "`get_history()` / `get_history_map()` may differ from a full backtest "
+            "until the checkpoint is regenerated with a newer version."
+        )
+        warnings.warn(warning_message, RuntimeWarning, stacklevel=2)
+        logger.warning(warning_message)
     if data_map_for_indicators:
         all_dates: set[pd.Timestamp] = set()
         day_bounds: Dict[str, Tuple[int, int]] = {}

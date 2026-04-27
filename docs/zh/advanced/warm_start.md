@@ -116,9 +116,10 @@ AKQuant 内置的指标（如 `SMA`, `EMA`）已经支持 Pickle 序列化。如
 2.  **MarketModel 重置**：费用设置（佣金、印花税）和交易规则（T+1）不会保存在快照中。务必在 `run_warm_start` 参数中重新传入正确配置（可通过显式参数或 `config.strategy_config`），优先使用 `stamp_tax_rate`、`transfer_fee_rate`（`stamp_tax`、`transfer_fee` 仍兼容）。
 3.  **初始资金显示**：`result2.metrics.initial_cash` 会自动调整为恢复时的资金，确保收益率计算是基于第二阶段的实际起始资金，而不是账户的历史初始资金。
 4.  **数据连续性**：确保 Phase 1 的结束时间与 Phase 2 的开始时间是连续的。如果中间有长时间中断，指标计算可能会出现跳跃。
-5.  **运行时配置注入**：可通过 `strategy_runtime_config` 在恢复阶段覆盖错误处理和快照阈值等运行时行为。
-6.  **策略级风控状态可恢复**：策略限额、策略现金流、日损基线、回撤峰值、仅平仓激活态等会随快照保存并恢复，便于断点续跑后保持风控行为连续。
-7.  **默认时区**：`run_warm_start` 未显式传入 `timezone` 时，默认使用 `Asia/Shanghai`。
+5.  **`get_history()` 连续性**：新版本快照会一并保存并恢复历史缓冲，因此 `run_warm_start` 恢复后，`get_history()`、`get_history_map()` 等接口会延续 Phase 1 的历史窗口；正常续跑时不再需要额外手工拼接 lookback 数据。
+6.  **运行时配置注入**：可通过 `strategy_runtime_config` 在恢复阶段覆盖错误处理和快照阈值等运行时行为。
+7.  **策略级风控状态可恢复**：策略限额、策略现金流、日损基线、回撤峰值、仅平仓激活态等会随快照保存并恢复，便于断点续跑后保持风控行为连续。
+8.  **默认时区**：`run_warm_start` 未显式传入 `timezone` 时，默认使用 `Asia/Shanghai`。
 
 ## 5. 完整示例
 
