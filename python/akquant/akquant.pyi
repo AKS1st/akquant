@@ -71,6 +71,12 @@ class OptionType:
     Call: typing.ClassVar["OptionType"]
     Put: typing.ClassVar["OptionType"]
 
+class OptionMarginModel:
+    Ratio: typing.ClassVar["OptionMarginModel"]
+    ChinaSingleLeg: typing.ClassVar["OptionMarginModel"]
+    USBrokerSingleLeg: typing.ClassVar["OptionMarginModel"]
+    USBrokerSingleLegVolAdjusted: typing.ClassVar["OptionMarginModel"]
+
 class SettlementType:
     Physical: typing.ClassVar["SettlementType"]
     Cash: typing.ClassVar["SettlementType"]
@@ -796,6 +802,9 @@ class Instrument:
     margin_ratio: float
     lot_size: float
     tick_size: float
+    option_margin_model: typing.Optional[akquant.OptionMarginModel]
+    implied_volatility: typing.Optional[float]
+    reference_volatility: typing.Optional[float]
     def __new__(
         cls,
         symbol: str,
@@ -810,6 +819,9 @@ class Instrument:
         underlying_symbol: typing.Optional[str] = ...,
         settlement_type: typing.Optional[SettlementType] = ...,
         settlement_price: typing.Optional[float] = ...,
+        option_margin_model: typing.Optional[OptionMarginModel] = ...,
+        implied_volatility: typing.Optional[float] = ...,
+        reference_volatility: typing.Optional[float] = ...,
     ) -> "Instrument": ...
 
 class MACD:

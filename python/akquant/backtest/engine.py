@@ -29,6 +29,7 @@ from ..akquant import (
     DataFeed,
     Engine,
     Instrument,
+    OptionMarginModel,
     SettlementType,
     TradingSession,
 )
@@ -47,6 +48,7 @@ from ..log import get_logger, register_logger
 from ..risk import apply_risk_config
 from ..strategy import (
     InstrumentAssetTypeName,
+    InstrumentOptionMarginModelName,
     InstrumentOptionTypeName,
     InstrumentSettlementMode,
     InstrumentSnapshot,
@@ -1144,6 +1146,23 @@ def _option_type_to_upper_name(value: Any) -> Optional[InstrumentOptionTypeName]
     if "PUT" in text:
         return "PUT"
     raise ValueError(f"Unsupported option_type: {value}")
+
+
+def _option_margin_model_to_upper_name(
+    value: Any,
+) -> Optional[InstrumentOptionMarginModelName]:
+    if value is None:
+        return None
+    text = str(value).upper()
+    if "VOL" in text and "ADJUST" in text:
+        return "US_BROKER_SINGLE_LEG_VOL_ADJUSTED"
+    if "US" in text and "BROKER" in text:
+        return "US_BROKER_SINGLE_LEG"
+    if "CHINA" in text and "SINGLE" in text:
+        return "CHINA_SINGLE_LEG"
+    if "RATIO" in text:
+        return "RATIO"
+    raise ValueError(f"Unsupported option_margin_model: {value}")
 
 
 def _settlement_type_to_upper_name(value: Any) -> Optional[InstrumentSettlementMode]:
@@ -2424,12 +2443,15 @@ def run_backtest(
         kwargs.get("expiry_date", None)
     )
     preliminary_default_option_type = kwargs.get("option_type", None)
+    preliminary_default_option_margin_model = kwargs.get("option_margin_model", None)
     preliminary_default_strike_price = kwargs.get("strike_price", None)
     preliminary_default_asset_type = kwargs.get("asset_type", AssetType.Stock)
     preliminary_default_multiplier = kwargs.get("multiplier", 1.0)
     preliminary_default_margin_ratio = kwargs.get("margin_ratio", 1.0)
     preliminary_default_tick_size = kwargs.get("tick_size", 0.01)
     preliminary_lot_size = kwargs.get("lot_size", 1)
+    preliminary_default_implied_volatility = kwargs.get("implied_volatility", None)
+    preliminary_default_reference_volatility = kwargs.get("reference_volatility", None)
     preliminary_default_settlement_type = _settlement_type_to_upper_name(
         kwargs.get("settlement_type", None)
     )
@@ -2445,8 +2467,21 @@ def run_backtest(
                 ),
                 multiplier=float(getattr(prebuilt, "multiplier", 1.0)),
                 margin_ratio=float(getattr(prebuilt, "margin_ratio", 1.0)),
+                option_margin_model=_option_margin_model_to_upper_name(
+                    getattr(prebuilt, "option_margin_model", None)
+                ),
                 tick_size=float(getattr(prebuilt, "tick_size", 0.01)),
                 lot_size=float(getattr(prebuilt, "lot_size", 1.0)),
+                implied_volatility=(
+                    float(getattr(prebuilt, "implied_volatility"))
+                    if getattr(prebuilt, "implied_volatility", None) is not None
+                    else None
+                ),
+                reference_volatility=(
+                    float(getattr(prebuilt, "reference_volatility"))
+                    if getattr(prebuilt, "reference_volatility", None) is not None
+                    else None
+                ),
                 settlement_type=_settlement_type_to_upper_name(
                     getattr(prebuilt, "settlement_type", None)
                 ),
@@ -2471,6 +2506,12 @@ def run_backtest(
                 asset_type=_asset_type_to_upper_name(preliminary_default_asset_type),
                 multiplier=float(preliminary_default_multiplier),
                 margin_ratio=float(preliminary_default_margin_ratio),
+                option_margin_model=_option_margin_model_to_upper_name(
+                    preliminary_default_option_margin_model
+                    if _asset_type_to_upper_name(preliminary_default_asset_type)
+                    == "OPTION"
+                    else None
+                ),
                 tick_size=float(preliminary_default_tick_size),
                 lot_size=float(symbol_lot_size or 1.0),
                 option_type=_option_type_to_upper_name(preliminary_default_option_type),
@@ -2480,6 +2521,16 @@ def run_backtest(
                     else None
                 ),
                 expiry_date=preliminary_default_expiry,
+                implied_volatility=(
+                    float(preliminary_default_implied_volatility)
+                    if preliminary_default_implied_volatility is not None
+                    else None
+                ),
+                reference_volatility=(
+                    float(preliminary_default_reference_volatility)
+                    if preliminary_default_reference_volatility is not None
+                    else None
+                ),
                 settlement_type=preliminary_default_settlement_type,
                 settlement_price=(
                     float(preliminary_default_settlement_price)
@@ -2503,6 +2554,10 @@ def run_backtest(
             asset_type=_asset_type_to_upper_name(conf.asset_type),
             multiplier=float(conf.multiplier),
             margin_ratio=float(conf.margin_ratio),
+            option_margin_model=cast(
+                Optional[InstrumentOptionMarginModelName],
+                conf.option_margin_model,
+            ),
             tick_size=float(conf.tick_size),
             lot_size=conf_lot,
             option_type=_option_type_to_upper_name(conf.option_type),
@@ -2513,6 +2568,16 @@ def run_backtest(
             underlying_symbol=(
                 str(conf.underlying_symbol)
                 if conf.underlying_symbol is not None
+                else None
+            ),
+            implied_volatility=(
+                float(conf.implied_volatility)
+                if conf.implied_volatility is not None
+                else None
+            ),
+            reference_volatility=(
+                float(conf.reference_volatility)
+                if conf.reference_volatility is not None
                 else None
             ),
             settlement_type=_settlement_type_to_upper_name(conf.settlement_type),
@@ -3502,10 +3567,13 @@ def run_backtest(
 
     # Option specific fields
     default_option_type = kwargs.get("option_type", None)
+    default_option_margin_model = kwargs.get("option_margin_model", None)
     default_strike_price = kwargs.get("strike_price", None)
     default_expiry_date = _normalize_expiry_date_yyyymmdd(
         kwargs.get("expiry_date", None)
     )
+    default_implied_volatility = kwargs.get("implied_volatility", None)
+    default_reference_volatility = kwargs.get("reference_volatility", None)
     default_settlement_type = kwargs.get("settlement_type", None)
     default_settlement_price = kwargs.get("settlement_price", None)
 
@@ -3549,6 +3617,23 @@ def run_backtest(
                 return v
             raise ValueError(f"Unsupported option_type: {val}")
         return val
+
+    def _parse_option_margin_model(val: Any) -> Any:
+        if val is None:
+            return None
+        if isinstance(val, OptionMarginModel):
+            return val
+        if isinstance(val, str):
+            s = val.upper()
+            if s == "RATIO":
+                return OptionMarginModel.Ratio
+            if s == "CHINA_SINGLE_LEG":
+                return OptionMarginModel.ChinaSingleLeg
+            if s == "US_BROKER_SINGLE_LEG":
+                return OptionMarginModel.USBrokerSingleLeg
+            if s == "US_BROKER_SINGLE_LEG_VOL_ADJUSTED":
+                return OptionMarginModel.USBrokerSingleLegVolAdjusted
+        raise ValueError(f"Unsupported option_margin_model: {val}")
 
     def _parse_settlement_type(
         val: Any,
@@ -3604,8 +3689,21 @@ def run_backtest(
                 ),
                 multiplier=float(getattr(prebuilt, "multiplier", 1.0)),
                 margin_ratio=float(getattr(prebuilt, "margin_ratio", 1.0)),
+                option_margin_model=_option_margin_model_to_upper_name(
+                    getattr(prebuilt, "option_margin_model", None)
+                ),
                 tick_size=float(getattr(prebuilt, "tick_size", 0.01)),
                 lot_size=float(getattr(prebuilt, "lot_size", 1.0)),
+                implied_volatility=(
+                    float(getattr(prebuilt, "implied_volatility"))
+                    if getattr(prebuilt, "implied_volatility", None) is not None
+                    else None
+                ),
+                reference_volatility=(
+                    float(getattr(prebuilt, "reference_volatility"))
+                    if getattr(prebuilt, "reference_volatility", None) is not None
+                    else None
+                ),
                 settlement_type=_settlement_type_to_upper_name(
                     getattr(prebuilt, "settlement_type", None)
                 ),
@@ -3653,9 +3751,16 @@ def run_backtest(
                     p_lot = futures_template.lot_size
 
             p_opt_type = _parse_option_type(i_conf.option_type)
+            p_option_margin_model = _parse_option_margin_model(
+                i_conf.option_margin_model
+                if i_conf.option_margin_model is not None
+                else ("CHINA_SINGLE_LEG" if p_asset_type == AssetType.Option else None)
+            )
             p_strike = i_conf.strike_price
             p_expiry = _normalize_expiry_date_yyyymmdd(i_conf.expiry_date)
             p_underlying = i_conf.underlying_symbol
+            p_implied_volatility = i_conf.implied_volatility
+            p_reference_volatility = i_conf.reference_volatility
             p_settlement_type, p_settlement_mode = _parse_settlement_type(
                 i_conf.settlement_type
             )
@@ -3698,9 +3803,16 @@ def run_backtest(
                 p_lot = float(current_lot_size or 1.0)
 
             p_opt_type = default_option_type
+            p_option_margin_model = _parse_option_margin_model(
+                default_option_margin_model
+                if default_option_margin_model is not None
+                else ("CHINA_SINGLE_LEG" if p_asset_type == AssetType.Option else None)
+            )
             p_strike = default_strike_price
             p_expiry = default_expiry_date
             p_underlying = None
+            p_implied_volatility = default_implied_volatility
+            p_reference_volatility = default_reference_volatility
             p_settlement_type, p_settlement_mode = _parse_settlement_type(
                 default_settlement_type
             )
@@ -3711,6 +3823,10 @@ def run_backtest(
             p_settlement_type = None
             p_settlement_mode = None
             p_settlement_price = None
+        if p_asset_type != AssetType.Option:
+            p_option_margin_model = None
+            p_implied_volatility = None
+            p_reference_volatility = None
         if (
             p_settlement_mode == "SETTLEMENT_PRICE"
             and p_settlement_price is None
@@ -3741,6 +3857,9 @@ def run_backtest(
             p_underlying,
             p_settlement_type,
             p_settlement_price,
+            p_option_margin_model,
+            p_implied_volatility,
+            p_reference_volatility,
         )
         engine.add_instrument(instr)
         instrument_snapshots[sym] = InstrumentSnapshot(
@@ -3748,12 +3867,25 @@ def run_backtest(
             asset_type=_asset_type_to_upper_name(p_asset_type),
             multiplier=float(p_multiplier),
             margin_ratio=float(p_margin),
+            option_margin_model=_option_margin_model_to_upper_name(
+                p_option_margin_model
+            ),
             tick_size=float(p_tick),
             lot_size=float(p_lot_f),
             option_type=_option_type_to_upper_name(p_opt_type),
             strike_price=float(p_strike) if p_strike is not None else None,
             expiry_date=p_expiry,
             underlying_symbol=str(p_underlying) if p_underlying is not None else None,
+            implied_volatility=(
+                float(p_implied_volatility)
+                if p_implied_volatility is not None
+                else None
+            ),
+            reference_volatility=(
+                float(p_reference_volatility)
+                if p_reference_volatility is not None
+                else None
+            ),
             settlement_type=p_settlement_mode,
             settlement_price=(
                 float(p_settlement_price) if p_settlement_price is not None else None

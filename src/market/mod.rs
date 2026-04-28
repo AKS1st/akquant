@@ -141,11 +141,14 @@ mod tests {
                 multiplier: Decimal::from(1),
                 margin_ratio: Decimal::from_str("0.2").unwrap(),
                 tick_size: Decimal::from_str("0.0001").unwrap(),
+                option_margin_model: crate::model::OptionMarginModel::ChinaSingleLeg,
                 strike_price: Decimal::from(2),
                 option_type: crate::model::OptionType::Call,
                 expiry_date: 20260131,
                 underlying_symbol: "510050.SH".to_string(),
                 settlement_type: None,
+                implied_volatility: None,
+                reference_volatility: None,
             }),
         };
 

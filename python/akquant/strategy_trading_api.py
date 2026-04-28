@@ -761,6 +761,35 @@ def _stock_margin_ratio(strategy: Any, margin_ratio: float) -> float:
     return ratio
 
 
+def _option_margin_model_name(inst: Any) -> str:
+    value = getattr(inst, "option_margin_model", None)
+    if value is None:
+        return "RATIO"
+    return str(value).strip().upper()
+
+
+def _calc_single_leg_option_margin(
+    option_type: str,
+    option_price: float,
+    strike_price: float,
+    underlying_price: float,
+    exposure_ratio: float,
+    floor_ratio: float,
+) -> float:
+    option_price = abs(float(option_price))
+    strike_price = abs(float(strike_price))
+    underlying_price = abs(float(underlying_price))
+    if option_type == "CALL":
+        otm = max(strike_price - underlying_price, 0.0)
+        floor_base = underlying_price
+    else:
+        otm = max(underlying_price - strike_price, 0.0)
+        floor_base = strike_price
+    exposure_component = max(underlying_price * exposure_ratio - otm, 0.0)
+    floor_component = floor_base * floor_ratio
+    return option_price + max(exposure_component, floor_component)
+
+
 def _calc_position_margin(strategy: Any, symbol: str, quantity: float) -> float:
     if quantity == 0.0:
         return 0.0
@@ -787,10 +816,49 @@ def _calc_position_margin(strategy: Any, symbol: str, quantity: float) -> float:
             if underlying_symbol
             else 0.0
         )
-        if underlying_price > 0.0:
-            margin_per_unit = price + underlying_price * margin_ratio
+        option_type = str(getattr(inst, "option_type", "CALL")).upper()
+        strike_price = float(getattr(inst, "strike_price", 0.0) or 0.0)
+        margin_model = _option_margin_model_name(inst)
+        if underlying_price <= 0.0 or margin_model == "RATIO":
+            if underlying_price > 0.0:
+                margin_per_unit = price + underlying_price * margin_ratio
+            else:
+                margin_per_unit = price * (1.0 + margin_ratio)
+        elif margin_model == "CHINA_SINGLE_LEG":
+            margin_per_unit = _calc_single_leg_option_margin(
+                option_type,
+                price,
+                strike_price,
+                underlying_price,
+                0.12,
+                0.07,
+            )
+        elif margin_model == "US_BROKER_SINGLE_LEG":
+            margin_per_unit = _calc_single_leg_option_margin(
+                option_type,
+                price,
+                strike_price,
+                underlying_price,
+                0.20,
+                0.10,
+            )
+        elif margin_model == "US_BROKER_SINGLE_LEG_VOL_ADJUSTED":
+            margin_per_unit = _calc_single_leg_option_margin(
+                option_type,
+                price,
+                strike_price,
+                underlying_price,
+                0.20,
+                0.10,
+            )
+            implied_volatility = float(getattr(inst, "implied_volatility", 0.0) or 0.0)
+            reference_volatility = float(
+                getattr(inst, "reference_volatility", 0.0) or 0.0
+            )
+            if reference_volatility > 0.0 and implied_volatility > 0.0:
+                margin_per_unit *= 1.0 + implied_volatility / reference_volatility
         else:
-            margin_per_unit = price * (1.0 + margin_ratio)
+            raise ValueError(f"Unsupported option_margin_model: {margin_model}")
         return max(margin_per_unit, 0.0) * multiplier * abs(qty)
 
     if asset_type in {"STOCK", "FUND"}:

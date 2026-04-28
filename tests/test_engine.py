@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import akquant
+import akquant.strategy_trading_api as strategy_trading_api
 import numpy as np
 import pandas as pd
 import pytest
@@ -5185,7 +5186,14 @@ def test_strategy_get_instrument_config_snapshot() -> None:
                 "single": self.get_instrument_field("OPT_META", "expiry_date"),
                 "multi": self.get_instrument_config(
                     "OPT_META",
-                    fields=["asset_type", "option_type", "multiplier"],
+                    fields=[
+                        "asset_type",
+                        "option_type",
+                        "option_margin_model",
+                        "implied_volatility",
+                        "reference_volatility",
+                        "multiplier",
+                    ],
                 ),
                 "all_count": len(self.get_instruments()),
                 "symbol": self.get_instrument("OPT_META").symbol,
@@ -5207,6 +5215,9 @@ def test_strategy_get_instrument_config_snapshot() -> None:
                 strike_price=2.5,
                 underlying_symbol="510050.SH",
                 expiry_date=date(2026, 1, 31),
+                option_margin_model="US_BROKER_SINGLE_LEG_VOL_ADJUSTED",
+                implied_volatility=0.3,
+                reference_volatility=0.2,
                 multiplier=10.0,
             )
         ],
@@ -5226,7 +5237,45 @@ def test_strategy_get_instrument_config_snapshot() -> None:
     multi = cast(dict[str, Any], strategy.snapshot["multi"])
     assert multi["asset_type"] == "OPTION"
     assert multi["option_type"] == "CALL"
+    assert multi["option_margin_model"] == "US_BROKER_SINGLE_LEG_VOL_ADJUSTED"
+    assert multi["implied_volatility"] == pytest.approx(0.3, rel=1e-12)
+    assert multi["reference_volatility"] == pytest.approx(0.2, rel=1e-12)
     assert multi["multiplier"] == pytest.approx(10.0, rel=1e-12)
+
+
+def test_strategy_trading_api_calc_position_margin_matches_vol_adjusted_model() -> None:
+    """Python strategy helper should match vol-adjusted option margin formula."""
+
+    class DummyStrategy:
+        def __init__(self) -> None:
+            self.ctx = None
+            self.current_bar = None
+            self.current_tick = None
+            self._last_prices = {"OPT_P": 4.0, "UL": 95.0}
+            self._inst = akquant.InstrumentSnapshot(
+                symbol="OPT_P",
+                asset_type="OPTION",
+                multiplier=100.0,
+                margin_ratio=0.2,
+                tick_size=0.01,
+                lot_size=1.0,
+                option_margin_model="US_BROKER_SINGLE_LEG_VOL_ADJUSTED",
+                option_type="PUT",
+                strike_price=100.0,
+                expiry_date=20260131,
+                underlying_symbol="UL",
+                implied_volatility=0.3,
+                reference_volatility=0.2,
+            )
+
+        def get_instrument(self, symbol: str) -> akquant.InstrumentSnapshot:
+            assert symbol == "OPT_P"
+            return self._inst
+
+    strategy = DummyStrategy()
+    margin = strategy_trading_api._calc_position_margin(strategy, "OPT_P", -1.0)
+
+    assert margin == pytest.approx(5750.0, rel=1e-12)
 
 
 def test_run_backtest_settlement_price_mode_requires_price() -> None:
@@ -5462,16 +5511,30 @@ def test_instrument_config_rejects_invalid_option_type() -> None:
         )
 
 
+def test_instrument_config_rejects_invalid_option_margin_model() -> None:
+    """InstrumentConfig should reject unsupported option_margin_model."""
+    with pytest.raises(ValueError, match="Unsupported option_margin_model"):
+        _ = akquant.InstrumentConfig(
+            symbol="BAD_MARGIN_MODEL",
+            asset_type="OPTION",
+            option_margin_model=cast(Any, "BROKER_MAGIC"),
+        )
+
+
 def test_instrument_config_accepts_enum_inputs() -> None:
     """InstrumentConfig should accept public enum inputs."""
     conf = akquant.InstrumentConfig(
         symbol="ENUM_OK",
         asset_type=akquant.InstrumentAssetTypeEnum.FUTURES,
         option_type=akquant.InstrumentOptionTypeEnum.CALL,
+        option_margin_model=(
+            akquant.InstrumentOptionMarginModelEnum.US_BROKER_SINGLE_LEG_VOL_ADJUSTED
+        ),
         settlement_type=akquant.InstrumentSettlementTypeEnum.CASH,
     )
     assert conf.asset_type == "FUTURES"
     assert conf.option_type == "CALL"
+    assert conf.option_margin_model == "US_BROKER_SINGLE_LEG_VOL_ADJUSTED"
     assert conf.settlement_type == "cash"
 
 

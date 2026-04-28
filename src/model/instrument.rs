@@ -1,5 +1,5 @@
 use super::market_data::extract_decimal;
-use super::types::{AssetType, OptionType, SettlementType};
+use super::types::{AssetType, OptionMarginModel, OptionType, SettlementType};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::*;
@@ -37,6 +37,7 @@ fn validate_instrument_inputs(
     strike_price: Option<Decimal>,
     underlying_symbol: Option<&str>,
     settlement_price: Option<Decimal>,
+    reference_volatility: Option<Decimal>,
 ) -> PyResult<()> {
     if symbol.trim().is_empty() {
         return Err(validation_err("symbol must not be empty"));
@@ -47,6 +48,9 @@ fn validate_instrument_inputs(
     ensure_non_negative(margin_ratio, "margin_ratio")?;
     if let Some(v) = settlement_price {
         ensure_positive(v, "settlement_price")?;
+    }
+    if let Some(v) = reference_volatility {
+        ensure_positive(v, "reference_volatility")?;
     }
     if asset_type == AssetType::Option {
         if let Some(v) = strike_price {
@@ -100,11 +104,14 @@ pub struct OptionInstrument {
     pub multiplier: Decimal,
     pub margin_ratio: Decimal,
     pub tick_size: Decimal,
+    pub option_margin_model: OptionMarginModel,
     pub option_type: OptionType,
     pub strike_price: Decimal,
     pub expiry_date: u32,
     pub underlying_symbol: String,
     pub settlement_type: Option<SettlementType>,
+    pub implied_volatility: Option<Decimal>,
+    pub reference_volatility: Option<Decimal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,7 +174,7 @@ impl Instrument {
     /// :param settlement_type: 结算方式 (可选)
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (symbol, asset_type, multiplier=None, margin_ratio=None, tick_size=None, option_type=None, strike_price=None, expiry_date=None, lot_size=None, underlying_symbol=None, settlement_type=None, settlement_price=None))]
+    #[pyo3(signature = (symbol, asset_type, multiplier=None, margin_ratio=None, tick_size=None, option_type=None, strike_price=None, expiry_date=None, lot_size=None, underlying_symbol=None, settlement_type=None, settlement_price=None, option_margin_model=None, implied_volatility=None, reference_volatility=None))]
     pub fn new(
         symbol: String,
         asset_type: AssetType,
@@ -181,6 +188,9 @@ impl Instrument {
         underlying_symbol: Option<String>,
         settlement_type: Option<SettlementType>,
         settlement_price: Option<&Bound<'_, PyAny>>,
+        option_margin_model: Option<OptionMarginModel>,
+        implied_volatility: Option<&Bound<'_, PyAny>>,
+        reference_volatility: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let clean_symbol = symbol.trim().to_string();
         let multiplier_val = multiplier
@@ -201,6 +211,8 @@ impl Instrument {
             .unwrap_or(Decimal::ONE);
         let settlement_price_val = settlement_price.map(extract_decimal).transpose()?;
         let strike_price_val = strike_price.map(extract_decimal).transpose()?;
+        let implied_volatility_val = implied_volatility.map(extract_decimal).transpose()?;
+        let reference_volatility_val = reference_volatility.map(extract_decimal).transpose()?;
         let underlying_symbol_value = underlying_symbol.as_deref();
         validate_instrument_inputs(
             &clean_symbol,
@@ -212,6 +224,7 @@ impl Instrument {
             strike_price_val,
             underlying_symbol_value,
             settlement_price_val,
+            reference_volatility_val,
         )?;
 
         let inner = match asset_type {
@@ -240,11 +253,14 @@ impl Instrument {
                 multiplier: multiplier_val,
                 margin_ratio: margin_val,
                 tick_size: tick_val,
+                option_margin_model: option_margin_model.unwrap_or_default(),
                 option_type: option_type.unwrap_or(OptionType::Call),
                 strike_price: strike_price_val.unwrap_or(Decimal::ZERO),
                 expiry_date: expiry_date.unwrap_or(0),
                 underlying_symbol: underlying_symbol.unwrap_or_default(),
                 settlement_type,
+                implied_volatility: implied_volatility_val,
+                reference_volatility: reference_volatility_val,
             }),
             AssetType::Crypto => InstrumentEnum::Crypto(CryptoInstrument {
                 symbol: clean_symbol.clone(),
@@ -286,6 +302,21 @@ impl Instrument {
     #[getter]
     pub fn get_tick_size(&self) -> f64 {
         self.tick_size().to_f64().unwrap_or(0.01)
+    }
+
+    #[getter]
+    pub fn get_option_margin_model(&self) -> Option<OptionMarginModel> {
+        self.option_margin_model()
+    }
+
+    #[getter]
+    pub fn get_implied_volatility(&self) -> Option<f64> {
+        self.implied_volatility().and_then(|v| v.to_f64())
+    }
+
+    #[getter]
+    pub fn get_reference_volatility(&self) -> Option<f64> {
+        self.reference_volatility().and_then(|v| v.to_f64())
     }
 }
 
@@ -372,6 +403,27 @@ impl Instrument {
         }
     }
 
+    pub fn option_margin_model(&self) -> Option<OptionMarginModel> {
+        match &self.inner {
+            InstrumentEnum::Option(o) => Some(o.option_margin_model),
+            _ => None,
+        }
+    }
+
+    pub fn implied_volatility(&self) -> Option<Decimal> {
+        match &self.inner {
+            InstrumentEnum::Option(o) => o.implied_volatility,
+            _ => None,
+        }
+    }
+
+    pub fn reference_volatility(&self) -> Option<Decimal> {
+        match &self.inner {
+            InstrumentEnum::Option(o) => o.reference_volatility,
+            _ => None,
+        }
+    }
+
     pub fn settlement_type(&self) -> Option<SettlementType> {
         match &self.inner {
             InstrumentEnum::Futures(f) => f.settlement_type,
@@ -404,6 +456,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert!(result.is_err());
     }
@@ -417,6 +470,7 @@ mod tests {
             Decimal::ONE,
             Decimal::ZERO,
             Decimal::ONE,
+            None,
             None,
             None,
             None,
@@ -437,6 +491,9 @@ mod tests {
             Some(20260101),
             None,
             Some("".to_string()),
+            None,
+            None,
+            None,
             None,
             None,
         );

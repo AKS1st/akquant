@@ -1,6 +1,7 @@
 from typing import Any
 
 import pandas as pd
+import pytest
 from akquant import (
     BacktestConfig,
     Bar,
@@ -214,6 +215,91 @@ def test_short_option_margin_is_checked_and_account_margin_updates() -> None:
     assert not result.margin_curve.empty
     assert len(result.margin_curve) == len(result.equity_curve)
     assert float(result.margin_curve.max()) > 0.0
+
+
+def test_vol_adjusted_short_option_margin_is_checked() -> None:
+    """Vol-adjusted short option should consume higher margin.
+
+    The next leg should therefore be rejected.
+    """
+
+    class VolAdjustedShortPutStrategy(Strategy):
+        account_snapshots: list[dict[str, float]] = []
+
+        def __init__(self) -> None:
+            self.order_count = 0
+
+        def on_bar(self, bar: Bar) -> None:
+            if bar.symbol != "PUT_VOL":
+                return
+            if self.order_count < 2:
+                self.sell("PUT_VOL", 1)
+                self.order_count += 1
+
+        def on_trade(self, trade: Any) -> None:
+            self.__class__.account_snapshots.append(self.get_account())
+
+    dates = pd.date_range("2023-12-01 09:30", "2023-12-01 09:32", freq="1min")
+    data_opt = pd.DataFrame(
+        {
+            "timestamp": dates,
+            "open": 4.0,
+            "high": 4.0,
+            "low": 4.0,
+            "close": 4.0,
+            "volume": 100,
+            "symbol": "PUT_VOL",
+        }
+    )
+    data_ul = pd.DataFrame(
+        {
+            "timestamp": dates,
+            "open": 95.0,
+            "high": 95.0,
+            "low": 95.0,
+            "close": 95.0,
+            "volume": 1000,
+            "symbol": "UL",
+        }
+    )
+    VolAdjustedShortPutStrategy.account_snapshots = []
+    result = run_backtest(
+        data={"PUT_VOL": data_opt, "UL": data_ul},
+        strategy=VolAdjustedShortPutStrategy,
+        show_progress=False,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        config=BacktestConfig(
+            strategy_config=StrategyConfig(
+                initial_cash=6000.0,
+                commission_rate=0.0,
+                risk=RiskConfig(check_cash=True, safety_margin=0.0001),
+            ),
+            instruments_config=[
+                InstrumentConfig(
+                    symbol="PUT_VOL",
+                    asset_type="OPTION",
+                    multiplier=100,
+                    margin_ratio=0.2,
+                    option_type="PUT",
+                    strike_price=100,
+                    expiry_date=20231201,
+                    underlying_symbol="UL",
+                    option_margin_model="US_BROKER_SINGLE_LEG_VOL_ADJUSTED",
+                    implied_volatility=0.3,
+                    reference_volatility=0.2,
+                ),
+                InstrumentConfig(symbol="UL", asset_type="STOCK"),
+            ],
+        ),
+    )
+
+    reasons = _reject_reasons(result)
+    assert any("Insufficient margin" in r for r in reasons), reasons
+    assert VolAdjustedShortPutStrategy.account_snapshots
+    sell_rows = result.orders_df[result.orders_df["side"].astype(str) == "sell"]
+    assert float(sell_rows["filled_quantity"].sum()) == pytest.approx(1.0, rel=1e-12)
+    assert not result.margin_curve.empty
+    assert float(result.margin_curve.max()) >= 5750.0
 
 
 def test_margin_account_allows_short_sell_when_enabled() -> None:

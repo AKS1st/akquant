@@ -1,6 +1,4 @@
-use crate::margin::{
-    FuturesMarginCalculator, LinearMarginCalculator, MarginCalculator, OptionMarginCalculator,
-};
+use crate::margin::MarginEngine;
 use crate::model::Instrument;
 use crate::model::market_data::extract_decimal;
 use pyo3::prelude::*;
@@ -39,7 +37,7 @@ pub struct Portfolio {
 fn test_portfolio_calculate_margin() {
     use crate::model::Instrument;
     use crate::model::instrument::{FuturesInstrument, InstrumentEnum, OptionInstrument};
-    use crate::model::types::{AssetType, OptionType};
+    use crate::model::types::{AssetType, OptionMarginModel, OptionType};
     use std::str::FromStr;
     use std::sync::Arc;
 
@@ -86,36 +84,44 @@ fn test_portfolio_calculate_margin() {
             multiplier: Decimal::from(100),
             margin_ratio: Decimal::from_str("0.2").unwrap(),
             tick_size: Decimal::from_str("0.01").unwrap(),
+            option_margin_model: OptionMarginModel::ChinaSingleLeg,
             option_type: OptionType::Call,
             strike_price: Decimal::from(100),
             expiry_date: 20240101,
             underlying_symbol: "UNDERLYING".to_string(),
             settlement_type: None,
+            implied_volatility: None,
+            reference_volatility: None,
         }),
     };
     instruments.insert("OPT_LONG".to_string(), opt_long);
 
-    // Option Short: (Price + Underlying * MarginRatio) * Multiplier * Qty
-    // MarginRatio = 0.2 (default for option instrument logic if not set? Oh wait, OptionInstrument struct doesn't have margin_ratio field explicitly shown in my previous read but Instrument.margin_ratio() method exists. Let's check Instrument impl.)
-    // Actually Instrument struct has margin_ratio? Let's check model/instrument.rs again.
-    // Wait, OptionInstrument struct in model/instrument.rs does NOT have margin_ratio.
-    // Instrument struct has margin_ratio? No, Instrument struct has `asset_type` and `inner`.
-    // Wait, let me check `Instrument` struct definition in `src/model/instrument.rs`.
-    // It seems `Instrument` wrapper might not expose margin_ratio for Option if it's not in OptionInstrument.
-    // Let's check `Instrument::margin_ratio()` implementation.
-
-    // Assuming default behavior or field presence.
-    // For now, let's just check Futures margin which is standard.
+    // Short call: (50 + max(100 * 0.12, 100 * 0.07)) * 100 * 2 = 12,400
+    let opt_short = Instrument {
+        asset_type: AssetType::Option,
+        inner: InstrumentEnum::Option(OptionInstrument {
+            symbol: "OPT_SHORT".to_string(),
+            multiplier: Decimal::from(100),
+            margin_ratio: Decimal::from_str("0.2").unwrap(),
+            tick_size: Decimal::from_str("0.01").unwrap(),
+            option_margin_model: OptionMarginModel::ChinaSingleLeg,
+            option_type: OptionType::Call,
+            strike_price: Decimal::from(100),
+            expiry_date: 20240101,
+            underlying_symbol: "UNDERLYING".to_string(),
+            settlement_type: None,
+            implied_volatility: None,
+            reference_volatility: None,
+        }),
+    };
+    instruments.insert("OPT_SHORT".to_string(), opt_short);
 
     let used_margin = portfolio.calculate_used_margin(&prices, &instruments);
 
     // Futures: 30,000
     // Long Option: 0
-    // Short Option: ??? (Depends on implementation details of margin_ratio for Option)
-    // If Option doesn't support margin_ratio, it might default to 1.0 or 0.0?
-
-    // Let's assert at least Futures part is correct (>= 30000)
-    assert!(used_margin >= Decimal::from(30000));
+    // Short Option: 12,400
+    assert_eq!(used_margin, Decimal::from(42400));
 }
 
 #[pymethods]
@@ -234,43 +240,21 @@ impl Portfolio {
         prices: &HashMap<String, Decimal>,
         instruments: &HashMap<String, Instrument>,
     ) -> Decimal {
-        use crate::model::types::AssetType;
+        MarginEngine::used_margin(&self.positions, prices, instruments, None)
+    }
 
-        let mut used_margin = Decimal::ZERO;
-
-        // Stateless calculators (could be instance fields if state was needed)
-        let linear_calc = LinearMarginCalculator;
-        let futures_calc = FuturesMarginCalculator;
-        let option_calc = OptionMarginCalculator;
-
-        for (symbol, quantity) in self.positions.iter() {
-            if !quantity.is_zero()
-                && let Some(price) = prices.get(symbol)
-            {
-                if let Some(instr) = instruments.get(symbol) {
-                    let margin = match instr.asset_type {
-                        AssetType::Option => {
-                            // Get underlying price for option margin calculation
-                            let underlying_price = if let Some(us) = instr.underlying_symbol() {
-                                prices.get(us.as_str()).cloned()
-                            } else {
-                                None
-                            };
-                            option_calc.calculate_margin(*quantity, *price, instr, underlying_price)
-                        }
-                        AssetType::Futures => {
-                            futures_calc.calculate_margin(*quantity, *price, instr, None)
-                        }
-                        _ => linear_calc.calculate_margin(*quantity, *price, instr, None),
-                    };
-                    used_margin = checked_add_or_cap(used_margin, margin);
-                } else {
-                    let position_value = checked_mul_or_cap(quantity.abs(), price.abs());
-                    used_margin = checked_add_or_cap(used_margin, position_value);
-                }
-            }
-        }
-        used_margin
+    pub fn calculate_used_margin_with_stock_ratio(
+        &self,
+        prices: &HashMap<String, Decimal>,
+        instruments: &HashMap<String, Instrument>,
+        stock_margin_ratio_override: Option<Decimal>,
+    ) -> Decimal {
+        MarginEngine::used_margin(
+            &self.positions,
+            prices,
+            instruments,
+            stock_margin_ratio_override,
+        )
     }
 
     /// Calculate free margin (Equity - Used Margin)
@@ -281,6 +265,18 @@ impl Portfolio {
     ) -> Decimal {
         let equity = self.calculate_equity(prices, instruments);
         let used_margin = self.calculate_used_margin(prices, instruments);
+        equity - used_margin
+    }
+
+    pub fn calculate_free_margin_with_stock_ratio(
+        &self,
+        prices: &HashMap<String, Decimal>,
+        instruments: &HashMap<String, Instrument>,
+        stock_margin_ratio_override: Option<Decimal>,
+    ) -> Decimal {
+        let equity = self.calculate_equity(prices, instruments);
+        let used_margin =
+            self.calculate_used_margin_with_stock_ratio(prices, instruments, stock_margin_ratio_override);
         equity - used_margin
     }
 }

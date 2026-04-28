@@ -178,8 +178,16 @@ impl ExecutionClient for SimulatedExecutionClient {
 
         // Track available margin for this step (snapshot of portfolio + changes in this loop)
         let mut projected_portfolio = ctx.portfolio.clone();
-        let mut current_free_margin =
-            projected_portfolio.calculate_free_margin(ctx.last_prices, ctx.instruments);
+        let stock_margin_ratio_override = if ctx.risk_config.is_margin_account() {
+            Some(ctx.risk_config.stock_initial_margin_ratio())
+        } else {
+            None
+        };
+        let mut current_free_margin = projected_portfolio.calculate_free_margin_with_stock_ratio(
+            ctx.last_prices,
+            ctx.instruments,
+            stock_margin_ratio_override,
+        );
 
         let mut queue: Vec<String> = self.order_queue.clone();
         queue.sort_by_key(|order_id| {
@@ -225,8 +233,10 @@ impl ExecutionClient for SimulatedExecutionClient {
                             let mut replacement_report: Option<Event> = None;
                             if let Event::ExecutionReport(ref mut report_order, Some(ref mut trade)) =
                                 report
-                                && trade.side == crate::model::OrderSide::Buy
                             {
+                                let mut prices_for_margin = ctx.last_prices.clone();
+                                prices_for_margin.insert(trade.symbol.clone(), trade.price);
+
                                 // Calculate estimated commission
                                 let commission = ctx.market_model.calculate_commission(
                                     instrument,
@@ -235,59 +245,88 @@ impl ExecutionClient for SimulatedExecutionClient {
                                     trade.quantity,
                                 );
 
-                                let multiplier = instrument.multiplier();
-                                let margin_ratio = if ctx.risk_config.is_margin_account()
-                                    && (instrument.asset_type == AssetType::Stock
-                                        || instrument.asset_type == AssetType::Fund)
-                                {
-                                    ctx.risk_config.stock_initial_margin_ratio()
-                                } else {
-                                    instrument.margin_ratio()
-                                };
-
-                                // Margin Required = Price * Qty * Multiplier * MarginRatio
+                                let base_used_margin =
+                                    projected_portfolio.calculate_used_margin_with_stock_ratio(
+                                        &prices_for_margin,
+                                        ctx.instruments,
+                                        stock_margin_ratio_override,
+                                    );
+                                let mut margin_projection = projected_portfolio.clone();
+                                match trade.side {
+                                    crate::model::OrderSide::Buy => {
+                                        margin_projection.adjust_position(
+                                            &trade.symbol,
+                                            trade.quantity,
+                                        );
+                                    }
+                                    crate::model::OrderSide::Sell => {
+                                        margin_projection.adjust_position(
+                                            &trade.symbol,
+                                            -trade.quantity,
+                                        );
+                                    }
+                                }
+                                let next_used_margin =
+                                    margin_projection.calculate_used_margin_with_stock_ratio(
+                                        &prices_for_margin,
+                                        ctx.instruments,
+                                        stock_margin_ratio_override,
+                                    );
                                 let margin_required =
-                                    trade.price * trade.quantity * multiplier * margin_ratio;
+                                    (next_used_margin - base_used_margin).max(Decimal::ZERO);
                                 let total_required = margin_required + commission;
 
                                 if total_required > current_free_margin {
                                     if report_order.allow_quantity_auto_resize {
-                                        let unit_margin = trade.price * multiplier * margin_ratio;
-                                        let mut max_qty = if unit_margin > Decimal::ZERO {
-                                            if current_free_margin <= Decimal::ZERO {
-                                                Decimal::ZERO
-                                            } else {
-                                                current_free_margin / unit_margin
-                                            }
+                                        let lot_size = instrument.lot_size();
+                                        let safety_factor = Decimal::from_f64(0.9999)
+                                            .unwrap_or(Decimal::ONE);
+                                        let mut new_qty = if total_required > Decimal::ZERO
+                                            && current_free_margin > Decimal::ZERO
+                                        {
+                                            (trade.quantity
+                                                * current_free_margin
+                                                * safety_factor
+                                                / total_required)
+                                                .floor()
                                         } else {
                                             Decimal::ZERO
                                         };
-
-                                        let safety_margin = 0.0001;
-                                        let safety_factor = Decimal::from_f64(1.0 - safety_margin)
-                                            .unwrap_or_else(|| {
-                                                log::warn!("Invalid safety factor calculation, defaulting to 0.9999");
-                                                Decimal::from_f64(0.9999).unwrap_or(Decimal::ZERO)
-                                            });
-                                        max_qty *= safety_factor;
-
-                                        let lot_size = instrument.lot_size();
-                                        let mut new_qty = max_qty.floor();
                                         if lot_size > Decimal::ZERO {
                                             new_qty = new_qty - (new_qty % lot_size);
                                         }
+                                        if new_qty >= trade.quantity && lot_size > Decimal::ZERO {
+                                            new_qty -= lot_size;
+                                        }
 
-                                        let new_comm = ctx.market_model.calculate_commission(
-                                            instrument,
-                                            trade.side,
-                                            trade.price,
-                                            new_qty,
-                                        );
-                                        let new_margin =
-                                            trade.price * new_qty * multiplier * margin_ratio;
-
-                                        if new_margin + new_comm > current_free_margin {
-                                            if new_qty >= lot_size {
+                                        while new_qty > Decimal::ZERO {
+                                            let new_comm = ctx.market_model.calculate_commission(
+                                                instrument,
+                                                trade.side,
+                                                trade.price,
+                                                new_qty,
+                                            );
+                                            let mut resized_projection =
+                                                projected_portfolio.clone();
+                                            match trade.side {
+                                                crate::model::OrderSide::Buy => resized_projection
+                                                    .adjust_position(&trade.symbol, new_qty),
+                                                crate::model::OrderSide::Sell => resized_projection
+                                                    .adjust_position(&trade.symbol, -new_qty),
+                                            }
+                                            let resized_used_margin = resized_projection
+                                                .calculate_used_margin_with_stock_ratio(
+                                                    &prices_for_margin,
+                                                    ctx.instruments,
+                                                    stock_margin_ratio_override,
+                                                );
+                                            let resized_required = (resized_used_margin
+                                                - base_used_margin)
+                                                .max(Decimal::ZERO);
+                                            if resized_required + new_comm <= current_free_margin {
+                                                break;
+                                            }
+                                            if new_qty >= lot_size && lot_size > Decimal::ZERO {
                                                 new_qty -= lot_size;
                                             } else {
                                                 new_qty = Decimal::ZERO;
@@ -315,6 +354,8 @@ impl ExecutionClient for SimulatedExecutionClient {
                             if let Event::ExecutionReport(_, Some(ref trade)) = report
                                 && trade.quantity > Decimal::ZERO
                             {
+                                let mut prices_for_margin = ctx.last_prices.clone();
+                                prices_for_margin.insert(trade.symbol.clone(), trade.price);
                                 let commission = ctx.market_model.calculate_commission(
                                     instrument,
                                     trade.side,
@@ -333,7 +374,11 @@ impl ExecutionClient for SimulatedExecutionClient {
                                         .adjust_position(&trade.symbol, -trade.quantity);
                                 }
                                 current_free_margin = projected_portfolio
-                                    .calculate_free_margin(ctx.last_prices, ctx.instruments);
+                                    .calculate_free_margin_with_stock_ratio(
+                                        &prices_for_margin,
+                                        ctx.instruments,
+                                        stock_margin_ratio_override,
+                                    );
                             }
 
                             let mut keep_report = true;
@@ -492,6 +537,7 @@ mod tests {
 
         let china_config = crate::market::ChinaMarketConfig {
             stock: Some(crate::market::stock::StockConfig::default()),
+            option: Some(crate::market::option::OptionConfig::default()),
             ..Default::default()
         };
         let market_config = crate::market::MarketConfig::China(china_config);
@@ -572,6 +618,7 @@ mod tests {
 
         let china_config = crate::market::ChinaMarketConfig {
             stock: Some(crate::market::stock::StockConfig::default()),
+            option: Some(crate::market::option::OptionConfig::default()),
             ..Default::default()
         };
         let market_config = crate::market::MarketConfig::China(china_config);
@@ -643,6 +690,7 @@ mod tests {
 
         let china_config = crate::market::ChinaMarketConfig {
             stock: Some(crate::market::stock::StockConfig::default()),
+            option: Some(crate::market::option::OptionConfig::default()),
             ..Default::default()
         };
         let market_config = crate::market::MarketConfig::China(china_config);
@@ -819,5 +867,216 @@ mod tests {
         // Should be reduced to approx 400 shares (due to lot size 100 and safety margin)
         // 50000 / 100 = 500. 500 * 0.9999 = 499.95 -> floor to 400 (lot size 100)
         assert_eq!(trades[0].quantity, Decimal::from(400));
+    }
+
+    #[test]
+    fn test_dynamic_position_sizing_for_short_option_margin() {
+        use crate::model::instrument::{InstrumentEnum, OptionInstrument, StockInstrument};
+        use crate::model::{OptionMarginModel, OptionType};
+        use rust_decimal_macros::dec;
+
+        let mut sim = SimulatedExecutionClient::new();
+        let mut instruments = HashMap::new();
+        instruments.insert(
+            "OPT_P".to_string(),
+            Instrument {
+                asset_type: AssetType::Option,
+                inner: InstrumentEnum::Option(OptionInstrument {
+                    symbol: "OPT_P".to_string(),
+                    multiplier: dec!(100),
+                    margin_ratio: dec!(0.2),
+                    tick_size: dec!(0.01),
+                    option_margin_model: OptionMarginModel::USBrokerSingleLegVolAdjusted,
+                    option_type: OptionType::Put,
+                    strike_price: dec!(100),
+                    expiry_date: 20260101,
+                    underlying_symbol: "UL".to_string(),
+                    settlement_type: None,
+                    implied_volatility: Some(dec!(0.3)),
+                    reference_volatility: Some(dec!(0.2)),
+                }),
+            },
+        );
+        instruments.insert(
+            "UL".to_string(),
+            Instrument {
+                asset_type: AssetType::Stock,
+                inner: InstrumentEnum::Stock(StockInstrument {
+                    symbol: "UL".to_string(),
+                    lot_size: Decimal::from(100),
+                    tick_size: Decimal::new(1, 2),
+                    expiry_date: None,
+                }),
+            },
+        );
+
+        let mut order = create_test_order(
+            "OPT_P",
+            crate::model::OrderSide::Sell,
+            crate::model::OrderType::Market,
+            Decimal::from(2),
+            None,
+        );
+        order.allow_quantity_auto_resize = true;
+        sim.on_order(order);
+
+        let bar = create_test_bar("OPT_P", Decimal::from(4), Decimal::from(4), Decimal::from(4), Decimal::from(4));
+        let event = Event::Bar(bar);
+
+        let portfolio = crate::portfolio::Portfolio {
+            cash: Decimal::from(6000),
+            positions: HashMap::new().into(),
+            available_positions: HashMap::new().into(),
+        };
+        let mut last_prices = HashMap::new();
+        last_prices.insert("UL".to_string(), Decimal::from(95));
+        let risk_manager = crate::risk::RiskManager::new();
+
+        let china_config = crate::market::ChinaMarketConfig {
+            stock: Some(crate::market::stock::StockConfig::default()),
+            option: Some(crate::market::option::OptionConfig::default()),
+            ..Default::default()
+        };
+        let market_config = crate::market::MarketConfig::China(china_config);
+        let market_model = market_config.create_model();
+
+        let ctx = crate::context::EngineContext {
+            instruments: &instruments,
+            portfolio: &portfolio,
+            last_prices: &last_prices,
+            market_model: market_model.as_ref(),
+            execution_policy_core: ExecutionPolicyCore::default(),
+            bar_index: 0,
+            current_time: 0,
+            session: TradingSession::Continuous,
+            active_orders: &[],
+            risk_config: &risk_manager.config,
+        };
+
+        let events = sim.on_event(&event, &ctx);
+
+        let trades: Vec<_> = events
+            .iter()
+            .filter_map(|e| {
+                if let Event::ExecutionReport(_, Some(t)) = e {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(trades.len(), 1);
+        assert_eq!(trades[0].quantity, Decimal::ONE);
+        assert_eq!(trades[0].price, Decimal::from(4));
+    }
+
+    #[test]
+    fn test_short_option_rejected_when_margin_insufficient_without_resize() {
+        use crate::model::instrument::{InstrumentEnum, OptionInstrument, StockInstrument};
+        use crate::model::{OptionMarginModel, OptionType};
+        use rust_decimal_macros::dec;
+
+        let mut sim = SimulatedExecutionClient::new();
+        let mut instruments = HashMap::new();
+        instruments.insert(
+            "OPT_P".to_string(),
+            Instrument {
+                asset_type: AssetType::Option,
+                inner: InstrumentEnum::Option(OptionInstrument {
+                    symbol: "OPT_P".to_string(),
+                    multiplier: dec!(100),
+                    margin_ratio: dec!(0.2),
+                    tick_size: dec!(0.01),
+                    option_margin_model: OptionMarginModel::USBrokerSingleLegVolAdjusted,
+                    option_type: OptionType::Put,
+                    strike_price: dec!(100),
+                    expiry_date: 20260101,
+                    underlying_symbol: "UL".to_string(),
+                    settlement_type: None,
+                    implied_volatility: Some(dec!(0.3)),
+                    reference_volatility: Some(dec!(0.2)),
+                }),
+            },
+        );
+        instruments.insert(
+            "UL".to_string(),
+            Instrument {
+                asset_type: AssetType::Stock,
+                inner: InstrumentEnum::Stock(StockInstrument {
+                    symbol: "UL".to_string(),
+                    lot_size: Decimal::from(100),
+                    tick_size: Decimal::new(1, 2),
+                    expiry_date: None,
+                }),
+            },
+        );
+
+        let order = create_test_order(
+            "OPT_P",
+            crate::model::OrderSide::Sell,
+            crate::model::OrderType::Market,
+            Decimal::from(2),
+            None,
+        );
+        sim.on_order(order);
+
+        let bar = create_test_bar(
+            "OPT_P",
+            Decimal::from(4),
+            Decimal::from(4),
+            Decimal::from(4),
+            Decimal::from(4),
+        );
+        let event = Event::Bar(bar);
+
+        let portfolio = crate::portfolio::Portfolio {
+            cash: Decimal::from(6000),
+            positions: HashMap::new().into(),
+            available_positions: HashMap::new().into(),
+        };
+        let mut last_prices = HashMap::new();
+        last_prices.insert("UL".to_string(), Decimal::from(95));
+        let risk_manager = crate::risk::RiskManager::new();
+
+        let china_config = crate::market::ChinaMarketConfig {
+            stock: Some(crate::market::stock::StockConfig::default()),
+            option: Some(crate::market::option::OptionConfig::default()),
+            ..Default::default()
+        };
+        let market_config = crate::market::MarketConfig::China(china_config);
+        let market_model = market_config.create_model();
+
+        let ctx = crate::context::EngineContext {
+            instruments: &instruments,
+            portfolio: &portfolio,
+            last_prices: &last_prices,
+            market_model: market_model.as_ref(),
+            execution_policy_core: ExecutionPolicyCore::default(),
+            bar_index: 0,
+            current_time: 0,
+            session: TradingSession::Continuous,
+            active_orders: &[],
+            risk_config: &risk_manager.config,
+        };
+
+        let events = sim.on_event(&event, &ctx);
+
+        let reports: Vec<_> = events
+            .iter()
+            .filter_map(|e| {
+                if let Event::ExecutionReport(order, trade) = e {
+                    Some((order, trade))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(reports.len(), 1);
+        assert!(reports[0].1.is_none());
+        assert_eq!(reports[0].0.status, OrderStatus::Rejected);
+        assert!(reports[0]
+            .0
+            .reject_reason
+            .contains("Insufficient margin at execution"));
     }
 }

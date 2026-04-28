@@ -13,6 +13,12 @@ impl pyo3_stub_gen::PyStubType for OptionType {
     }
 }
 
+impl pyo3_stub_gen::PyStubType for OptionMarginModel {
+    fn type_output() -> pyo3_stub_gen::TypeInfo {
+        pyo3_stub_gen::TypeInfo::with_module("akquant.OptionMarginModel", "akquant".into())
+    }
+}
+
 impl pyo3_stub_gen::PyStubType for OrderType {
     fn type_output() -> pyo3_stub_gen::TypeInfo {
         pyo3_stub_gen::TypeInfo::with_module("akquant.OrderType", "akquant".into())
@@ -106,6 +112,24 @@ pub enum OptionType {
 
 #[pymethods]
 impl OptionType {
+    fn __hash__(&self) -> isize {
+        *self as isize
+    }
+}
+
+#[pyclass(eq, eq_int, from_py_object)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// 期权保证金模型
+pub enum OptionMarginModel {
+    Ratio,
+    #[default]
+    ChinaSingleLeg,
+    USBrokerSingleLeg,
+    USBrokerSingleLegVolAdjusted,
+}
+
+#[pymethods]
+impl OptionMarginModel {
     fn __hash__(&self) -> isize {
         *self as isize
     }

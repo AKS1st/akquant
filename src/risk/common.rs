@@ -214,7 +214,15 @@ impl RiskRule for CashMarginRule {
             }
 
             let free_margin =
-                projected_portfolio.calculate_free_margin(ctx.current_prices, ctx.instruments);
+                projected_portfolio.calculate_free_margin_with_stock_ratio(
+                    ctx.current_prices,
+                    ctx.instruments,
+                    if ctx.config.is_margin_account() {
+                        Some(ctx.config.stock_initial_margin_ratio())
+                    } else {
+                        None
+                    },
+                );
             let safety_margin = ctx.config.safety_margin;
             let safety_factor = Decimal::from_f64(1.0 - safety_margin)
                 .unwrap_or(Decimal::from_f64(0.9999).unwrap());
@@ -323,7 +331,15 @@ fn calc_required_margin_delta(
     }
 
     let mut projected_portfolio = portfolio.clone();
-    let base_used = projected_portfolio.calculate_used_margin(prices, ctx.instruments);
+    let base_used = projected_portfolio.calculate_used_margin_with_stock_ratio(
+        prices,
+        ctx.instruments,
+        if ctx.config.is_margin_account() {
+            Some(ctx.config.stock_initial_margin_ratio())
+        } else {
+            None
+        },
+    );
     if base_used == Decimal::MAX {
         return Err(risk_overflow_error(&order.symbol, "base_used_margin"));
     }
@@ -337,10 +353,149 @@ fn calc_required_margin_delta(
             OrderSide::Sell => *entry -= order.quantity,
         }
     }
-    let next_used = projected_portfolio.calculate_used_margin(prices, ctx.instruments);
+    let next_used = projected_portfolio.calculate_used_margin_with_stock_ratio(
+        prices,
+        ctx.instruments,
+        if ctx.config.is_margin_account() {
+            Some(ctx.config.stock_initial_margin_ratio())
+        } else {
+            None
+        },
+    );
     if next_used == Decimal::MAX {
         return Err(risk_overflow_error(&order.symbol, "next_used_margin"));
     }
     let delta = checked_sub_or_err(next_used, base_used, &order.symbol, "next_used - base_used")?;
     Ok(delta.max(Decimal::ZERO))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::margin::MarginEngine;
+    use crate::model::instrument::{InstrumentEnum, OptionInstrument, StockInstrument};
+    use crate::model::{Instrument, OptionMarginModel, OptionType, OrderType, TimeInForce};
+    use crate::portfolio::Portfolio;
+    use crate::risk::RiskConfig;
+    use rust_decimal_macros::dec;
+    use std::sync::Arc;
+
+    fn create_stock_instrument(symbol: &str) -> Instrument {
+        Instrument {
+            asset_type: AssetType::Stock,
+            inner: InstrumentEnum::Stock(StockInstrument {
+                symbol: symbol.to_string(),
+                lot_size: dec!(100),
+                tick_size: dec!(0.01),
+                expiry_date: None,
+            }),
+        }
+    }
+
+    fn create_china_short_put(symbol: &str, underlying_symbol: &str) -> Instrument {
+        Instrument {
+            asset_type: AssetType::Option,
+            inner: InstrumentEnum::Option(OptionInstrument {
+                symbol: symbol.to_string(),
+                multiplier: dec!(100),
+                margin_ratio: dec!(0.2),
+                tick_size: dec!(0.01),
+                option_margin_model: OptionMarginModel::ChinaSingleLeg,
+                option_type: OptionType::Put,
+                strike_price: dec!(100),
+                expiry_date: 20260101,
+                underlying_symbol: underlying_symbol.to_string(),
+                settlement_type: None,
+                implied_volatility: None,
+                reference_volatility: None,
+            }),
+        }
+    }
+
+    fn create_order(symbol: &str, side: OrderSide, quantity: Decimal, price: Decimal) -> Order {
+        let mut order = Order::test_new("test", symbol, side, OrderType::Limit, quantity);
+        order.price = Some(price);
+        order.time_in_force = TimeInForce::Day;
+        order.status = crate::model::OrderStatus::New;
+        order
+    }
+
+    #[test]
+    fn required_margin_delta_for_china_short_put_matches_margin_engine() {
+        let option = create_china_short_put("OPT_P", "510050.SH");
+        let mut instruments = HashMap::new();
+        instruments.insert("OPT_P".to_string(), option.clone());
+
+        let mut prices = HashMap::new();
+        prices.insert("OPT_P".to_string(), dec!(4));
+        prices.insert("510050.SH".to_string(), dec!(110));
+
+        let portfolio = Portfolio {
+            cash: dec!(100000),
+            positions: Arc::new(HashMap::new()),
+            available_positions: Arc::new(HashMap::new()),
+        };
+        let instrument_ref = instruments.get("OPT_P").unwrap();
+        let config = RiskConfig::new();
+        let ctx = RiskCheckContext {
+            portfolio: &portfolio,
+            instrument: instrument_ref,
+            instruments: &instruments,
+            active_orders: &[],
+            current_prices: &prices,
+            current_time: 0,
+            config: &config,
+        };
+        let order = create_order("OPT_P", OrderSide::Sell, dec!(1), dec!(4));
+
+        let required = calc_required_margin_delta(&order, &ctx, &prices, &portfolio).unwrap();
+        let expected =
+            MarginEngine::position_margin(dec!(-1), dec!(4), instrument_ref, &prices, None);
+
+        assert_eq!(required, dec!(1100));
+        assert_eq!(required, expected);
+    }
+
+    #[test]
+    fn cash_margin_rule_matches_execution_resize_boundary_for_stock_buys() {
+        let stock = create_stock_instrument("AAPL");
+        let mut instruments = HashMap::new();
+        instruments.insert("AAPL".to_string(), stock.clone());
+
+        let mut prices = HashMap::new();
+        prices.insert("AAPL".to_string(), dec!(100));
+
+        let portfolio = Portfolio {
+            cash: dec!(50000),
+            positions: Arc::new(HashMap::new()),
+            available_positions: Arc::new(HashMap::new()),
+        };
+        let instrument_ref = instruments.get("AAPL").unwrap();
+        let config = RiskConfig::new();
+        let ctx = RiskCheckContext {
+            portfolio: &portfolio,
+            instrument: instrument_ref,
+            instruments: &instruments,
+            active_orders: &[],
+            current_prices: &prices,
+            current_time: 0,
+            config: &config,
+        };
+        let rule = CashMarginRule;
+
+        let rejected = create_order("AAPL", OrderSide::Buy, dec!(500), dec!(100));
+        let accepted = create_order("AAPL", OrderSide::Buy, dec!(400), dec!(100));
+
+        let rejected_result = rule.check(&rejected, &ctx);
+        let accepted_result = rule.check(&accepted, &ctx);
+
+        assert!(rejected_result.is_err());
+        assert!(
+            rejected_result
+                .unwrap_err()
+                .to_string()
+                .contains("Insufficient margin")
+        );
+        assert!(accepted_result.is_ok());
+    }
 }

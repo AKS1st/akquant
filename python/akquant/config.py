@@ -65,6 +65,12 @@ config = BacktestConfig(
 InstrumentSettlementType = Literal["cash", "settlement_price", "force_close"]
 InstrumentAssetType = Literal["STOCK", "FUTURES", "FUND", "OPTION"]
 InstrumentOptionType = Literal["CALL", "PUT"]
+InstrumentOptionMarginModel = Literal[
+    "RATIO",
+    "CHINA_SINGLE_LEG",
+    "US_BROKER_SINGLE_LEG",
+    "US_BROKER_SINGLE_LEG_VOL_ADJUSTED",
+]
 
 
 class InstrumentAssetTypeEnum(str, Enum):
@@ -91,8 +97,20 @@ class InstrumentSettlementTypeEnum(str, Enum):
     FORCE_CLOSE = "force_close"
 
 
+class InstrumentOptionMarginModelEnum(str, Enum):
+    """Instrument option margin model enum."""
+
+    RATIO = "RATIO"
+    CHINA_SINGLE_LEG = "CHINA_SINGLE_LEG"
+    US_BROKER_SINGLE_LEG = "US_BROKER_SINGLE_LEG"
+    US_BROKER_SINGLE_LEG_VOL_ADJUSTED = "US_BROKER_SINGLE_LEG_VOL_ADJUSTED"
+
+
 InstrumentAssetTypeInput = Union[InstrumentAssetType, InstrumentAssetTypeEnum]
 InstrumentOptionTypeInput = Union[InstrumentOptionType, InstrumentOptionTypeEnum]
+InstrumentOptionMarginModelInput = Union[
+    InstrumentOptionMarginModel, InstrumentOptionMarginModelEnum
+]
 InstrumentSettlementTypeInput = Union[
     InstrumentSettlementType, InstrumentSettlementTypeEnum
 ]
@@ -106,7 +124,7 @@ class InstrumentConfig:
     Defines **Asset Properties**.
 
     *   **"What is it?"**: `symbol`, `asset_type`, `multiplier`
-    *   **"How much leverage?"**: `margin_ratio`
+    *   **"How much leverage?"**: `margin_ratio` / `option_margin_model`
     *   **"What costs?"**: `commission_rate` (overrides global), `slippage`
 
     **Core Properties:**
@@ -115,7 +133,7 @@ class InstrumentConfig:
                        Default "STOCK".
     :param multiplier: Contract multiplier. Default 1.0.
     :param margin_ratio: Margin ratio (e.g., 0.1 for 10% margin).
-                         Default 1.0 (No leverage).
+                         主要用于期货/线性资产；期权仅在 `RATIO` 模式下使用。
     :param tick_size: Minimum price movement. Default 0.01.
     :param lot_size: Minimum trading unit (round lot). Default None.
 
@@ -136,6 +154,9 @@ class InstrumentConfig:
     :param strike_price: Strike price.
     :param expiry_date: Expiry date. Supports int (YYYYMMDD), date/datetime.
     :param underlying_symbol: Underlying asset symbol.
+    :param option_margin_model: 期权保证金模型，默认 "CHINA_SINGLE_LEG"。
+    :param implied_volatility: 当前隐含波动率，用于波动率调整模式。
+    :param reference_volatility: 参考波动率，用于波动率调整模式。
     :param settlement_type: Settlement mode for expiry handling.
     :param settlement_price: Settlement price for expiry settlement mode.
     """
@@ -159,6 +180,9 @@ class InstrumentConfig:
     strike_price: Optional[float] = None
     expiry_date: Optional[Union[int, date, datetime]] = None
     underlying_symbol: Optional[str] = None
+    option_margin_model: Optional[InstrumentOptionMarginModelInput] = None
+    implied_volatility: Optional[float] = None
+    reference_volatility: Optional[float] = None
     settlement_type: Optional[InstrumentSettlementTypeInput] = None
     settlement_price: Optional[float] = None
     static_attrs: Dict[str, Union[str, int, float, bool]] = field(default_factory=dict)
@@ -184,6 +208,24 @@ class InstrumentConfig:
             )
             if self.option_type not in {"CALL", "PUT"}:
                 raise ValueError(f"Unsupported option_type: {self.option_type}")
+        if self.option_margin_model is not None:
+            margin_model_raw = (
+                self.option_margin_model.value
+                if isinstance(self.option_margin_model, Enum)
+                else self.option_margin_model
+            )
+            self.option_margin_model = cast(
+                InstrumentOptionMarginModel, str(margin_model_raw).strip().upper()
+            )
+            if self.option_margin_model not in {
+                "RATIO",
+                "CHINA_SINGLE_LEG",
+                "US_BROKER_SINGLE_LEG",
+                "US_BROKER_SINGLE_LEG_VOL_ADJUSTED",
+            }:
+                raise ValueError(
+                    f"Unsupported option_margin_model: {self.option_margin_model}"
+                )
         if self.settlement_type is not None:
             settlement_raw = (
                 self.settlement_type.value
@@ -197,6 +239,8 @@ class InstrumentConfig:
                 raise ValueError(f"Unsupported settlement_type: {self.settlement_type}")
         if self.lot_size is not None and self.lot_size <= 0:
             raise ValueError("lot_size must be > 0")
+        if self.reference_volatility is not None and self.reference_volatility <= 0:
+            raise ValueError("reference_volatility must be > 0")
 
 
 @dataclass

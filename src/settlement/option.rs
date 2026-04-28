@@ -109,11 +109,14 @@ mod tests {
                 multiplier: dec!(100),
                 margin_ratio: dec!(0.2),
                 tick_size: dec!(0.01),
+                option_margin_model: crate::model::OptionMarginModel::ChinaSingleLeg,
                 option_type,
                 strike_price: strike,
                 expiry_date,
                 underlying_symbol: "UNDERLYING".to_string(),
                 settlement_type: None,
+                implied_volatility: None,
+                reference_volatility: None,
             }),
         }
     }

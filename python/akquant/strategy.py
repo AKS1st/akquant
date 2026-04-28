@@ -198,6 +198,12 @@ class StrategyRuntimeConfig:
 InstrumentStaticValue = Union[str, int, float, bool]
 InstrumentAssetTypeName = Literal["STOCK", "FUTURES", "FUND", "OPTION"]
 InstrumentOptionTypeName = Literal["CALL", "PUT"]
+InstrumentOptionMarginModelName = Literal[
+    "RATIO",
+    "CHINA_SINGLE_LEG",
+    "US_BROKER_SINGLE_LEG",
+    "US_BROKER_SINGLE_LEG_VOL_ADJUSTED",
+]
 InstrumentSettlementMode = Literal["CASH", "SETTLEMENT_PRICE", "FORCE_CLOSE"]
 
 
@@ -256,10 +262,13 @@ class InstrumentSnapshot:
     margin_ratio: float
     tick_size: float
     lot_size: float
+    option_margin_model: Optional[InstrumentOptionMarginModelName] = None
     option_type: Optional[InstrumentOptionTypeName] = None
     strike_price: Optional[float] = None
     expiry_date: Optional[int] = None
     underlying_symbol: Optional[str] = None
+    implied_volatility: Optional[float] = None
+    reference_volatility: Optional[float] = None
     settlement_type: Optional[InstrumentSettlementMode] = None
     settlement_price: Optional[float] = None
     static_attrs: Dict[str, InstrumentStaticValue] = field(default_factory=dict)
