@@ -932,6 +932,15 @@ impl Processor for StrategyProcessor {
 
                 for id in canceled_ids {
                     engine.execution_model.on_cancel(&id);
+                    if let Some(cancelled_order) = engine
+                        .state
+                        .order_manager
+                        .cancel_active_order(&id, engine.clock.timestamp().unwrap_or(0))
+                    {
+                        let _ = engine
+                            .event_manager
+                            .send(Event::ExecutionReport(cancelled_order, None));
+                    }
                 }
                 for order in new_orders {
                     let _ = engine.event_manager.send(Event::OrderRequest(order));

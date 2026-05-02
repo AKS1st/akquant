@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 from .akquant import OrderSide, OrderStatus, OrderType, TimeInForce
 
@@ -60,9 +60,25 @@ def get_open_orders(strategy: Any, symbol: Optional[str] = None) -> List[Any]:
     if strategy.ctx is None:
         return []
 
+    canceled_order_ids = {
+        str(order_id)
+        for order_id in getattr(strategy.ctx, "canceled_order_ids", [])
+        if order_id
+    }
+    pending_canceled_ids: Set[str] = getattr(
+        strategy, "_pending_canceled_order_ids", set()
+    )
+    if not isinstance(pending_canceled_ids, set):
+        pending_canceled_ids = set()
+        setattr(strategy, "_pending_canceled_order_ids", pending_canceled_ids)
+    canceled_order_ids.update(
+        str(order_id) for order_id in pending_canceled_ids if order_id
+    )
+
     orders = [
         o
         for o in strategy.ctx.active_orders
+        if getattr(o, "id", "") not in canceled_order_ids
         if o.status
         in (OrderStatus.New, OrderStatus.Submitted, OrderStatus.PartiallyFilled)
     ]
@@ -73,14 +89,37 @@ def get_open_orders(strategy: Any, symbol: Optional[str] = None) -> List[Any]:
 
 def get_order(strategy: Any, order_id: str) -> Optional[Any]:
     """获取指定订单详情."""
+    canceled_order_ids = {
+        str(oid)
+        for oid in getattr(getattr(strategy, "ctx", None), "canceled_order_ids", [])
+        if oid
+    }
+    pending_canceled_ids: Set[str] = getattr(
+        strategy, "_pending_canceled_order_ids", set()
+    )
+    if not isinstance(pending_canceled_ids, set):
+        pending_canceled_ids = set()
+        setattr(strategy, "_pending_canceled_order_ids", pending_canceled_ids)
+    canceled_order_ids.update(str(oid) for oid in pending_canceled_ids if oid)
+
     if order_id in strategy._known_orders:
         order = strategy._known_orders[order_id]
+        if order_id in canceled_order_ids:
+            try:
+                order.status = OrderStatus.Cancelled
+            except Exception:
+                pass
         _attach_broker_options(strategy, order_id, order)
         return order
 
     if strategy.ctx:
         for o in strategy.ctx.active_orders:
             if o.id == order_id:
+                if order_id in canceled_order_ids:
+                    try:
+                        o.status = OrderStatus.Cancelled
+                    except Exception:
+                        pass
                 _attach_broker_options(strategy, order_id, o)
                 return o
     return None
@@ -120,7 +159,28 @@ def _attach_broker_options(strategy: Any, order_id: str, order: Any) -> None:
 def cancel_order(strategy: Any, order_id: str) -> None:
     """取消指定订单."""
     if strategy.ctx:
+        pending_canceled_ids: Set[str] = getattr(
+            strategy, "_pending_canceled_order_ids", set()
+        )
+        if not isinstance(pending_canceled_ids, set):
+            pending_canceled_ids = set()
+            setattr(strategy, "_pending_canceled_order_ids", pending_canceled_ids)
+        pending_canceled_ids.add(order_id)
         strategy.ctx.cancel_order(order_id)
+        for order in strategy.ctx.active_orders:
+            if getattr(order, "id", "") != order_id:
+                continue
+            if getattr(order, "status", None) not in (
+                OrderStatus.New,
+                OrderStatus.Submitted,
+                OrderStatus.PartiallyFilled,
+            ):
+                continue
+            try:
+                order.status = OrderStatus.Cancelled
+            except Exception:
+                pass
+            break
 
 
 def cancel_all_orders(strategy: Any, symbol: Optional[str] = None) -> None:
