@@ -10,7 +10,7 @@
 
 ## 核心特性
 
-*   **极致性能**: Rust 核心引擎 + Python 接口，比 Backtrader 快 20 倍。
+*   **高性能内核**: Rust 核心引擎 + Python 接口，旨在减少事件驱动回测中的 Python 开销；实际性能表现取决于策略实现、数据规模与运行环境。
 *   **原生机器学习**: 内置 Walk-forward Validation 和 PyTorch/Scikit-learn 适配器。
 *   **生产级风控**: 内置 Rust 层 RiskManager，严格执行 T+1 和资金风控。
 *   **零拷贝数据**: 历史数据通过 Numpy View 直接映射 Rust 内存，无复制开销。

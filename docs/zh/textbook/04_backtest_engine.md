@@ -24,7 +24,7 @@ python examples/textbook/ch04_comparison.py
 
 量化回测系统主要分为两大类：**向量化回测 (Vectorized Backtesting)** 和 **事件驱动回测 (Event-Driven Backtesting)**。
 
-为了直观理解这两种模式的区别，我们编写了一个对比脚本 `examples/textbook/ch04_comparison.py`，分别使用 **Pandas** (向量化)、**Backtrader** (Python 事件驱动) 和 **AKQuant** (Rust 事件驱动) 实现了同一个双均线策略。
+为了直观理解这两种模式的区别，我们编写了一个对比脚本 `examples/textbook/ch04_comparison.py`，分别使用 **Pandas** (向量化)、**Backtrader** (Python 事件驱动) 和 **AKQuant** (Rust 事件驱动) 实现同一个双均线策略，用来观察不同范式在建模方式、接口体验和运行开销上的差异。
 
 ### 4.1.0 完整主示例（建议先通读）
 
@@ -86,7 +86,7 @@ class SmaCross(bt.Strategy):
 class AKQuantSmaStrategy(Strategy):
     def on_bar(self, bar: Bar):
         # 也是逐个 Bar 处理
-        # 区别在于 AKQuant 底层循环由 Rust 实现，速度远快于 Python
+        # 区别在于 AKQuant 底层循环由 Rust 实现，可减少部分 Python 解释器开销
         ma5 = ...
         if ma5 > ma20 and pos == 0:
             self.order_target_percent(...)
@@ -95,9 +95,9 @@ class AKQuantSmaStrategy(Strategy):
 *   **优点**：
     *   **零未来函数**：在处理当前 Bar 时，物理上无法访问下一个 Bar 的数据。
     *   **高度仿真**：支持限价单、止损单、复杂资金管理等微观结构模拟。
-*   **性能对比**：
-    *   Backtrader 由于使用 Python 循环，在数据量大时存在 GIL 锁限制，速度较慢。
-    *   AKQuant 利用 Rust 的无 GC 特性和零成本抽象，在保持事件驱动精确性的同时，性能接近向量化回测。
+*   **性能说明**：
+    *   Backtrader 与 AKQuant 都属于事件驱动范式，但其具体运行耗时会受到策略写法、数据规模、指标计算位置、回调频率和运行环境影响。
+    *   AKQuant 将事件循环、撮合与状态管理放在 Rust 层实现，目标是在保持事件驱动精确性的同时减少 Python 层开销；是否快于其他框架需要结合具体场景实测。
 
 你可以运行以下命令亲自体验三者的差异：
 

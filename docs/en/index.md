@@ -10,8 +10,8 @@ The latest version features a modular design, independent portfolio management, 
 
 ## Core Features
 
-*   **Extreme Performance**: The core backtesting engine is written in Rust and exposed to Python via PyO3.
-    *   **Benchmark**: In an SMA strategy backtest with 200k bars, AKQuant took only **1.31s** (~152k bars/sec), about **20x faster** than Backtrader (26.55s).
+*   **High-Performance Core**: The core backtesting engine is written in Rust and exposed to Python via PyO3.
+    *   **Practical Note**: The Rust core is designed to reduce Python-side overhead in event-driven backtests. Actual runtime depends on strategy logic, data size, callback frequency, and the execution environment.
     *   **Zero-Copy Access (New)**: Historical data (`ctx.history`) maps directly to Rust memory via PyO3 Buffer Protocol / Numpy View, enabling zero-copy access and significantly boosting indicator calculation performance in Python.
 *   **Modular Architecture**:
     *   **Engine**: Event-driven core matching engine using BinaryHeap for event queue management.
@@ -54,7 +54,7 @@ AKQuant aims to solve the performance bottlenecks of traditional Python backtest
 ### 1. Extreme Performance: Rust Core + Python Ecosystem
 *   **Hybrid Architecture**: The core computation layer (matching, capital, risk control) is written in **Rust** and exposed to Python via PyO3.
 *   **Zero-Copy Access**: Leveraging Rust's `arrow` and `numpy` view technologies, Python access to historical data (OHLCV, indicators) achieves **zero-copy**, avoiding massive memory copying overhead.
-*   **Benchmark**: In a 200k bar SMA strategy test, it took only **1.31s** (~152k bars/sec), **20x faster** than Backtrader.
+*   **Performance Positioning**: The Rust core can reduce interpreter overhead in some event-driven workloads, but measured speedups are workload-dependent and should be validated with your own strategy and environment.
 *   **Incremental Calculation**: Internal indicator calculations use incremental update algorithms instead of full recalculation, suitable for ultra-long history backtesting.
 
 ### 2. Machine Learning First
