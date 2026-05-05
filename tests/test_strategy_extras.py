@@ -19,7 +19,14 @@ from akquant import (
     run_warm_start,
     save_snapshot,
 )
-from akquant.akquant import Bar, OrderStatus, StrategyContext, Tick, TimeInForce
+from akquant.akquant import (
+    Bar,
+    OrderStatus,
+    PositionEffect,
+    StrategyContext,
+    Tick,
+    TimeInForce,
+)
 from akquant.backtest import FunctionalStrategy
 from akquant.backtest.engine import _prime_framework_pre_open_timers
 from akquant.config import RiskConfig
@@ -3782,6 +3789,272 @@ def test_strategy_buy_sell_delegate_to_submit_order() -> None:
 
     class _SubmitSpyStrategy(Strategy):
         def __init__(self) -> None:
+            self.calls: list[tuple[str, str, float, str, bool]] = []
+
+        def submit_order(
+            self,
+            symbol: str | None = None,
+            side: str = "Buy",
+            quantity: float | None = None,
+            price: float | None = None,
+            time_in_force: TimeInForce | str | None = None,
+            trigger_price: float | None = None,
+            tag: str | None = None,
+            client_order_id: str | None = None,
+            order_type: str | None = None,
+            extra: dict[str, Any] | None = None,
+            broker_options: dict[str, Any] | None = None,
+            trail_offset: float | None = None,
+            trail_reference_price: float | None = None,
+            fill_policy: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
+            commission: dict[str, Any] | None = None,
+            position_effect: str | None = None,
+            reduce_only: bool = False,
+        ) -> str:
+            _ = price
+            _ = time_in_force
+            _ = trigger_price
+            _ = tag
+            _ = client_order_id
+            _ = order_type
+            _ = extra
+            _ = broker_options
+            _ = trail_offset
+            _ = trail_reference_price
+            _ = fill_policy
+            _ = slippage
+            _ = commission
+            assert symbol is not None
+            assert quantity is not None
+            self.calls.append(
+                (side, symbol, quantity, position_effect or "auto", reduce_only)
+            )
+            return f"oid-{side}-{symbol}"
+
+    strategy = _SubmitSpyStrategy()
+    buy_order_id = strategy.buy(symbol="AAPL", quantity=2.0)
+    sell_order_id = strategy.sell(symbol="AAPL", quantity=1.0)
+
+    assert buy_order_id == "oid-Buy-AAPL"
+    assert sell_order_id == "oid-Sell-AAPL"
+    assert strategy.calls == [
+        ("Buy", "AAPL", 2.0, "auto", False),
+        ("Sell", "AAPL", 1.0, "auto", False),
+    ]
+
+
+def test_strategy_short_cover_delegate_position_effect() -> None:
+    """short/cover should forward explicit position_effect semantics."""
+
+    class _SubmitSpyStrategy(Strategy):
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, float, str, bool]] = []
+
+        def submit_order(
+            self,
+            symbol: str | None = None,
+            side: str = "Buy",
+            quantity: float | None = None,
+            price: float | None = None,
+            time_in_force: TimeInForce | str | None = None,
+            trigger_price: float | None = None,
+            tag: str | None = None,
+            client_order_id: str | None = None,
+            order_type: str | None = None,
+            extra: dict[str, Any] | None = None,
+            broker_options: dict[str, Any] | None = None,
+            trail_offset: float | None = None,
+            trail_reference_price: float | None = None,
+            fill_policy: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
+            commission: dict[str, Any] | None = None,
+            position_effect: str | None = None,
+            reduce_only: bool = False,
+        ) -> str:
+            _ = (
+                price,
+                time_in_force,
+                trigger_price,
+                tag,
+                client_order_id,
+                order_type,
+                extra,
+                broker_options,
+                trail_offset,
+                trail_reference_price,
+                fill_policy,
+                slippage,
+                commission,
+            )
+            assert symbol is not None
+            assert quantity is not None
+            self.calls.append(
+                (side, symbol, quantity, position_effect or "auto", reduce_only)
+            )
+            return "ok"
+
+    strategy = _SubmitSpyStrategy()
+    strategy.short(symbol="AAPL", quantity=2.0)
+    strategy.cover(symbol="AAPL", quantity=1.0, reduce_only=True)
+
+    assert strategy.calls == [
+        ("Sell", "AAPL", 2.0, "open", False),
+        ("Buy", "AAPL", 1.0, "close", True),
+    ]
+
+
+def test_strategy_buy_auto_splits_cover_then_open() -> None:
+    """buy(auto) should split short-cover and long-open legs using current position."""
+    strategy = MyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.get_position.return_value = -2.0
+    ctx.cash = 100000.0
+    ctx.buy.side_effect = ["oid-close", "oid-open"]
+    strategy.ctx = ctx
+    strategy._last_prices["AAPL"] = 100.0
+
+    order_id = strategy.buy(symbol="AAPL", quantity=5.0)
+
+    assert order_id == "oid-close"
+    assert ctx.buy.call_count == 2
+    first_call = ctx.buy.call_args_list[0]
+    second_call = ctx.buy.call_args_list[1]
+    assert first_call.args[:2] == ("AAPL", 2.0)
+    assert first_call.kwargs["position_effect"] == PositionEffect.Close
+    assert second_call.args[:2] == ("AAPL", 3.0)
+    assert second_call.kwargs["position_effect"] == PositionEffect.Open
+
+
+def test_strategy_submit_order_accepts_close_today_position_effect() -> None:
+    """submit_order should map close_today to the extended PositionEffect enum."""
+    strategy = MyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.buy.return_value = "oid-close-today"
+    strategy.ctx = ctx
+
+    order_id = strategy.submit_order(
+        symbol="IF2406",
+        side="Buy",
+        quantity=1.0,
+        position_effect="close_today",
+    )
+
+    assert order_id == "oid-close-today"
+    first_call = ctx.buy.call_args_list[0]
+    assert first_call.kwargs["position_effect"] == PositionEffect.CloseToday
+
+
+def test_strategy_order_target_positions_supports_signed_targets() -> None:
+    """order_target_positions should route long/short target deltas via order_target."""
+
+    class _TargetSpyStrategy(MyStrategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[tuple[str, str, float, str, bool]] = []
+
+        def submit_order(
+            self,
+            symbol: str | None = None,
+            side: str = "Buy",
+            quantity: float | None = None,
+            price: float | None = None,
+            time_in_force: str | TimeInForce | None = "GTC",
+            trigger_price: float | None = None,
+            tag: str | None = None,
+            client_order_id: str | None = None,
+            order_type: str | None = None,
+            extra: dict[str, Any] | None = None,
+            broker_options: dict[str, Any] | None = None,
+            trail_offset: float | None = None,
+            trail_reference_price: float | None = None,
+            fill_policy: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
+            commission: dict[str, Any] | None = None,
+            position_effect: str | None = None,
+            reduce_only: bool = False,
+        ) -> str:
+            _ = (
+                price,
+                time_in_force,
+                trigger_price,
+                tag,
+                client_order_id,
+                order_type,
+                extra,
+                broker_options,
+                trail_offset,
+                trail_reference_price,
+                fill_policy,
+                slippage,
+                commission,
+            )
+            assert symbol is not None
+            assert quantity is not None
+            self.calls.append(
+                (side, symbol, quantity, position_effect or "auto", reduce_only)
+            )
+            return f"oid-{symbol}"
+
+    strategy = _TargetSpyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.positions = {"AAA": 100.0, "BBB": 0.0}
+    ctx.get_position.side_effect = lambda symbol: {"AAA": 100.0, "BBB": 0.0}.get(
+        symbol, 0.0
+    )
+    ctx.risk_config = SimpleNamespace(account_mode="margin", enable_short_sell=True)
+    strategy.ctx = ctx
+
+    strategy.order_target_positions({"AAA": -50.0, "BBB": 25.0})
+
+    assert strategy.calls == [
+        ("Sell", "AAA", 150.0, "auto", False),
+        ("Buy", "BBB", 25.0, "auto", False),
+    ]
+
+
+def test_strategy_order_target_positions_rejects_negative_targets_in_cash_mode() -> (
+    None
+):
+    """Negative target positions should fail fast when short selling is unavailable."""
+    strategy = MyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.positions = {"AAA": 0.0}
+    ctx.get_position.return_value = 0.0
+    ctx.risk_config = SimpleNamespace(account_mode="cash", enable_short_sell=False)
+    strategy.ctx = ctx
+
+    with pytest.raises(
+        ValueError, match="negative target positions require allow_short=True"
+    ):
+        strategy.order_target_positions({"AAA": -10.0})
+
+
+def test_strategy_order_target_positions_rejects_when_short_is_disallowed() -> None:
+    """Negative targets should respect strict broker short-sell capability checks."""
+    strategy = MyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.positions = {"AAA": 0.0}
+    ctx.get_position.return_value = 0.0
+    ctx.risk_config = SimpleNamespace(account_mode="margin", enable_short_sell=False)
+    strategy.ctx = ctx
+    strategy.__dict__["get_execution_capabilities"] = lambda: {
+        "broker_live": True,
+        "broker_name": "miniqmt",
+        "account_mode": "margin",
+        "supports_short_sell": False,
+    }
+
+    with pytest.raises(RuntimeError, match="does not advertise short-sell support"):
+        strategy.order_target_positions({"AAA": -10.0}, allow_short=True)
+
+
+def test_strategy_order_target_positions_can_bypass_strict_short_capability() -> None:
+    """Opting out should allow negative targets with unknown broker capability."""
+
+    class _TargetSpyStrategy(MyStrategy):
+        def __init__(self) -> None:
+            super().__init__()
             self.calls: list[tuple[str, str, float]] = []
 
         def submit_order(
@@ -3802,32 +4075,379 @@ def test_strategy_buy_sell_delegate_to_submit_order() -> None:
             fill_policy: dict[str, Any] | None = None,
             slippage: float | dict[str, Any] | None = None,
             commission: dict[str, Any] | None = None,
+            position_effect: str | None = None,
+            reduce_only: bool = False,
         ) -> str:
-            _ = price
-            _ = time_in_force
-            _ = trigger_price
-            _ = tag
-            _ = client_order_id
-            _ = order_type
-            _ = extra
-            _ = broker_options
-            _ = trail_offset
-            _ = trail_reference_price
-            _ = fill_policy
-            _ = slippage
-            _ = commission
+            _ = (
+                price,
+                time_in_force,
+                trigger_price,
+                tag,
+                client_order_id,
+                order_type,
+                extra,
+                broker_options,
+                trail_offset,
+                trail_reference_price,
+                fill_policy,
+                slippage,
+                commission,
+                position_effect,
+                reduce_only,
+            )
             assert symbol is not None
             assert quantity is not None
             self.calls.append((side, symbol, quantity))
-            return f"oid-{side}-{symbol}"
+            return "oid"
 
-    strategy = _SubmitSpyStrategy()
-    buy_order_id = strategy.buy(symbol="AAPL", quantity=2.0)
-    sell_order_id = strategy.sell(symbol="AAPL", quantity=1.0)
+    strategy = _TargetSpyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.positions = {"AAA": 0.0}
+    ctx.get_position.return_value = 0.0
+    ctx.risk_config = SimpleNamespace(account_mode="margin", enable_short_sell=False)
+    strategy.ctx = ctx
+    strategy.__dict__["get_execution_capabilities"] = lambda: {
+        "broker_live": True,
+        "broker_name": "unknown",
+        "account_mode": "margin",
+        "supports_short_sell": False,
+    }
 
-    assert buy_order_id == "oid-Buy-AAPL"
-    assert sell_order_id == "oid-Sell-AAPL"
-    assert strategy.calls == [("Buy", "AAPL", 2.0), ("Sell", "AAPL", 1.0)]
+    strategy.order_target_positions(
+        {"AAA": -10.0},
+        allow_short=True,
+        strict_short_capability=False,
+    )
+
+    assert strategy.calls == [("Sell", "AAA", 10.0)]
+
+
+def test_strategy_order_target_positions_missing_price_mode_fail() -> None:
+    """missing_price_mode=fail should reject symbols absent from price_map."""
+    strategy = MyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.positions = {"AAA": 10.0, "BBB": 0.0}
+    ctx.get_position.side_effect = lambda symbol: {"AAA": 10.0, "BBB": 0.0}.get(
+        symbol, 0.0
+    )
+    ctx.risk_config = SimpleNamespace(account_mode="cash", enable_short_sell=False)
+    strategy.ctx = ctx
+
+    with pytest.raises(RuntimeError, match="missing price_map entry for symbol 'BBB'"):
+        strategy.order_target_positions(
+            {"AAA": 0.0, "BBB": 5.0},
+            price_map={"AAA": 10.0},
+            missing_price_mode="fail",
+        )
+
+
+def test_strategy_order_target_positions_missing_price_mode_skip() -> None:
+    """missing_price_mode=skip should drop legs whose price_map entry is missing."""
+
+    class _TargetSpyStrategy(MyStrategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[tuple[str, str, float, float | None]] = []
+
+        def submit_order(
+            self,
+            symbol: str | None = None,
+            side: str = "Buy",
+            quantity: float | None = None,
+            price: float | None = None,
+            time_in_force: TimeInForce | str | None = None,
+            trigger_price: float | None = None,
+            tag: str | None = None,
+            client_order_id: str | None = None,
+            order_type: str | None = None,
+            extra: dict[str, Any] | None = None,
+            broker_options: dict[str, Any] | None = None,
+            trail_offset: float | None = None,
+            trail_reference_price: float | None = None,
+            fill_policy: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
+            commission: dict[str, Any] | None = None,
+            position_effect: str | None = None,
+            reduce_only: bool = False,
+        ) -> str:
+            _ = (
+                time_in_force,
+                trigger_price,
+                tag,
+                client_order_id,
+                order_type,
+                extra,
+                broker_options,
+                trail_offset,
+                trail_reference_price,
+                fill_policy,
+                slippage,
+                commission,
+                position_effect,
+                reduce_only,
+            )
+            assert symbol is not None
+            assert quantity is not None
+            self.calls.append((side, symbol, quantity, price))
+            return "oid"
+
+    strategy = _TargetSpyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.positions = {"AAA": 10.0, "BBB": 0.0}
+    ctx.get_position.side_effect = lambda symbol: {"AAA": 10.0, "BBB": 0.0}.get(
+        symbol, 0.0
+    )
+    ctx.risk_config = SimpleNamespace(account_mode="cash", enable_short_sell=False)
+    strategy.ctx = ctx
+
+    strategy.order_target_positions(
+        {"AAA": 0.0, "BBB": 5.0},
+        price_map={"AAA": 10.0},
+        missing_price_mode="skip",
+    )
+
+    assert strategy.calls == [("Sell", "AAA", 10.0, 10.0)]
+
+
+def test_strategy_order_target_positions_missing_price_mode_ignore() -> None:
+    """Default ignore mode should still submit legs without explicit prices."""
+
+    class _TargetSpyStrategy(MyStrategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[tuple[str, str, float, float | None]] = []
+
+        def submit_order(
+            self,
+            symbol: str | None = None,
+            side: str = "Buy",
+            quantity: float | None = None,
+            price: float | None = None,
+            time_in_force: TimeInForce | str | None = None,
+            trigger_price: float | None = None,
+            tag: str | None = None,
+            client_order_id: str | None = None,
+            order_type: str | None = None,
+            extra: dict[str, Any] | None = None,
+            broker_options: dict[str, Any] | None = None,
+            trail_offset: float | None = None,
+            trail_reference_price: float | None = None,
+            fill_policy: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
+            commission: dict[str, Any] | None = None,
+            position_effect: str | None = None,
+            reduce_only: bool = False,
+        ) -> str:
+            _ = (
+                time_in_force,
+                trigger_price,
+                tag,
+                client_order_id,
+                order_type,
+                extra,
+                broker_options,
+                trail_offset,
+                trail_reference_price,
+                fill_policy,
+                slippage,
+                commission,
+                position_effect,
+                reduce_only,
+            )
+            assert symbol is not None
+            assert quantity is not None
+            self.calls.append((side, symbol, quantity, price))
+            return "oid"
+
+    strategy = _TargetSpyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.positions = {"AAA": 10.0, "BBB": 0.0}
+    ctx.get_position.side_effect = lambda symbol: {"AAA": 10.0, "BBB": 0.0}.get(
+        symbol, 0.0
+    )
+    ctx.risk_config = SimpleNamespace(account_mode="cash", enable_short_sell=False)
+    strategy.ctx = ctx
+
+    strategy.order_target_positions(
+        {"AAA": 0.0, "BBB": 5.0},
+        price_map={"AAA": 10.0},
+    )
+
+    assert strategy.calls == [
+        ("Sell", "AAA", 10.0, 10.0),
+        ("Buy", "BBB", 5.0, None),
+    ]
+
+
+def test_strategy_order_target_positions_records_explainable_plan() -> None:
+    """order_target_positions should expose the last generated rebalance plan."""
+
+    class _TargetSpyStrategy(MyStrategy):
+        def __init__(self) -> None:
+            super().__init__()
+
+        def submit_order(
+            self,
+            symbol: str | None = None,
+            side: str = "Buy",
+            quantity: float | None = None,
+            price: float | None = None,
+            time_in_force: TimeInForce | str | None = None,
+            trigger_price: float | None = None,
+            tag: str | None = None,
+            client_order_id: str | None = None,
+            order_type: str | None = None,
+            extra: dict[str, Any] | None = None,
+            broker_options: dict[str, Any] | None = None,
+            trail_offset: float | None = None,
+            trail_reference_price: float | None = None,
+            fill_policy: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
+            commission: dict[str, Any] | None = None,
+            position_effect: str | None = None,
+            reduce_only: bool = False,
+        ) -> str:
+            _ = (
+                symbol,
+                side,
+                quantity,
+                price,
+                time_in_force,
+                trigger_price,
+                tag,
+                client_order_id,
+                order_type,
+                extra,
+                broker_options,
+                trail_offset,
+                trail_reference_price,
+                fill_policy,
+                slippage,
+                commission,
+                position_effect,
+                reduce_only,
+            )
+            return "oid"
+
+    strategy = _TargetSpyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.positions = {"AAA": 10.0, "BBB": 0.0}
+    ctx.get_position.side_effect = lambda symbol: {"AAA": 10.0, "BBB": 0.0}.get(
+        symbol, 0.0
+    )
+    ctx.risk_config = SimpleNamespace(account_mode="cash", enable_short_sell=False)
+    strategy.ctx = ctx
+
+    strategy.order_target_positions(
+        {"AAA": 0.0, "BBB": 5.0},
+        price_map={"AAA": 10.0, "BBB": 20.0},
+    )
+
+    plan = strategy.get_last_target_positions_plan()
+    assert plan["status"] == "submitted"
+    assert plan["missing_price_mode"] == "ignore"
+    assert [leg["symbol"] for leg in plan["reduce_legs"]] == ["AAA"]
+    assert [leg["symbol"] for leg in plan["increase_legs"]] == ["BBB"]
+    assert [leg["phase"] for leg in plan["submitted_legs"]] == ["reduce", "increase"]
+
+
+def test_strategy_order_target_positions_plan_tracks_skipped_legs() -> None:
+    """Plan should record skipped legs when missing_price_mode=skip."""
+
+    class _TargetSpyStrategy(MyStrategy):
+        def __init__(self) -> None:
+            super().__init__()
+
+        def submit_order(
+            self,
+            symbol: str | None = None,
+            side: str = "Buy",
+            quantity: float | None = None,
+            price: float | None = None,
+            time_in_force: TimeInForce | str | None = None,
+            trigger_price: float | None = None,
+            tag: str | None = None,
+            client_order_id: str | None = None,
+            order_type: str | None = None,
+            extra: dict[str, Any] | None = None,
+            broker_options: dict[str, Any] | None = None,
+            trail_offset: float | None = None,
+            trail_reference_price: float | None = None,
+            fill_policy: dict[str, Any] | None = None,
+            slippage: float | dict[str, Any] | None = None,
+            commission: dict[str, Any] | None = None,
+            position_effect: str | None = None,
+            reduce_only: bool = False,
+        ) -> str:
+            _ = (
+                symbol,
+                side,
+                quantity,
+                price,
+                time_in_force,
+                trigger_price,
+                tag,
+                client_order_id,
+                order_type,
+                extra,
+                broker_options,
+                trail_offset,
+                trail_reference_price,
+                fill_policy,
+                slippage,
+                commission,
+                position_effect,
+                reduce_only,
+            )
+            return "oid"
+
+    strategy = _TargetSpyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.positions = {"AAA": 10.0, "BBB": 0.0}
+    ctx.get_position.side_effect = lambda symbol: {"AAA": 10.0, "BBB": 0.0}.get(
+        symbol, 0.0
+    )
+    ctx.risk_config = SimpleNamespace(account_mode="cash", enable_short_sell=False)
+    strategy.ctx = ctx
+
+    strategy.order_target_positions(
+        {"AAA": 0.0, "BBB": 5.0},
+        price_map={"AAA": 10.0},
+        missing_price_mode="skip",
+    )
+
+    plan = strategy.get_last_target_positions_plan()
+    assert plan["status"] == "submitted"
+    assert plan["submitted_legs"] == [
+        {"symbol": "AAA", "target_quantity": 0.0, "price": 10.0, "phase": "reduce"}
+    ]
+    assert plan["skipped_legs"] == [
+        {
+            "symbol": "BBB",
+            "target_quantity": 5.0,
+            "reason": "missing_price_map",
+            "phase": "increase",
+        }
+    ]
+
+
+def test_strategy_order_target_positions_plan_tracks_reject_reason() -> None:
+    """Plan should retain reject_reason when validation fails."""
+    strategy = MyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.positions = {"AAA": 0.0}
+    ctx.get_position.return_value = 0.0
+    ctx.risk_config = SimpleNamespace(account_mode="cash", enable_short_sell=False)
+    strategy.ctx = ctx
+
+    with pytest.raises(
+        ValueError, match="negative target positions require allow_short=True"
+    ):
+        strategy.order_target_positions({"AAA": -1.0})
+
+    plan = strategy.get_last_target_positions_plan()
+    assert plan["status"] == "rejected"
+    assert "negative target positions require allow_short=True" in plan["reject_reason"]
 
 
 def test_strategy_submit_order_trailing_validation() -> None:
@@ -4311,6 +4931,8 @@ def test_strategy_trailing_helpers_delegate_to_submit_order() -> None:
             fill_policy: dict[str, Any] | None = None,
             slippage: float | dict[str, Any] | None = None,
             commission: dict[str, Any] | None = None,
+            position_effect: str | None = None,
+            reduce_only: bool = False,
         ) -> str:
             _ = time_in_force
             _ = trigger_price
@@ -4320,6 +4942,8 @@ def test_strategy_trailing_helpers_delegate_to_submit_order() -> None:
             _ = fill_policy
             _ = slippage
             _ = commission
+            _ = position_effect
+            _ = reduce_only
             self.calls.append(
                 {
                     "symbol": symbol,

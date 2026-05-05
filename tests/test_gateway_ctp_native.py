@@ -1,0 +1,218 @@
+import threading
+from types import SimpleNamespace
+
+import pytest
+from akquant.gateway import ctp_native
+from akquant.gateway.ctp_native import CTPTraderGateway
+
+
+def _build_native_gateway(monkeypatch: pytest.MonkeyPatch) -> CTPTraderGateway:
+    monkeypatch.setattr(
+        ctp_native.tdapi,
+        "CThostFtdcQryTradingAccountField",
+        lambda: SimpleNamespace(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ctp_native.tdapi,
+        "CThostFtdcQryInvestorPositionField",
+        lambda: SimpleNamespace(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ctp_native.tdapi,
+        "CThostFtdcQryTradeField",
+        lambda: SimpleNamespace(),
+        raising=False,
+    )
+    monkeypatch.setattr(ctp_native.tdapi, "THOST_FTDC_PD_Long", "2", raising=False)
+    monkeypatch.setattr(ctp_native.tdapi, "THOST_FTDC_PD_Short", "3", raising=False)
+    monkeypatch.setattr(ctp_native.tdapi, "THOST_FTDC_PSD_Today", "1", raising=False)
+    monkeypatch.setattr(ctp_native.tdapi, "THOST_FTDC_PSD_History", "2", raising=False)
+
+    gateway = CTPTraderGateway.__new__(CTPTraderGateway)
+    gateway.broker_id = "9999"
+    gateway.user_id = "tester"
+    gateway.password = ""
+    gateway.auth_code = ""
+    gateway.app_id = "app"
+    gateway.front_url = "tcp://test"
+    gateway.api = SimpleNamespace()
+    gateway.req_id = 0
+    gateway.connected = True
+    gateway.login_status = True
+    gateway.ready_to_trade = True
+    gateway.front_id = 0
+    gateway.session_id = 0
+    gateway.order_ref = 1
+    gateway.order_callback = None
+    gateway.trade_callback = None
+    gateway.error_callback = None
+    gateway.order_ref_to_client_order_id = {}
+    gateway.order_ref_to_symbol = {}
+    gateway._account_query_timeout_sec = 0.1
+    gateway._account_query_event = threading.Event()
+    gateway._account_query_result = None
+    gateway._account_query_error = ""
+    gateway._position_query_timeout_sec = 0.1
+    gateway._position_query_event = threading.Event()
+    gateway._position_query_results = {}
+    gateway._position_query_error = ""
+    gateway._trade_query_timeout_sec = 0.1
+    gateway._trade_query_event = threading.Event()
+    gateway._trade_query_results = []
+    gateway._trade_query_error = ""
+    return gateway
+
+
+def test_ctp_native_query_account_returns_unified_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Native CTP account query should normalize account fields."""
+    gateway = _build_native_gateway(monkeypatch)
+
+    def _req_qry_trading_account(request: object, req_id: int) -> int:
+        assert getattr(request, "BrokerID") == "9999"
+        assert getattr(request, "InvestorID") == "tester"
+        gateway.OnRspQryTradingAccount(
+            SimpleNamespace(
+                AccountID="acct-001",
+                Balance=120000.5,
+                Available=98000.25,
+            ),
+            SimpleNamespace(ErrorID=0, ErrorMsg=""),
+            req_id,
+            True,
+        )
+        return 0
+
+    gateway.api.ReqQryTradingAccount = _req_qry_trading_account
+
+    account = gateway.query_account()
+
+    assert account is not None
+    assert account["account_id"] == "acct-001"
+    assert account["equity"] == 120000.5
+    assert account["cash"] == 120000.5
+    assert account["available_cash"] == 98000.25
+
+
+def test_ctp_native_query_positions_aggregates_today_yesterday(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Native CTP position query should aggregate today/yesterday quantities."""
+    gateway = _build_native_gateway(monkeypatch)
+
+    def _req_qry_investor_position(request: object, req_id: int) -> int:
+        assert getattr(request, "BrokerID") == "9999"
+        assert getattr(request, "InvestorID") == "tester"
+        gateway.OnRspQryInvestorPosition(
+            SimpleNamespace(
+                InstrumentID="au2606",
+                PosiDirection="2",
+                Position=5,
+                TodayPosition=2,
+                YdPosition=3,
+                ShortFrozen=2,
+                PositionPrice=510.5,
+            ),
+            SimpleNamespace(ErrorID=0, ErrorMsg=""),
+            req_id,
+            False,
+        )
+        gateway.OnRspQryInvestorPosition(
+            None,
+            SimpleNamespace(ErrorID=0, ErrorMsg=""),
+            req_id,
+            True,
+        )
+        return 0
+
+    gateway.api.ReqQryInvestorPosition = _req_qry_investor_position
+
+    positions = gateway.query_positions()
+
+    assert positions == [
+        {
+            "symbol": "au2606",
+            "direction": "Buy",
+            "quantity": 5.0,
+            "available_quantity": 3.0,
+            "today_quantity": 2.0,
+            "yesterday_quantity": 3.0,
+            "available_today_quantity": 2.0,
+            "available_yesterday_quantity": 1.0,
+            "avg_price": 510.5,
+            "timestamp_ns": positions[0]["timestamp_ns"],
+        }
+    ]
+
+
+def test_ctp_native_query_positions_raises_on_rsp_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Native CTP position query should surface broker query errors."""
+    gateway = _build_native_gateway(monkeypatch)
+
+    def _req_qry_investor_position(request: object, req_id: int) -> int:
+        _ = request
+        gateway.OnRspQryInvestorPosition(
+            None,
+            SimpleNamespace(ErrorID=7, ErrorMsg="position query failed"),
+            req_id,
+            True,
+        )
+        return 0
+
+    gateway.api.ReqQryInvestorPosition = _req_qry_investor_position
+
+    with pytest.raises(RuntimeError, match="position query failed"):
+        gateway.query_positions()
+
+
+def test_ctp_native_query_trades_today_returns_trade_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Native CTP trade query should normalize queried trades."""
+    gateway = _build_native_gateway(monkeypatch)
+    gateway.order_ref_to_client_order_id["42"] = "coid-42"
+
+    def _req_qry_trade(request: object, req_id: int) -> int:
+        assert getattr(request, "BrokerID") == "9999"
+        assert getattr(request, "InvestorID") == "tester"
+        gateway.OnRspQryTrade(
+            SimpleNamespace(
+                TradeID="t42",
+                OrderRef="42",
+                OrderSysID="sys42",
+                InstrumentID="au2606",
+                Direction="0",
+                Volume=2,
+                Price=520.0,
+                OffsetFlag="3",
+            ),
+            SimpleNamespace(ErrorID=0, ErrorMsg=""),
+            req_id,
+            False,
+        )
+        gateway.OnRspQryTrade(
+            None,
+            SimpleNamespace(ErrorID=0, ErrorMsg=""),
+            req_id,
+            True,
+        )
+        return 0
+
+    gateway.api.ReqQryTrade = _req_qry_trade
+
+    trades = gateway.query_trades_today()
+
+    assert len(trades) == 1
+    trade = trades[0]
+    assert trade["trade_id"] == "t42"
+    assert trade["client_order_id"] == "coid-42"
+    assert trade["symbol"] == "au2606"
+    assert trade["side"] == "Buy"
+    assert trade["quantity"] == 2.0
+    assert trade["price"] == 520.0
+    assert trade["position_effect"] == "close_today"

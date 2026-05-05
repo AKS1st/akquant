@@ -141,3 +141,22 @@ def test_ptrade_allows_resubmit_after_terminal_status() -> None:
     assert second != first
     assert gateway.client_to_broker_order_ids["retry-c2"] == second
     assert first not in gateway.broker_to_client_order_ids
+
+
+def test_miniqmt_gateway_rejects_explicit_position_effect() -> None:
+    """MiniQMT should reject explicit open/close position effects."""
+    gateway = MiniQMTTraderGateway()
+    try:
+        gateway.place_order(
+            UnifiedOrderRequest(
+                client_order_id="effect-c1",
+                symbol="000001.SZ",
+                side="Buy",
+                quantity=10.0,
+                position_effect="close",
+            )
+        )
+    except RuntimeError as exc:
+        assert "does not support explicit position_effect" in str(exc)
+    else:
+        raise AssertionError("expected MiniQMT to reject explicit position_effect")

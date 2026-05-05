@@ -35,6 +35,9 @@ def _build_adapter(
     adapter.execution_callback = None
     adapter.orders = {}
     adapter.trades = []
+    adapter.trade_ids = set()
+    adapter.positions = {}
+    adapter.account = None
     adapter.client_to_broker_order_ids = {}
     adapter.broker_to_client_order_ids = {}
     adapter.order_ref_to_client_order_ids = {}
@@ -79,6 +82,172 @@ def test_ctp_adapter_place_and_cancel_order() -> None:
     assert report_ids[0] == broker_order_id
     assert report_ids[-1] == broker_order_id
     assert adapter.query_order(broker_order_id) is not None
+
+
+def test_ctp_adapter_forwards_position_effect_to_native_gateway() -> None:
+    """CTP adapter should pass position_effect through native order insert."""
+    adapter = _build_adapter(connected=True)
+    captured: dict[str, object] = {}
+
+    def _insert_order(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "broker_order_id": "ctp-1-2-ceffect",
+            "order_ref": "ref-ceffect",
+            "timestamp_ns": 1,
+        }
+
+    adapter.gateway.insert_order = _insert_order  # type: ignore[method-assign]
+
+    broker_order_id = adapter.place_order(
+        UnifiedOrderRequest(
+            client_order_id="ceffect",
+            symbol="au2606",
+            side="Buy",
+            quantity=1.0,
+            position_effect="close",
+        )
+    )
+
+    assert broker_order_id == "ctp-1-2-ceffect"
+    assert captured["position_effect"] == "close"
+    snapshot = adapter.query_order(broker_order_id)
+    assert snapshot is not None
+    assert snapshot.position_effect == "close"
+
+
+def test_ctp_adapter_exposes_capabilities() -> None:
+    """CTP adapter should expose explicit position_effect capability."""
+    adapter = _build_adapter(connected=True)
+
+    capabilities = adapter.get_capabilities().as_execution_capabilities()
+
+    assert capabilities["broker_name"] == "ctp"
+    assert capabilities["position_effect"] is True
+    assert capabilities["reduce_only"] is False
+    assert capabilities["position_details"] is True
+    assert capabilities["supports_short_sell"] is True
+    assert capabilities["supported_position_effects"] == [
+        "auto",
+        "open",
+        "close",
+        "close_today",
+        "close_yesterday",
+    ]
+
+
+def test_ctp_adapter_rejects_reduce_only() -> None:
+    """CTP adapter should fail fast for unsupported reduce_only orders."""
+    adapter = _build_adapter(connected=True)
+
+    try:
+        adapter.place_order(
+            UnifiedOrderRequest(
+                client_order_id="c-reduce-only",
+                symbol="au2606",
+                side="Buy",
+                quantity=1.0,
+                reduce_only=True,
+            )
+        )
+    except RuntimeError as exc:
+        assert "does not support reduce_only" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError for reduce_only")
+
+
+def test_ctp_adapter_forwards_close_today_to_native_gateway() -> None:
+    """CTP adapter should pass close_today through native order insert."""
+    adapter = _build_adapter(connected=True)
+    captured: dict[str, object] = {}
+
+    def _insert_order(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "broker_order_id": "ctp-1-2-ctoday",
+            "order_ref": "ref-ctoday",
+            "timestamp_ns": 1,
+        }
+
+    adapter.gateway.insert_order = _insert_order  # type: ignore[method-assign]
+
+    broker_order_id = adapter.place_order(
+        UnifiedOrderRequest(
+            client_order_id="ctoday",
+            symbol="au2606",
+            side="Buy",
+            quantity=1.0,
+            position_effect="close_today",
+        )
+    )
+
+    assert broker_order_id == "ctp-1-2-ctoday"
+    assert captured["position_effect"] == "close_today"
+
+
+def test_ctp_adapter_query_positions_preserves_today_yesterday_breakdown() -> None:
+    """CTP adapter should preserve today/yesterday quantities from native payload."""
+    adapter = _build_adapter(connected=True)
+
+    def _query_positions() -> list[dict[str, object]]:
+        return [
+            {
+                "symbol": "au2606",
+                "direction": "Buy",
+                "quantity": 5.0,
+                "available_quantity": 3.0,
+                "today_quantity": 2.0,
+                "yesterday_quantity": 3.0,
+                "available_today_quantity": 1.0,
+                "available_yesterday_quantity": 2.0,
+                "avg_price": 510.5,
+                "timestamp_ns": 11,
+            }
+        ]
+
+    setattr(cast(Any, adapter.gateway), "query_positions", _query_positions)
+
+    positions = adapter.query_positions()
+
+    assert len(positions) == 1
+    position = positions[0]
+    assert position.symbol == "au2606"
+    assert position.direction == "Buy"
+    assert position.quantity == 5.0
+    assert position.available_quantity == 3.0
+    assert position.today_quantity == 2.0
+    assert position.yesterday_quantity == 3.0
+    assert position.available_today_quantity == 1.0
+    assert position.available_yesterday_quantity == 2.0
+
+
+def test_ctp_adapter_query_positions_keeps_both_directions_for_same_symbol() -> None:
+    """CTP adapter should not overwrite long/short positions for the same symbol."""
+    adapter = _build_adapter(connected=True)
+
+    def _query_positions() -> list[dict[str, object]]:
+        return [
+            {
+                "symbol": "IF2406",
+                "direction": "Buy",
+                "quantity": 2.0,
+                "available_quantity": 2.0,
+            },
+            {
+                "symbol": "IF2406",
+                "direction": "Sell",
+                "quantity": 1.0,
+                "available_quantity": 1.0,
+            },
+        ]
+
+    setattr(cast(Any, adapter.gateway), "query_positions", _query_positions)
+
+    positions = adapter.query_positions()
+
+    assert len(positions) == 2
+    assert {position.direction for position in positions} == {"Buy", "Sell"}
+    assert len(adapter.positions) == 2
 
 
 def test_ctp_adapter_deduplicates_active_client_order_id() -> None:
@@ -129,6 +298,60 @@ def test_ctp_adapter_ingest_events_update_state() -> None:
     assert trade.trade_id == "t2"
     assert trades == ["t2"]
     assert adapter.query_trades()[-1].trade_id == "t2"
+
+
+def test_ctp_adapter_query_account_maps_native_snapshot() -> None:
+    """CTP adapter should map native account query payload to UnifiedAccount."""
+    adapter = _build_adapter(connected=True)
+
+    def _query_account() -> dict[str, object]:
+        return {
+            "account_id": "acct-002",
+            "equity": 200000.0,
+            "cash": 200000.0,
+            "available_cash": 150000.0,
+            "timestamp_ns": 99,
+        }
+
+    setattr(cast(Any, adapter.gateway), "query_account", _query_account)
+
+    account = adapter.query_account()
+
+    assert account is not None
+    assert account.account_id == "acct-002"
+    assert account.equity == 200000.0
+    assert account.available_cash == 150000.0
+
+
+def test_ctp_adapter_sync_today_trades_maps_and_deduplicates() -> None:
+    """CTP adapter should map sync trades and avoid duplicate cache entries."""
+    adapter = _build_adapter(connected=True)
+
+    def _query_trades_today() -> list[dict[str, object]]:
+        return [
+            {
+                "trade_id": "t-sync",
+                "broker_order_id": "b-sync",
+                "client_order_id": "c-sync",
+                "symbol": "au2606",
+                "side": "Buy",
+                "quantity": 1.0,
+                "price": 500.0,
+                "timestamp_ns": 10,
+                "position_effect": "close",
+            }
+        ]
+
+    setattr(cast(Any, adapter.gateway), "query_trades_today", _query_trades_today)
+
+    first_sync = adapter.sync_today_trades()
+    second_sync = adapter.sync_today_trades()
+
+    assert len(first_sync) == 1
+    assert first_sync[0].trade_id == "t-sync"
+    assert first_sync[0].position_effect == "close"
+    assert len(second_sync) == 1
+    assert len(adapter.query_trades()) == 1
 
 
 def test_ctp_adapter_native_event_flow_advances_status() -> None:

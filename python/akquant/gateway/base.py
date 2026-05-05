@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Protocol, Sequence
 
 from .models import (
+    BrokerCapability,
     UnifiedAccount,
     UnifiedExecutionReport,
     UnifiedOrderRequest,
@@ -48,6 +49,9 @@ class TraderGateway(Protocol):
     def place_order(self, req: UnifiedOrderRequest) -> str:
         """Place order."""
 
+    def get_capabilities(self) -> BrokerCapability:
+        """Return trader capability matrix."""
+
     def cancel_order(self, broker_order_id: str) -> None:
         """Cancel order."""
 
@@ -93,4 +97,5 @@ class GatewayBundle:
 
     market_gateway: MarketGateway
     trader_gateway: TraderGateway | None = None
+    trader_capabilities: BrokerCapability | None = None
     metadata: dict[str, Any] | None = None

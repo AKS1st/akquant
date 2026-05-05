@@ -252,20 +252,19 @@ impl ExecutionClient for SimulatedExecutionClient {
                                         stock_margin_ratio_override,
                                     );
                                 let mut margin_projection = projected_portfolio.clone();
-                                match trade.side {
-                                    crate::model::OrderSide::Buy => {
-                                        margin_projection.adjust_position(
-                                            &trade.symbol,
-                                            trade.quantity,
-                                        );
-                                    }
-                                    crate::model::OrderSide::Sell => {
-                                        margin_projection.adjust_position(
-                                            &trade.symbol,
-                                            -trade.quantity,
-                                        );
-                                    }
-                                }
+                                let current_pos = margin_projection
+                                    .positions
+                                    .get(&trade.symbol)
+                                    .copied()
+                                    .unwrap_or(Decimal::ZERO);
+                                let next_pos = crate::model::project_position_after(
+                                    trade.side,
+                                    trade.position_effect,
+                                    current_pos,
+                                    trade.quantity,
+                                );
+                                margin_projection
+                                    .adjust_position(&trade.symbol, next_pos - current_pos);
                                 let next_used_margin =
                                     margin_projection.calculate_used_margin_with_stock_ratio(
                                         &prices_for_margin,
@@ -308,12 +307,21 @@ impl ExecutionClient for SimulatedExecutionClient {
                                             );
                                             let mut resized_projection =
                                                 projected_portfolio.clone();
-                                            match trade.side {
-                                                crate::model::OrderSide::Buy => resized_projection
-                                                    .adjust_position(&trade.symbol, new_qty),
-                                                crate::model::OrderSide::Sell => resized_projection
-                                                    .adjust_position(&trade.symbol, -new_qty),
-                                            }
+                                            let current_pos = resized_projection
+                                                .positions
+                                                .get(&trade.symbol)
+                                                .copied()
+                                                .unwrap_or(Decimal::ZERO);
+                                            let next_pos = crate::model::project_position_after(
+                                                trade.side,
+                                                trade.position_effect,
+                                                current_pos,
+                                                new_qty,
+                                            );
+                                            resized_projection.adjust_position(
+                                                &trade.symbol,
+                                                next_pos - current_pos,
+                                            );
                                             let resized_used_margin = resized_projection
                                                 .calculate_used_margin_with_stock_ratio(
                                                     &prices_for_margin,
@@ -366,13 +374,22 @@ impl ExecutionClient for SimulatedExecutionClient {
                                 projected_portfolio.adjust_cash(-commission);
                                 if trade.side == crate::model::OrderSide::Buy {
                                     projected_portfolio.adjust_cash(-cost);
-                                    projected_portfolio
-                                        .adjust_position(&trade.symbol, trade.quantity);
                                 } else {
                                     projected_portfolio.adjust_cash(cost);
-                                    projected_portfolio
-                                        .adjust_position(&trade.symbol, -trade.quantity);
                                 }
+                                let current_pos = projected_portfolio
+                                    .positions
+                                    .get(&trade.symbol)
+                                    .copied()
+                                    .unwrap_or(Decimal::ZERO);
+                                let next_pos = crate::model::project_position_after(
+                                    trade.side,
+                                    trade.position_effect,
+                                    current_pos,
+                                    trade.quantity,
+                                );
+                                projected_portfolio
+                                    .adjust_position(&trade.symbol, next_pos - current_pos);
                                 current_free_margin = projected_portfolio
                                     .calculate_free_margin_with_stock_ratio(
                                         &prices_for_margin,

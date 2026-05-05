@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import Any
 
 import pandas as pd
@@ -391,6 +392,87 @@ def test_margin_account_stock_buy_uses_initial_margin_ratio() -> None:
     assert "short_market_value" in snap
     assert "maintenance_ratio" in snap
     assert snap.get("account_mode") == "margin"
+
+
+def test_margin_account_same_cycle_cover_then_reopen_short_releases_margin() -> None:
+    """Same-cycle short rotation should cover before reopening another short."""
+
+    class MarginShortRotationStrategy(Strategy):
+        def __init__(self) -> None:
+            self.pending: dict[int, set[str]] = defaultdict(set)
+            self.step = 0
+
+        def on_bar(self, bar: Bar) -> None:
+            bucket = self.pending[bar.timestamp]
+            bucket.add(bar.symbol)
+            if len(bucket) < 2:
+                return
+            self.pending.pop(bar.timestamp, None)
+
+            if self.step == 0:
+                self.short("AAA", 200.0, tag="init-short")
+            elif self.step == 1:
+                self.cover("AAA", 200.0, tag="cover-short")
+                self.short("BBB", 200.0, tag="reopen-short")
+            self.step += 1
+
+    timestamps = [
+        pd.Timestamp("2023-01-01 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-01 10:01:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-01 10:02:00", tz="Asia/Shanghai"),
+    ]
+    data = {
+        "AAA": pd.DataFrame(
+            {
+                "date": timestamps,
+                "open": [10.0, 10.0, 10.0],
+                "high": [10.0, 10.0, 10.0],
+                "low": [10.0, 10.0, 10.0],
+                "close": [10.0, 10.0, 10.0],
+                "volume": [10000.0, 10000.0, 10000.0],
+                "symbol": ["AAA", "AAA", "AAA"],
+            }
+        ),
+        "BBB": pd.DataFrame(
+            {
+                "date": timestamps,
+                "open": [10.0, 10.0, 10.0],
+                "high": [10.0, 10.0, 10.0],
+                "low": [10.0, 10.0, 10.0],
+                "close": [10.0, 10.0, 10.0],
+                "volume": [10000.0, 10000.0, 10000.0],
+                "symbol": ["BBB", "BBB", "BBB"],
+            }
+        ),
+    }
+
+    result = run_backtest(
+        data=data,
+        strategy=MarginShortRotationStrategy,
+        symbols=["AAA", "BBB"],
+        initial_cash=5000.0,
+        show_progress=False,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        lot_size=1,
+        risk_config=RiskConfig(
+            account_mode="margin",
+            enable_short_sell=True,
+            initial_margin_ratio=0.5,
+        ),
+    )
+
+    reasons = _reject_reasons(result)
+    assert not any("Insufficient margin" in r for r in reasons), reasons
+    orders_df = result.orders_df
+    cover_rows = orders_df[orders_df["tag"].astype(str) == "cover-short"]
+    reopen_rows = orders_df[orders_df["tag"].astype(str) == "reopen-short"]
+    assert not cover_rows.empty
+    assert not reopen_rows.empty
+    assert set(cover_rows["status"].astype(str).str.lower()) == {"filled"}
+    assert set(reopen_rows["status"].astype(str).str.lower()) == {"filled"}
+    final_positions = result.positions.iloc[-1]
+    assert float(final_positions.get("AAA", 0.0)) == 0.0
+    assert float(final_positions.get("BBB", 0.0)) == -200.0
 
 
 def test_margin_account_daily_financing_interest_is_deducted() -> None:

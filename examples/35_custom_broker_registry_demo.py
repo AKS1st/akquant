@@ -10,6 +10,7 @@ from akquant.gateway import (
     unregister_broker,
 )
 from akquant.gateway.models import (
+    BrokerCapability,
     UnifiedAccount,
     UnifiedExecutionReport,
     UnifiedOrderRequest,
@@ -51,6 +52,9 @@ class _DemoTraderGateway:
 
     def place_order(self, req: UnifiedOrderRequest) -> str:
         return f"demo-{req.client_order_id}"
+
+    def get_capabilities(self) -> BrokerCapability:
+        return BrokerCapability(broker_name="demo")
 
     def cancel_order(self, broker_order_id: str) -> None:
         _ = broker_order_id

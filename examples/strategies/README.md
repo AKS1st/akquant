@@ -64,6 +64,22 @@
     - 收齐后只执行一次跨标的打分与调仓。
     - 适用于无固定定时触发点的横截面策略。
 
+### 7. [07_stock_momentum_rotation_on_timer.py](./07_stock_momentum_rotation_on_timer.py) - `on_timer` 风格的横截面轮动
+- **目标**: 演示把横截面打分与调仓逻辑集中放到 `on_timer` 中。
+- **策略**: 固定时点触发的动量轮动策略。
+- **核心点**:
+    - `add_daily_timer()` 与 `on_timer()` 的基本配合。
+    - 将多标的横截面逻辑从 `on_bar` 中解耦出来。
+    - 适合作为生产环境中更稳定的统一调仓入口。
+
+### 8. [08_target_positions_long_short.py](./08_target_positions_long_short.py) - 高级目标仓位与多空切换
+- **目标**: 演示 `order_target_positions()` 如何在一个调用里同时表达多头与空头目标。
+- **策略**: 先建立多头，再在同周期内切换为 `AAA` 空头和 `BBB` 多头。
+- **核心点**:
+    - `order_target_positions()` 支持正负目标仓位。
+    - `allow_short=True` 与 `RiskConfig(account_mode="margin", enable_short_sell=True)` 的配合。
+    - `get_last_target_positions_plan()` 用于解释最近一次调仓计划。
+
 ## 使用方法
 
 直接运行对应的 Python 脚本即可：

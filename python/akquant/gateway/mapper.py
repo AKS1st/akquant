@@ -50,6 +50,7 @@ class BrokerEventMapper:
             avg_fill_price=float(payload.get("avg_fill_price", 0.0)),
             reject_reason=str(payload.get("reject_reason", "")),
             timestamp_ns=int(payload.get("timestamp_ns", 0)),
+            position_effect=str(payload.get("position_effect", "auto")),
         )
 
     def map_trade_event(self, payload: dict[str, Any]) -> UnifiedTrade:
@@ -63,6 +64,7 @@ class BrokerEventMapper:
             quantity=float(payload.get("quantity", 0.0)),
             price=float(payload.get("price", 0.0)),
             timestamp_ns=int(payload.get("timestamp_ns", 0)),
+            position_effect=str(payload.get("position_effect", "auto")),
         )
 
     def map_execution_report(self, payload: dict[str, Any]) -> UnifiedExecutionReport:
@@ -77,6 +79,7 @@ class BrokerEventMapper:
             avg_fill_price=float(payload.get("avg_fill_price", 0.0)),
             reject_reason=str(payload.get("reject_reason", "")),
             timestamp_ns=int(payload.get("timestamp_ns", 0)),
+            position_effect=str(payload.get("position_effect", "auto")),
         )
 
 

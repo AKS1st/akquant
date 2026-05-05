@@ -10,6 +10,7 @@ from akquant.gateway import (
     unregister_broker,
 )
 from akquant.gateway.models import (
+    BrokerCapability,
     UnifiedAccount,
     UnifiedExecutionReport,
     UnifiedOrderRequest,
@@ -52,6 +53,9 @@ class _DummyTraderGateway:
 
     def place_order(self, req: UnifiedOrderRequest) -> str:
         return f"b-{req.client_order_id}"
+
+    def get_capabilities(self) -> BrokerCapability:
+        return BrokerCapability(broker_name="dummy")
 
     def cancel_order(self, broker_order_id: str) -> None:
         _ = broker_order_id

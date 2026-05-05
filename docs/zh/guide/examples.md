@@ -16,6 +16,7 @@
 *   [函数式热启动示例](https://github.com/akfamily/akquant/blob/main/examples/56_functional_warm_start_demo.py): 演示函数式 `on_resume(ctx)`、`on_start(ctx)` 与 checkpoint 恢复后的状态延续。
 *   [函数式多 slot 热启动示例](https://github.com/akfamily/akquant/blob/main/examples/57_functional_multi_slot_warm_start_demo.py): 演示 `strategies_by_slot` 下主 slot 与副 slot 如何一起从 checkpoint 恢复，并分别触发 `on_resume(ctx)`。
 *   [多标的目标权重调仓最短路径](https://github.com/akfamily/akquant/blob/main/examples/43_target_weights_rebalance.py): TopN 动态调仓示例，展示同时间切片收齐后基于动量的组合再平衡。
+*   [高级目标仓位与多空切换最短路径](https://github.com/akfamily/akquant/blob/main/examples/strategies/08_target_positions_long_short.py): 演示 `order_target_positions()`、负目标仓位、`allow_short=True` 与 `get_last_target_positions_plan()` 的最小闭环。
 *   [指标组合 Playbook 示例](https://github.com/akfamily/akquant/blob/main/examples/45_talib_indicator_playbook_demo.py): 演示 `EMA/ADX/NATR` 与 `BBANDS/RSI/MOM` 组合在同一策略中的落地方式，并支持 `--data-source akshare` 真实数据模式。
 
 > 数据源约定：除特别标注需要模拟数据外，本页示例默认使用 AKShare 获取真实市场数据。
@@ -400,6 +401,43 @@ class AdjSignal(Strategy):
             self.close_position(bar.symbol)
 ```
 
+### 3.6 高级目标仓位与多空切换
+
+[查看完整源码](https://github.com/akfamily/akquant/blob/main/examples/strategies/08_target_positions_long_short.py)
+
+**核心概念**:
+在一个调用里直接表达“谁要减仓、谁要反手、谁要新开仓”，更适合融资融券、期货和需要逐步对接实盘语义的策略。
+
+- 使用 `order_target_positions()` 按目标数量调仓，而不是按权重调仓。
+- 支持正负目标仓位，例如 `{"AAA": -100.0, "BBB": 50.0}`。
+- 同周期调仓采用 `reduce-first` 语义，先释放约束，再执行增加仓位的腿。
+
+**AKQuant 特性演示**:
+
+- `RiskConfig(account_mode="margin", enable_short_sell=True)` 与 `allow_short=True` 的配合。
+- `missing_price_mode="fail"` 对缺价输入做显式校验。
+- `get_last_target_positions_plan()` 用于解释最近一次调仓计划。
+
+```python
+class TargetPositionsDemoStrategy(Strategy):
+    def on_bar(self, bar):
+        if self.step == 0:
+            self.order_target_positions(
+                {"AAA": 100.0},
+                liquidate_unmentioned=True,
+            )
+        elif self.step == 1:
+            self.order_target_positions(
+                {"AAA": -100.0, "BBB": 50.0},
+                liquidate_unmentioned=True,
+                allow_short=True,
+                missing_price_mode="fail",
+            )
+
+        plan = self.get_last_target_positions_plan()
+        print(plan["status"], plan["submitted_legs"], plan["skipped_legs"])
+```
+
 ## 4. 更多 AKShare 示例
 
 `examples/` 目录下还包含更多演示 AKShare 集成的脚本：
@@ -436,6 +474,10 @@ class AdjSignal(Strategy):
 *   **[55_functional_ml_walk_forward.py](https://github.com/akfamily/akquant/blob/main/examples/55_functional_ml_walk_forward.py)**:
     *   演示函数式 `initialize(ctx)`、`on_train_signal(ctx)` 与 `on_bar(ctx, bar)` 在 ML walk-forward 场景下的配合方式。
     *   复用公开 API 完成训练窗口数据提取、特征构造、模型训练与预测，并以 `done_functional_ml_walk_forward` 作为结束标记。
+
+*   **[59_akshare_etf_rotation.py](https://github.com/akfamily/akquant/blob/main/examples/59_akshare_etf_rotation.py)**:
+    *   演示如何使用 AKShare 拉取多只 ETF 日线，并拼接成单个 `DataFrame` 作为 AKQuant 的推荐多标输入。
+    *   在 `on_daily_rebalance` 中完成横截面动量计算、选强和组合调仓，适合作为 ETF 轮动最小模板。
 
 *   **[56_functional_warm_start_demo.py](https://github.com/akfamily/akquant/blob/main/examples/56_functional_warm_start_demo.py)**:
     *   演示函数式 `on_resume(ctx)` 与 `on_start(ctx)` 在 checkpoint 恢复场景下的触发顺序，以及策略状态如何跨阶段延续。

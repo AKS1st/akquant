@@ -5,6 +5,7 @@ CTP Gateway Implementation for AKQuant.
 This module provides CTP (China Futures) connectivity using openctp-ctp library.
 """
 
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -90,6 +91,18 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
         self.error_callback: Callable[[dict[str, Any]], None] | None = None
         self.order_ref_to_client_order_id: dict[str, str] = {}
         self.order_ref_to_symbol: dict[str, str] = {}
+        self._account_query_timeout_sec = 2.0
+        self._account_query_event = threading.Event()
+        self._account_query_result: dict[str, Any] | None = None
+        self._account_query_error = ""
+        self._position_query_timeout_sec = 2.0
+        self._position_query_event = threading.Event()
+        self._position_query_results: dict[tuple[str, str], dict[str, Any]] = {}
+        self._position_query_error = ""
+        self._trade_query_timeout_sec = 2.0
+        self._trade_query_event = threading.Event()
+        self._trade_query_results: list[dict[str, Any]] = []
+        self._trade_query_error = ""
 
     def start(self) -> None:
         """Start the CTP Trader API in a blocking way (should be run in a thread)."""
@@ -132,6 +145,7 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
         price: float | None,
         order_type: str,
         time_in_force: str,
+        position_effect: str = "auto",
     ) -> dict[str, Any]:
         """Send CTP order insert request."""
         if not self.can_trade():
@@ -156,7 +170,10 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
             if str(side).strip().lower() == "buy"
             else tdapi.THOST_FTDC_D_Sell
         )
-        request.CombOffsetFlag = tdapi.THOST_FTDC_OF_Open
+        normalized_effect = self._normalize_position_effect(position_effect)
+        request.CombOffsetFlag = self._map_position_effect_to_ctp_offset(
+            normalized_effect
+        )
         request.CombHedgeFlag = tdapi.THOST_FTDC_HF_Speculation
         request.VolumeTotalOriginal = int(max(1, round(quantity)))
 
@@ -229,6 +246,89 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
         ret = self.api.ReqOrderAction(request, self.req_id)
         if ret != 0:
             raise RuntimeError(f"ReqOrderAction failed with code={ret}")
+
+    def query_account(self) -> dict[str, Any] | None:
+        """Query the CTP trading account snapshot synchronously."""
+        if not self.can_trade():
+            raise RuntimeError("CTP trader is not ready for account queries")
+        if self.api is None:
+            raise RuntimeError("CTP trader API is not initialized")
+
+        self._account_query_result = None
+        self._account_query_error = ""
+        self._account_query_event.clear()
+
+        request = tdapi.CThostFtdcQryTradingAccountField()
+        request.BrokerID = self.broker_id
+        request.InvestorID = self.user_id
+
+        self.req_id += 1
+        ret = self.api.ReqQryTradingAccount(request, self.req_id)
+        if ret != 0:
+            raise RuntimeError(f"ReqQryTradingAccount failed with code={ret}")
+        if not self._account_query_event.wait(timeout=self._account_query_timeout_sec):
+            raise RuntimeError("CTP trading account query timed out")
+        if self._account_query_error:
+            raise RuntimeError(self._account_query_error)
+        return self._account_query_result
+
+    def query_positions(self, instrument_id: str | None = None) -> list[dict[str, Any]]:
+        """Query and aggregate CTP investor positions synchronously."""
+        if not self.can_trade():
+            raise RuntimeError("CTP trader is not ready for position queries")
+        if self.api is None:
+            raise RuntimeError("CTP trader API is not initialized")
+
+        self._position_query_results = {}
+        self._position_query_error = ""
+        self._position_query_event.clear()
+
+        request = tdapi.CThostFtdcQryInvestorPositionField()
+        request.BrokerID = self.broker_id
+        request.InvestorID = self.user_id
+        if instrument_id:
+            request.InstrumentID = instrument_id
+
+        self.req_id += 1
+        ret = self.api.ReqQryInvestorPosition(request, self.req_id)
+        if ret != 0:
+            raise RuntimeError(f"ReqQryInvestorPosition failed with code={ret}")
+        if not self._position_query_event.wait(
+            timeout=self._position_query_timeout_sec
+        ):
+            raise RuntimeError("CTP investor position query timed out")
+        if self._position_query_error:
+            raise RuntimeError(self._position_query_error)
+        return list(self._position_query_results.values())
+
+    def query_trades_today(
+        self, instrument_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Query today's trade fills from CTP synchronously."""
+        if not self.can_trade():
+            raise RuntimeError("CTP trader is not ready for trade queries")
+        if self.api is None:
+            raise RuntimeError("CTP trader API is not initialized")
+
+        self._trade_query_results = []
+        self._trade_query_error = ""
+        self._trade_query_event.clear()
+
+        request = tdapi.CThostFtdcQryTradeField()
+        request.BrokerID = self.broker_id
+        request.InvestorID = self.user_id
+        if instrument_id:
+            request.InstrumentID = instrument_id
+
+        self.req_id += 1
+        ret = self.api.ReqQryTrade(request, self.req_id)
+        if ret != 0:
+            raise RuntimeError(f"ReqQryTrade failed with code={ret}")
+        if not self._trade_query_event.wait(timeout=self._trade_query_timeout_sec):
+            raise RuntimeError("CTP trade query timed out")
+        if self._trade_query_error:
+            raise RuntimeError(self._trade_query_error)
+        return list(self._trade_query_results)
 
     def OnFrontConnected(self) -> None:
         """Handle front connection event."""
@@ -348,6 +448,83 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
             source="OnErrRtnOrderInsert",
         )
 
+    def OnRspQryTradingAccount(
+        self,
+        pTradingAccount: Any,
+        pRspInfo: Any,
+        nRequestID: int,
+        bIsLast: bool,
+    ) -> None:
+        """Handle trading account query response."""
+        _ = nRequestID
+        error_id = (
+            int(getattr(pRspInfo, "ErrorID", 0) or 0) if pRspInfo is not None else 0
+        )
+        if error_id:
+            error_msg = self._to_text(getattr(pRspInfo, "ErrorMsg", ""))
+            self._account_query_error = (
+                f"CTP trading account query failed: {error_id} {error_msg}".strip()
+            )
+        if pTradingAccount is not None:
+            self._account_query_result = {
+                "account_id": self._to_text(
+                    getattr(pTradingAccount, "AccountID", self.user_id)
+                )
+                or self.user_id,
+                "equity": float(getattr(pTradingAccount, "Balance", 0.0) or 0.0),
+                "cash": float(getattr(pTradingAccount, "Balance", 0.0) or 0.0),
+                "available_cash": float(
+                    getattr(pTradingAccount, "Available", 0.0) or 0.0
+                ),
+                "timestamp_ns": time.time_ns(),
+            }
+        if bIsLast:
+            self._account_query_event.set()
+
+    def OnRspQryInvestorPosition(
+        self,
+        pInvestorPosition: Any,
+        pRspInfo: Any,
+        nRequestID: int,
+        bIsLast: bool,
+    ) -> None:
+        """Handle investor position query response."""
+        _ = nRequestID
+        error_id = (
+            int(getattr(pRspInfo, "ErrorID", 0) or 0) if pRspInfo is not None else 0
+        )
+        if error_id:
+            error_msg = self._to_text(getattr(pRspInfo, "ErrorMsg", ""))
+            self._position_query_error = (
+                f"CTP investor position query failed: {error_id} {error_msg}".strip()
+            )
+        if pInvestorPosition is not None:
+            self._accumulate_position_query_row(pInvestorPosition)
+        if bIsLast:
+            self._position_query_event.set()
+
+    def OnRspQryTrade(
+        self,
+        pTrade: Any,
+        pRspInfo: Any,
+        nRequestID: int,
+        bIsLast: bool,
+    ) -> None:
+        """Handle trade query response."""
+        _ = nRequestID
+        error_id = (
+            int(getattr(pRspInfo, "ErrorID", 0) or 0) if pRspInfo is not None else 0
+        )
+        if error_id:
+            error_msg = self._to_text(getattr(pRspInfo, "ErrorMsg", ""))
+            self._trade_query_error = (
+                f"CTP trade query failed: {error_id} {error_msg}".strip()
+            )
+        if pTrade is not None:
+            self._trade_query_results.append(self._trade_payload_from_ctp_trade(pTrade))
+        if bIsLast:
+            self._trade_query_event.set()
+
     def OnRtnOrder(self, pOrder: Any) -> None:
         """Handle order return event."""
         order_ref = self._to_text(getattr(pOrder, "OrderRef", ""))
@@ -369,32 +546,16 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
             "reject_reason": self._to_text(getattr(pOrder, "StatusMsg", "")),
             "timestamp_ns": time.time_ns(),
             "order_ref": order_ref,
+            "position_effect": self._map_ctp_offset_to_position_effect(
+                getattr(pOrder, "CombOffsetFlag", "")
+            ),
         }
         if self.order_callback is not None:
             self.order_callback(payload)
 
     def OnRtnTrade(self, pTrade: Any) -> None:
         """Handle trade return event."""
-        order_ref = self._to_text(getattr(pTrade, "OrderRef", ""))
-        order_sys_id = self._to_text(getattr(pTrade, "OrderSysID", "")).strip()
-        front_id = int(getattr(pTrade, "FrontID", 0) or self.front_id)
-        session_id = int(getattr(pTrade, "SessionID", 0) or self.session_id)
-        payload = {
-            "trade_id": self._to_text(getattr(pTrade, "TradeID", "")),
-            "broker_order_id": self._make_broker_order_id(
-                front_id=front_id,
-                session_id=session_id,
-                order_ref=order_ref,
-                order_sys_id=order_sys_id,
-            ),
-            "client_order_id": self.order_ref_to_client_order_id.get(order_ref, ""),
-            "symbol": self._to_text(getattr(pTrade, "InstrumentID", "")),
-            "side": self._map_direction(getattr(pTrade, "Direction", "")),
-            "quantity": float(getattr(pTrade, "Volume", 0.0) or 0.0),
-            "price": float(getattr(pTrade, "Price", 0.0) or 0.0),
-            "timestamp_ns": time.time_ns(),
-            "order_ref": order_ref,
-        }
+        payload = self._trade_payload_from_ctp_trade(pTrade)
         if self.trade_callback is not None:
             self.trade_callback(payload)
 
@@ -424,6 +585,9 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
             "timestamp_ns": time.time_ns(),
             "order_ref": order_ref,
             "error_code": str(error_id),
+            "position_effect": self._map_ctp_offset_to_position_effect(
+                getattr(input_order, "CombOffsetFlag", "")
+            ),
         }
         if self.order_callback is not None:
             self.order_callback(payload)
@@ -491,6 +655,182 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
         if key in {"1", "sell", "s"}:
             return "Sell"
         return str(raw_direction)
+
+    def _map_position_direction(self, raw_direction: Any) -> str:
+        key = self._to_text(raw_direction).lower()
+        long_key = self._to_text(getattr(tdapi, "THOST_FTDC_PD_Long", "2")).lower()
+        short_key = self._to_text(getattr(tdapi, "THOST_FTDC_PD_Short", "3")).lower()
+        if key in {long_key, "2", "long", "buy"}:
+            return "Buy"
+        if key in {short_key, "3", "short", "sell"}:
+            return "Sell"
+        return self._map_direction(raw_direction)
+
+    def _map_position_date(self, raw_position_date: Any) -> str:
+        key = self._to_text(raw_position_date).lower()
+        today_key = self._to_text(getattr(tdapi, "THOST_FTDC_PSD_Today", "1")).lower()
+        history_key = self._to_text(
+            getattr(tdapi, "THOST_FTDC_PSD_History", "2")
+        ).lower()
+        if key in {today_key, "1", "today"}:
+            return "today"
+        if key in {history_key, "2", "history", "yesterday"}:
+            return "yesterday"
+        return ""
+
+    def _trade_payload_from_ctp_trade(self, trade: Any) -> dict[str, Any]:
+        order_ref = self._to_text(getattr(trade, "OrderRef", ""))
+        order_sys_id = self._to_text(getattr(trade, "OrderSysID", "")).strip()
+        front_id = int(getattr(trade, "FrontID", 0) or self.front_id)
+        session_id = int(getattr(trade, "SessionID", 0) or self.session_id)
+        return {
+            "trade_id": self._to_text(getattr(trade, "TradeID", "")),
+            "broker_order_id": self._make_broker_order_id(
+                front_id=front_id,
+                session_id=session_id,
+                order_ref=order_ref,
+                order_sys_id=order_sys_id,
+            ),
+            "client_order_id": self.order_ref_to_client_order_id.get(order_ref, ""),
+            "symbol": self._to_text(getattr(trade, "InstrumentID", "")),
+            "side": self._map_direction(getattr(trade, "Direction", "")),
+            "quantity": float(getattr(trade, "Volume", 0.0) or 0.0),
+            "price": float(getattr(trade, "Price", 0.0) or 0.0),
+            "timestamp_ns": time.time_ns(),
+            "order_ref": order_ref,
+            "position_effect": self._map_ctp_offset_to_position_effect(
+                getattr(trade, "OffsetFlag", "")
+            ),
+        }
+
+    def _accumulate_position_query_row(self, position: Any) -> None:
+        symbol = self._to_text(getattr(position, "InstrumentID", ""))
+        direction = self._map_position_direction(getattr(position, "PosiDirection", ""))
+        if not symbol:
+            return
+
+        key = (symbol, direction)
+        snapshot = self._position_query_results.get(
+            key,
+            {
+                "symbol": symbol,
+                "direction": direction,
+                "quantity": 0.0,
+                "available_quantity": 0.0,
+                "today_quantity": 0.0,
+                "yesterday_quantity": 0.0,
+                "available_today_quantity": 0.0,
+                "available_yesterday_quantity": 0.0,
+                "avg_price": 0.0,
+                "timestamp_ns": time.time_ns(),
+            },
+        )
+
+        position_qty = float(getattr(position, "Position", 0.0) or 0.0)
+        today_qty = float(getattr(position, "TodayPosition", 0.0) or 0.0)
+        yesterday_qty = float(getattr(position, "YdPosition", 0.0) or 0.0)
+        if today_qty <= 0.0 and yesterday_qty <= 0.0:
+            position_date = self._map_position_date(
+                getattr(position, "PositionDate", "")
+            )
+            if position_date == "today":
+                today_qty = position_qty
+            elif position_date == "yesterday":
+                yesterday_qty = position_qty
+        if yesterday_qty <= 0.0:
+            yesterday_qty = max(position_qty - today_qty, 0.0)
+        if today_qty <= 0.0:
+            today_qty = max(position_qty - yesterday_qty, 0.0)
+
+        direction_frozen = float(
+            getattr(
+                position,
+                "ShortFrozen" if direction == "Buy" else "LongFrozen",
+                0.0,
+            )
+            or 0.0
+        )
+        today_frozen = float(getattr(position, "TodayFrozen", 0.0) or 0.0)
+        yesterday_frozen = float(getattr(position, "YdFrozen", 0.0) or 0.0)
+        if today_frozen <= 0.0 and yesterday_frozen <= 0.0 and direction_frozen > 0.0:
+            allocated_yesterday_frozen = min(yesterday_qty, direction_frozen)
+            allocated_today_frozen = min(
+                today_qty,
+                max(direction_frozen - allocated_yesterday_frozen, 0.0),
+            )
+            yesterday_frozen = allocated_yesterday_frozen
+            today_frozen = allocated_today_frozen
+
+        snapshot["quantity"] += position_qty
+        snapshot["today_quantity"] += today_qty
+        snapshot["yesterday_quantity"] += yesterday_qty
+        snapshot["available_today_quantity"] += max(today_qty - today_frozen, 0.0)
+        snapshot["available_yesterday_quantity"] += max(
+            yesterday_qty - yesterday_frozen, 0.0
+        )
+        snapshot["available_quantity"] = (
+            snapshot["available_today_quantity"]
+            + snapshot["available_yesterday_quantity"]
+        )
+
+        price_candidates = (
+            getattr(position, "PositionPrice", 0.0),
+            getattr(position, "OpenPrice", 0.0),
+            getattr(position, "SettlementPrice", 0.0),
+        )
+        for candidate in price_candidates:
+            price_value = float(candidate or 0.0)
+            if price_value > 0.0:
+                snapshot["avg_price"] = price_value
+                break
+
+        snapshot["timestamp_ns"] = time.time_ns()
+        self._position_query_results[key] = snapshot
+
+    def _normalize_position_effect(self, position_effect: str | None) -> str:
+        normalized = str(position_effect or "auto").strip().lower()
+        if normalized not in {
+            "auto",
+            "open",
+            "close",
+            "close_today",
+            "close_yesterday",
+        }:
+            raise ValueError(
+                "position_effect must be one of: auto, open, close, "
+                "close_today, close_yesterday"
+            )
+        return normalized
+
+    def _map_position_effect_to_ctp_offset(self, position_effect: str) -> Any:
+        mapping = {
+            "auto": getattr(tdapi, "THOST_FTDC_OF_Open", "0"),
+            "open": getattr(tdapi, "THOST_FTDC_OF_Open", "0"),
+            "close": getattr(tdapi, "THOST_FTDC_OF_Close", "1"),
+            "close_today": getattr(tdapi, "THOST_FTDC_OF_CloseToday", "3"),
+            "close_yesterday": getattr(tdapi, "THOST_FTDC_OF_CloseYesterday", "4"),
+        }
+        return mapping[position_effect]
+
+    def _map_ctp_offset_to_position_effect(self, raw_offset: Any) -> str:
+        key = self._to_text(raw_offset)
+        mapping = {
+            self._to_text(getattr(tdapi, "THOST_FTDC_OF_Open", "0")): "open",
+            self._to_text(getattr(tdapi, "THOST_FTDC_OF_Close", "1")): "close",
+            self._to_text(
+                getattr(tdapi, "THOST_FTDC_OF_CloseToday", "3")
+            ): "close_today",
+            self._to_text(
+                getattr(tdapi, "THOST_FTDC_OF_CloseYesterday", "4")
+            ): "close_yesterday",
+            "open": "open",
+            "close": "close",
+            "closetoday": "close_today",
+            "close_today": "close_today",
+            "closeyesterday": "close_yesterday",
+            "close_yesterday": "close_yesterday",
+        }
+        return mapping.get(key.lower(), "auto")
 
     def _to_text(self, value: Any) -> str:
         if isinstance(value, bytes):

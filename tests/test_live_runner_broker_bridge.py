@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, cast
 
 import pytest
+from akquant.gateway.models import BrokerCapability, UnifiedPosition
 from akquant.live import LiveRunner
 from akquant.strategy import Strategy
 
@@ -226,6 +227,175 @@ def test_live_runner_broker_bridge_recovers_from_sync() -> None:
     assert "t-sync-1" in runner._broker_trade_keys
 
 
+def test_live_runner_recovery_syncs_account_snapshot() -> None:
+    """Recovery should cache the latest broker account snapshot."""
+
+    class _DummyTraderGateway:
+        def heartbeat(self) -> bool:
+            return True
+
+        def sync_open_orders(self) -> list[Any]:
+            return []
+
+        def sync_today_trades(self) -> list[Any]:
+            return []
+
+        def query_account(self) -> Any:
+            return SimpleNamespace(
+                account_id="acct-live-1",
+                equity=100000.0,
+                cash=100000.0,
+                available_cash=80000.0,
+                timestamp_ns=200,
+            )
+
+    class _DummyStrategy:
+        def __init__(self) -> None:
+            self.portfolio_updates: list[Any] = []
+
+        def on_portfolio_update(self, payload: Any) -> None:
+            self.portfolio_updates.append(payload)
+
+        def on_error(self, error: Exception, source: str, payload: Any = None) -> None:
+            return None
+
+    observed: list[dict[str, Any]] = []
+    runner = LiveRunner.__new__(LiveRunner)
+    runner.broker = "ctp"
+    runner.gateway_options = {"recovery_mode": "compatible"}
+    runner.on_broker_event = observed.append
+    runner._init_broker_bridge_state()
+    runner._broker_trader_gateway = _DummyTraderGateway()
+    strategy = _DummyStrategy()
+
+    runner._run_broker_recovery_cycle(cast(Any, strategy))
+    runner._drain_broker_events(cast(Any, strategy))
+
+    assert runner._broker_account_state is not None
+    assert (
+        runner._payload_field(runner._broker_account_state, "account_id")
+        == "acct-live-1"
+    )
+    assert strategy.portfolio_updates
+    account_events = [event for event in observed if event["event_type"] == "account"]
+    assert account_events
+    assert account_events[0]["payload"]["account_id"] == "acct-live-1"
+
+
+def test_live_runner_strict_recovery_reports_sync_failure() -> None:
+    """Strict recovery mode should surface sync failures to strategy and observer."""
+
+    class _DummyTraderGateway:
+        def heartbeat(self) -> bool:
+            return True
+
+        def sync_open_orders(self) -> list[Any]:
+            return []
+
+        def sync_today_trades(self) -> list[Any]:
+            raise RuntimeError("sync trades failed")
+
+    class _DummyStrategy:
+        def __init__(self) -> None:
+            self.errors: list[tuple[str, Any]] = []
+
+        def on_error(self, error: Exception, source: str, payload: Any = None) -> None:
+            self.errors.append((source, payload))
+
+    broker_events: list[dict[str, Any]] = []
+    runner = LiveRunner.__new__(LiveRunner)
+    runner.broker = "ctp"
+    runner.gateway_options = {"recovery_mode": "strict"}
+    runner.on_broker_event = broker_events.append
+    runner._init_broker_bridge_state()
+    runner._broker_trader_gateway = _DummyTraderGateway()
+    strategy = _DummyStrategy()
+
+    runner._run_broker_recovery_cycle(cast(Any, strategy))
+
+    assert strategy.errors
+    assert strategy.errors[0][0] == "broker_recovery.sync_today_trades"
+    assert broker_events
+    assert broker_events[0]["event_type"] == "recovery_error"
+    assert broker_events[0]["payload"]["source"] == "broker_recovery.sync_today_trades"
+
+
+def test_live_runner_strict_recovery_reports_account_query_failure() -> None:
+    """Strict recovery mode should surface account query failures."""
+
+    class _DummyTraderGateway:
+        def heartbeat(self) -> bool:
+            return True
+
+        def sync_open_orders(self) -> list[Any]:
+            return []
+
+        def sync_today_trades(self) -> list[Any]:
+            return []
+
+        def query_account(self) -> Any:
+            raise RuntimeError("account query failed")
+
+    class _DummyStrategy:
+        def __init__(self) -> None:
+            self.errors: list[tuple[str, Any]] = []
+
+        def on_error(self, error: Exception, source: str, payload: Any = None) -> None:
+            self.errors.append((source, payload))
+
+    observed: list[dict[str, Any]] = []
+    runner = LiveRunner.__new__(LiveRunner)
+    runner.broker = "ctp"
+    runner.gateway_options = {"recovery_mode": "strict"}
+    runner.on_broker_event = observed.append
+    runner._init_broker_bridge_state()
+    runner._broker_trader_gateway = _DummyTraderGateway()
+    strategy = _DummyStrategy()
+
+    runner._run_broker_recovery_cycle(cast(Any, strategy))
+
+    assert strategy.errors
+    assert strategy.errors[0][0] == "broker_recovery.query_account"
+    assert observed
+    assert observed[0]["event_type"] == "recovery_error"
+    assert observed[0]["payload"]["source"] == "broker_recovery.query_account"
+
+
+def test_live_runner_compatible_recovery_keeps_sync_failure_silent() -> None:
+    """Compatible recovery mode should keep sync failures non-fatal and silent."""
+
+    class _DummyTraderGateway:
+        def heartbeat(self) -> bool:
+            return True
+
+        def sync_open_orders(self) -> list[Any]:
+            return []
+
+        def sync_today_trades(self) -> list[Any]:
+            raise RuntimeError("sync trades failed")
+
+    class _DummyStrategy:
+        def __init__(self) -> None:
+            self.errors: list[tuple[str, Any]] = []
+
+        def on_error(self, error: Exception, source: str, payload: Any = None) -> None:
+            self.errors.append((source, payload))
+
+    broker_events: list[dict[str, Any]] = []
+    runner = LiveRunner.__new__(LiveRunner)
+    runner.broker = "ctp"
+    runner.gateway_options = {"recovery_mode": "compatible"}
+    runner.on_broker_event = broker_events.append
+    runner._init_broker_bridge_state()
+    runner._broker_trader_gateway = _DummyTraderGateway()
+    strategy = _DummyStrategy()
+
+    runner._run_broker_recovery_cycle(cast(Any, strategy))
+
+    assert strategy.errors == []
+    assert broker_events == []
+
+
 def test_live_runner_syncs_client_broker_order_id_mapping() -> None:
     """Sync id mapping from order, report and trade events."""
     runner = LiveRunner.__new__(LiveRunner)
@@ -417,12 +587,303 @@ def test_live_runner_submit_order_supports_buy_and_sell_side() -> None:
     assert runner._resolve_broker_order_id("coid-sell-1") == "b-Sell-coid-sell-1"
 
 
+def test_live_runner_submit_order_forwards_position_effect() -> None:
+    """Unified submit_order should forward position_effect to gateway request."""
+
+    class _DummyTraderGateway:
+        def __init__(self) -> None:
+            self.last_position_effect = ""
+            self.last_reduce_only = False
+
+        def place_order(self, req: Any) -> str:
+            self.last_position_effect = req.position_effect
+            self.last_reduce_only = req.reduce_only
+            return f"b-{req.client_order_id}"
+
+    class _DummyStrategy:
+        def __init__(self) -> None:
+            self.errors: list[tuple[str, Any]] = []
+
+        def on_error(self, error: Exception, source: str, payload: Any = None) -> None:
+            self.errors.append((source, payload))
+
+    runner = LiveRunner.__new__(LiveRunner)
+    runner.broker = "miniqmt"
+    runner._init_broker_bridge_state()
+    gateway = _DummyTraderGateway()
+    strategy = _DummyStrategy()
+    runner._install_broker_order_submitter(cast(Any, gateway), cast(Any, strategy))
+    strategy_any = cast(Any, strategy)
+
+    broker_order_id = strategy_any.submit_order(
+        symbol="000001.SZ",
+        side="Buy",
+        quantity=10.0,
+        client_order_id="coid-effect-1",
+        position_effect="close",
+        reduce_only=True,
+    )
+
+    assert broker_order_id == "b-coid-effect-1"
+    assert gateway.last_position_effect == "close"
+    assert gateway.last_reduce_only is True
+
+
+def test_live_runner_submit_order_auto_splits_close_today_and_yesterday() -> None:
+    """Live submitter should split close into close_today and close_yesterday."""
+
+    class _DummyTraderGateway:
+        def __init__(self) -> None:
+            self.requests: list[Any] = []
+
+        def place_order(self, req: Any) -> str:
+            self.requests.append(req)
+            return f"b-{req.client_order_id}"
+
+        def query_positions(self) -> list[UnifiedPosition]:
+            return [
+                UnifiedPosition(
+                    symbol="au2606",
+                    quantity=5.0,
+                    available_quantity=5.0,
+                    direction="Buy",
+                    today_quantity=2.0,
+                    yesterday_quantity=3.0,
+                    available_today_quantity=2.0,
+                    available_yesterday_quantity=3.0,
+                )
+            ]
+
+        def get_capabilities(self) -> BrokerCapability:
+            return BrokerCapability(
+                broker_name="ctp",
+                broker_live=True,
+                client_order_id=True,
+                order_type=True,
+                time_in_force_str=True,
+                position_effect=True,
+                reduce_only=False,
+                position_details=True,
+                supports_short_sell=True,
+                supported_position_effects=(
+                    "auto",
+                    "open",
+                    "close",
+                    "close_today",
+                    "close_yesterday",
+                ),
+            )
+
+    class _DummyStrategy:
+        def __init__(self) -> None:
+            self.errors: list[tuple[str, Any]] = []
+
+        def on_error(self, error: Exception, source: str, payload: Any = None) -> None:
+            self.errors.append((source, payload))
+
+    runner = LiveRunner.__new__(LiveRunner)
+    runner.broker = "ctp"
+    runner._init_broker_bridge_state()
+    gateway = _DummyTraderGateway()
+    strategy = _DummyStrategy()
+    runner._install_broker_order_submitter(cast(Any, gateway), cast(Any, strategy))
+    strategy_any = cast(Any, strategy)
+
+    broker_order_id = strategy_any.submit_order(
+        symbol="au2606",
+        side="Sell",
+        quantity=4.0,
+        client_order_id="coid-close-split",
+        position_effect="close",
+    )
+
+    assert broker_order_id == "b-coid-close-split"
+    assert len(gateway.requests) == 2
+    assert gateway.requests[0].client_order_id == "coid-close-split"
+    assert gateway.requests[0].position_effect == "close_today"
+    assert gateway.requests[0].quantity == 2.0
+    assert gateway.requests[1].client_order_id == "coid-close-split-close-yesterday-2"
+    assert gateway.requests[1].position_effect == "close_yesterday"
+    assert gateway.requests[1].quantity == 2.0
+    assert runner._resolve_broker_order_id("coid-close-split") == "b-coid-close-split"
+    assert (
+        runner._resolve_broker_order_id("coid-close-split-close-yesterday-2")
+        == "b-coid-close-split-close-yesterday-2"
+    )
+
+
+def test_live_runner_close_position_prefers_direction_match() -> None:
+    """Close leg resolution should prefer the matching position direction."""
+    runner = LiveRunner.__new__(LiveRunner)
+    positions = [
+        UnifiedPosition(
+            symbol="IF2406",
+            quantity=-1.0,
+            available_quantity=1.0,
+            direction="Sell",
+        ),
+        UnifiedPosition(
+            symbol="IF2406",
+            quantity=2.0,
+            available_quantity=2.0,
+            direction="Buy",
+        ),
+    ]
+
+    sell_side_match = runner._find_live_close_position(positions, "IF2406", "Sell")
+    buy_side_match = runner._find_live_close_position(positions, "IF2406", "Buy")
+
+    assert sell_side_match is not None
+    assert sell_side_match.direction == "Buy"
+    assert buy_side_match is not None
+    assert buy_side_match.direction == "Sell"
+
+
+def test_live_runner_submit_order_falls_back_to_close_when_position_query_fails() -> (
+    None
+):
+    """Live submitter should keep a plain close without position details."""
+
+    class _DummyTraderGateway:
+        def __init__(self) -> None:
+            self.requests: list[Any] = []
+
+        def place_order(self, req: Any) -> str:
+            self.requests.append(req)
+            return f"b-{req.client_order_id}"
+
+        def query_positions(self) -> list[UnifiedPosition]:
+            raise RuntimeError("query failed")
+
+        def get_capabilities(self) -> BrokerCapability:
+            return BrokerCapability(
+                broker_name="ctp",
+                broker_live=True,
+                client_order_id=True,
+                order_type=True,
+                time_in_force_str=True,
+                position_effect=True,
+                reduce_only=False,
+                position_details=True,
+                supports_short_sell=True,
+                supported_position_effects=(
+                    "auto",
+                    "open",
+                    "close",
+                    "close_today",
+                    "close_yesterday",
+                ),
+            )
+
+    class _DummyStrategy:
+        def __init__(self) -> None:
+            self.errors: list[tuple[str, Any]] = []
+
+        def on_error(self, error: Exception, source: str, payload: Any = None) -> None:
+            self.errors.append((source, payload))
+
+    runner = LiveRunner.__new__(LiveRunner)
+    runner.broker = "ctp"
+    runner._init_broker_bridge_state()
+    gateway = _DummyTraderGateway()
+    strategy = _DummyStrategy()
+    runner._install_broker_order_submitter(cast(Any, gateway), cast(Any, strategy))
+    strategy_any = cast(Any, strategy)
+
+    broker_order_id = strategy_any.submit_order(
+        symbol="au2606",
+        side="Sell",
+        quantity=4.0,
+        client_order_id="coid-close-fallback",
+        position_effect="close",
+    )
+
+    assert broker_order_id == "b-coid-close-fallback"
+    assert len(gateway.requests) == 1
+    assert gateway.requests[0].client_order_id == "coid-close-fallback"
+    assert gateway.requests[0].position_effect == "close"
+    assert gateway.requests[0].quantity == 4.0
+
+
+def test_live_runner_submitter_respects_gateway_capabilities() -> None:
+    """Injected submit_order should reject semantics not supported by broker."""
+
+    class _DummyTraderGateway:
+        def place_order(self, req: Any) -> str:
+            return f"b-{req.client_order_id}"
+
+        def get_capabilities(self) -> BrokerCapability:
+            return BrokerCapability(
+                broker_name="miniqmt",
+                broker_live=True,
+                client_order_id=True,
+                order_type=True,
+                time_in_force_str=True,
+                position_effect=False,
+                reduce_only=False,
+                supported_position_effects=("auto",),
+            )
+
+    class _DummyStrategy:
+        def __init__(self) -> None:
+            self.errors: list[tuple[str, Any]] = []
+
+        def on_error(self, error: Exception, source: str, payload: Any = None) -> None:
+            self.errors.append((source, payload))
+
+    runner = LiveRunner.__new__(LiveRunner)
+    runner.broker = "miniqmt"
+    runner._init_broker_bridge_state()
+    gateway = _DummyTraderGateway()
+    strategy = _DummyStrategy()
+    runner._install_broker_order_submitter(cast(Any, gateway), cast(Any, strategy))
+    strategy_any = cast(Any, strategy)
+
+    with pytest.raises(RuntimeError, match="does not support explicit position_effect"):
+        strategy_any.submit_order(
+            symbol="000001.SZ",
+            side="Buy",
+            quantity=10.0,
+            client_order_id="coid-effect-unsupported",
+            position_effect="close",
+        )
+
+    with pytest.raises(RuntimeError, match="does not support reduce_only"):
+        strategy_any.submit_order(
+            symbol="000001.SZ",
+            side="Sell",
+            quantity=10.0,
+            client_order_id="coid-reduce-only-unsupported",
+            reduce_only=True,
+        )
+
+
 def test_live_runner_injects_execution_capabilities() -> None:
     """Expose broker-live capabilities after submitter injection."""
 
     class _DummyTraderGateway:
         def place_order(self, req: Any) -> str:
             return f"b-{req.client_order_id}"
+
+        def get_capabilities(self) -> BrokerCapability:
+            return BrokerCapability(
+                broker_name="ctp",
+                broker_live=True,
+                client_order_id=True,
+                order_type=True,
+                time_in_force_str=True,
+                position_effect=True,
+                reduce_only=False,
+                position_details=True,
+                supports_short_sell=True,
+                supported_position_effects=(
+                    "auto",
+                    "open",
+                    "close",
+                    "close_today",
+                    "close_yesterday",
+                ),
+            )
 
     class _DummyStrategy:
         def on_error(self, error: Exception, source: str, payload: Any = None) -> None:
@@ -439,6 +900,17 @@ def test_live_runner_injects_execution_capabilities() -> None:
 
     assert capabilities["broker_live"] is True
     assert capabilities["client_order_id"] is True
+    assert capabilities["position_effect"] is True
+    assert capabilities["reduce_only"] is False
+    assert capabilities["position_details"] is True
+    assert capabilities["supports_short_sell"] is True
+    assert capabilities["supported_position_effects"] == [
+        "auto",
+        "open",
+        "close",
+        "close_today",
+        "close_yesterday",
+    ]
 
 
 def test_live_runner_does_not_inject_removed_broker_aliases() -> None:

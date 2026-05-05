@@ -5581,6 +5581,63 @@ def test_order_and_trade_time_string_properties() -> None:
     assert trade.timestamp_str == "2025-01-02 15:00:00"
 
 
+def test_order_and_trade_position_effect_defaults() -> None:
+    """Order/Trade should expose default and explicit position_effect values."""
+    order = akquant.Order(
+        "o-effect",
+        "AAPL",
+        akquant.OrderSide.Buy,
+        akquant.OrderType.Limit,
+        10.0,
+        100.0,
+        position_effect=akquant.PositionEffect.Close,
+        reduce_only=True,
+    )
+    trade = akquant.Trade(
+        "t-effect",
+        "o-effect",
+        "AAPL",
+        akquant.OrderSide.Buy,
+        10.0,
+        100.0,
+        1.0,
+        0,
+        0,
+        position_effect=akquant.PositionEffect.Close,
+    )
+
+    assert order.position_effect == akquant.PositionEffect.Close
+    assert order.reduce_only is True
+    assert trade.position_effect == akquant.PositionEffect.Close
+
+
+def test_position_effect_extended_close_variants() -> None:
+    """Order/Trade should expose close_today and close_yesterday variants."""
+    order = akquant.Order(
+        "o-close-today",
+        "IF2406",
+        akquant.OrderSide.Sell,
+        akquant.OrderType.Market,
+        1.0,
+        position_effect=akquant.PositionEffect.CloseToday,
+    )
+    trade = akquant.Trade(
+        "t-close-yesterday",
+        "o-close-yesterday",
+        "IF2406",
+        akquant.OrderSide.Sell,
+        1.0,
+        100.0,
+        1.0,
+        0,
+        0,
+        position_effect=akquant.PositionEffect.CloseYesterday,
+    )
+
+    assert order.position_effect == akquant.PositionEffect.CloseToday
+    assert trade.position_effect == akquant.PositionEffect.CloseYesterday
+
+
 def test_instrument_rejects_non_positive_tick_size() -> None:
     """Instrument should reject non-positive tick size."""
     with pytest.raises(

@@ -189,6 +189,7 @@ impl OrderManager {
                 graph_id: Some(graph_id.clone()),
                 parent_order_id: Some(filled_order.id.clone()),
                 order_role: OrderRole::StopLoss,
+                position_effect: filled_order.position_effect,
                 status: OrderStatus::New,
                 filled_quantity: Decimal::ZERO,
                 average_filled_price: None,
@@ -199,6 +200,7 @@ impl OrderManager {
                 reject_reason: String::new(),
                 owner_strategy_id: filled_order.owner_strategy_id.clone(),
                 allow_quantity_auto_resize: false,
+                reduce_only: filled_order.reduce_only,
             });
         }
 
@@ -222,6 +224,7 @@ impl OrderManager {
                 graph_id: Some(graph_id.clone()),
                 parent_order_id: Some(filled_order.id.clone()),
                 order_role: OrderRole::TakeProfit,
+                position_effect: filled_order.position_effect,
                 status: OrderStatus::New,
                 filled_quantity: Decimal::ZERO,
                 average_filled_price: None,
@@ -232,6 +235,7 @@ impl OrderManager {
                 reject_reason: String::new(),
                 owner_strategy_id: filled_order.owner_strategy_id.clone(),
                 allow_quantity_auto_resize: false,
+                reduce_only: filled_order.reduce_only,
             });
         }
 

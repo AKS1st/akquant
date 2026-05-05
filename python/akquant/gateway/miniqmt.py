@@ -4,6 +4,7 @@ from typing import Any, Callable, Sequence
 from ..akquant import DataFeed
 from .mapper import BrokerEventMapper, create_default_mapper
 from .models import (
+    BrokerCapability,
     UnifiedAccount,
     UnifiedExecutionReport,
     UnifiedOrderRequest,
@@ -11,6 +12,7 @@ from .models import (
     UnifiedOrderStatus,
     UnifiedPosition,
     UnifiedTrade,
+    validate_execution_semantics,
 )
 
 
@@ -93,6 +95,11 @@ class MiniQMTTraderGateway:
 
     def place_order(self, req: UnifiedOrderRequest) -> str:
         """Place order."""
+        req.position_effect = validate_execution_semantics(
+            self.get_capabilities(),
+            req.position_effect,
+            req.reduce_only,
+        )
         existing_broker_order_id = self.client_to_broker_order_ids.get(
             req.client_order_id
         )
@@ -121,6 +128,7 @@ class MiniQMTTraderGateway:
             symbol=req.symbol,
             status=UnifiedOrderStatus.SUBMITTED,
             timestamp_ns=now_ns,
+            position_effect=req.position_effect,
         )
         self.orders[broker_order_id] = snapshot
         self.client_to_broker_order_ids[req.client_order_id] = broker_order_id
@@ -132,6 +140,7 @@ class MiniQMTTraderGateway:
             status=UnifiedOrderStatus.SUBMITTED,
             symbol=req.symbol,
             timestamp_ns=now_ns,
+            position_effect=req.position_effect,
         )
         self._emit_execution_report(report)
         return broker_order_id
@@ -152,6 +161,7 @@ class MiniQMTTraderGateway:
                 avg_fill_price=order.avg_fill_price,
                 reject_reason=order.reject_reason,
                 timestamp_ns=order.timestamp_ns,
+                position_effect=order.position_effect,
             )
             self._emit_execution_report(report)
             self._cleanup_terminal_order_mapping(order)
@@ -212,6 +222,20 @@ class MiniQMTTraderGateway:
     def heartbeat(self) -> bool:
         """Heartbeat check."""
         return self.connected
+
+    def get_capabilities(self) -> BrokerCapability:
+        """Return broker capability matrix."""
+        return BrokerCapability(
+            broker_name="miniqmt",
+            broker_live=True,
+            client_order_id=True,
+            order_type=True,
+            time_in_force_str=True,
+            position_effect=False,
+            reduce_only=False,
+            position_details=False,
+            supported_position_effects=("auto",),
+        )
 
     def ingest_order_event(self, payload: dict[str, Any]) -> UnifiedOrderSnapshot:
         """Map and consume broker order event."""

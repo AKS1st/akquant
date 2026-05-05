@@ -13,6 +13,10 @@ def test_create_miniqmt_gateway_bundle() -> None:
     assert bundle.metadata is not None
     assert bundle.metadata["broker"] == "miniqmt"
     assert bundle.trader_gateway is not None
+    assert bundle.trader_capabilities is not None
+    assert bundle.trader_capabilities.broker_name == "miniqmt"
+    assert bundle.trader_capabilities.position_details is False
+    assert bundle.trader_capabilities.supported_position_effects == ("auto",)
 
 
 def test_create_ptrade_gateway_bundle() -> None:
@@ -26,3 +30,7 @@ def test_create_ptrade_gateway_bundle() -> None:
     assert bundle.metadata is not None
     assert bundle.metadata["broker"] == "ptrade"
     assert bundle.trader_gateway is not None
+    assert bundle.trader_capabilities is not None
+    assert bundle.trader_capabilities.broker_name == "ptrade"
+    assert bundle.trader_capabilities.position_details is False
+    assert bundle.trader_capabilities.supported_position_effects == ("auto",)

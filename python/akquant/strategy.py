@@ -113,6 +113,9 @@ from .strategy_trading_api import (
     get_execution_capabilities as _get_execution_capabilities_impl,
 )
 from .strategy_trading_api import (
+    get_last_target_positions_plan as _get_last_target_positions_plan_impl,
+)
+from .strategy_trading_api import (
     get_open_orders as _get_open_orders_impl,
 )
 from .strategy_trading_api import (
@@ -135,6 +138,9 @@ from .strategy_trading_api import (
 )
 from .strategy_trading_api import (
     order_target_percent as _order_target_percent_impl,
+)
+from .strategy_trading_api import (
+    order_target_positions as _order_target_positions_impl,
 )
 from .strategy_trading_api import (
     order_target_value as _order_target_value_impl,
@@ -1937,6 +1943,8 @@ class Strategy:
         fill_policy: Optional[Dict[str, Any]] = None,
         slippage: Optional[Union[float, Dict[str, Any]]] = None,
         commission: Optional[Dict[str, Any]] = None,
+        position_effect: Optional[str] = None,
+        reduce_only: bool = False,
     ) -> str:
         """
         统一下单接口.
@@ -1961,6 +1969,8 @@ class Strategy:
             fill_policy=fill_policy,
             slippage=slippage,
             commission=commission,
+            position_effect=position_effect,
+            reduce_only=reduce_only,
         )
 
     def can_submit_client_order(self, client_order_id: str) -> bool:
@@ -1975,6 +1985,10 @@ class Strategy:
     def get_execution_capabilities(self) -> Dict[str, Any]:
         """获取当前执行能力描述."""
         return _get_execution_capabilities_impl(self)
+
+    def get_last_target_positions_plan(self) -> Dict[str, Any]:
+        """获取最近一次 order_target_positions() 生成的调仓计划."""
+        return _get_last_target_positions_plan_impl(self)
 
     def stop_buy(
         self,
@@ -2170,6 +2184,41 @@ class Strategy:
             **kwargs,
         )
 
+    def order_target_positions(
+        self,
+        target_positions: Dict[str, float],
+        price_map: Optional[Dict[str, float]] = None,
+        liquidate_unmentioned: bool = False,
+        rebalance_tolerance: float = 0.0,
+        allow_short: Optional[bool] = None,
+        strict_short_capability: bool = True,
+        missing_price_mode: str = "ignore",
+        **kwargs: Any,
+    ) -> None:
+        """
+        按多标的目标持仓数量调仓，支持正负目标仓位.
+
+        :param target_positions: 目标持仓数量字典 {symbol: quantity}
+        :param price_map: 每个标的的委托价格字典（可选）
+        :param liquidate_unmentioned: 是否将未出现的现有持仓调到 0
+        :param rebalance_tolerance: 调仓容忍阈值（按绝对数量）
+        :param allow_short: 是否允许负目标仓位；默认按执行环境能力自动推断
+        :param strict_short_capability: 当执行环境未声明可做空时是否严格拒绝
+        :param missing_price_mode: price_map 缺项时的处理方式: ignore / skip / fail
+        :param kwargs: 其他下单参数
+        """
+        _order_target_positions_impl(
+            self,
+            target_positions,
+            price_map,
+            liquidate_unmentioned,
+            rebalance_tolerance,
+            allow_short,
+            strict_short_capability,
+            missing_price_mode,
+            **kwargs,
+        )
+
     def buy_all(self, symbol: Optional[str] = None) -> None:
         """
         全仓买入 (Buy All).
@@ -2203,6 +2252,7 @@ class Strategy:
         fill_policy: Optional[Dict[str, Any]] = None,
         slippage: Optional[Union[float, Dict[str, Any]]] = None,
         commission: Optional[Dict[str, Any]] = None,
+        reduce_only: bool = False,
     ) -> None:
         """
         卖出开空 (Short Sell).
@@ -2225,6 +2275,7 @@ class Strategy:
             fill_policy,
             slippage,
             commission,
+            reduce_only,
         )
 
     def cover(
@@ -2238,6 +2289,7 @@ class Strategy:
         fill_policy: Optional[Dict[str, Any]] = None,
         slippage: Optional[Union[float, Dict[str, Any]]] = None,
         commission: Optional[Dict[str, Any]] = None,
+        reduce_only: bool = False,
     ) -> None:
         """
         买入平空 (Buy to Cover).
@@ -2260,6 +2312,7 @@ class Strategy:
             fill_policy,
             slippage,
             commission,
+            reduce_only,
         )
 
     def get_cash(self) -> float:

@@ -1,5 +1,5 @@
 use crate::error::AkQuantError;
-use crate::model::{AssetType, Order, OrderSide};
+use crate::model::{AssetType, Order, OrderSide, project_position_after};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
 use std::collections::HashMap;
@@ -139,10 +139,12 @@ impl RiskRule for MaxPositionSizeRule {
                 .get(&order.symbol)
                 .copied()
                 .unwrap_or(Decimal::ZERO);
-            let new_pos = match order.side {
-                OrderSide::Buy => current_pos + order.quantity,
-                OrderSide::Sell => current_pos - order.quantity,
-            };
+            let new_pos = project_position_after(
+                order.side,
+                order.position_effect,
+                current_pos,
+                order.quantity,
+            );
             if new_pos.abs() > max_pos {
                 return Err(AkQuantError::OrderError(format!(
                     "Risk: Resulting position {new_pos} exceeds limit {max_pos}",
@@ -193,14 +195,22 @@ impl RiskRule for CashMarginRule {
                 };
                 if let Some(instr) = ctx.instruments.get(&o.symbol) {
                     let cost = active_price * o.quantity * instr.multiplier();
+                    let current_pos = projected_portfolio
+                        .positions
+                        .get(&o.symbol)
+                        .copied()
+                        .unwrap_or(Decimal::ZERO);
+                    let next_pos =
+                        project_position_after(o.side, o.position_effect, current_pos, o.quantity);
+                    let delta = next_pos - current_pos;
                     match o.side {
                         OrderSide::Buy => {
                             projected_portfolio.adjust_cash(-cost);
-                            projected_portfolio.adjust_position(&o.symbol, o.quantity);
+                            projected_portfolio.adjust_position(&o.symbol, delta);
                         }
                         OrderSide::Sell => {
                             projected_portfolio.adjust_cash(cost);
-                            projected_portfolio.adjust_position(&o.symbol, -o.quantity);
+                            projected_portfolio.adjust_position(&o.symbol, delta);
                         }
                     }
                 }
@@ -256,10 +266,12 @@ fn stock_margin_delta(
     let safe_price = price.abs();
     let safe_multiplier = multiplier.abs();
     let safe_initial_margin_ratio = initial_margin_ratio.abs();
-    let next_pos = match order.side {
-        OrderSide::Buy => current_pos + order.quantity,
-        OrderSide::Sell => current_pos - order.quantity,
-    };
+    let next_pos = project_position_after(
+        order.side,
+        order.position_effect,
+        current_pos,
+        order.quantity,
+    );
     let next_abs = next_pos.abs();
     let current_notional = checked_mul_or_err(
         current_abs,
@@ -348,10 +360,12 @@ fn calc_required_margin_delta(
         let entry = positions
             .entry(order.symbol.clone())
             .or_insert(Decimal::ZERO);
-        match order.side {
-            OrderSide::Buy => *entry += order.quantity,
-            OrderSide::Sell => *entry -= order.quantity,
-        }
+        *entry = project_position_after(
+            order.side,
+            order.position_effect,
+            *entry,
+            order.quantity,
+        );
     }
     let next_used = projected_portfolio.calculate_used_margin_with_stock_ratio(
         prices,

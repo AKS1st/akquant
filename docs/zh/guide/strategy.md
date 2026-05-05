@@ -639,7 +639,12 @@ class MyStrategy(Strategy):
     *   `self.order_target_value(target_value=10000, symbol="AAPL")`: 调整持仓至 10000 元市值。
     *   `self.order_target_weights(target_weights={"AAPL":0.4,"MSFT":0.3}, liquidate_unmentioned=True, rebalance_tolerance=0.01)`: 按多标的权重统一调仓。
         *   默认权重和不超过 `1.0`，如需超过请设置 `allow_leverage=True`。
-        *   执行顺序为先卖后买，减少现金占用导致的买入失败。
+        *   该接口仍然更偏向 long-only 组合管理；如需正负目标仓位，请优先使用 `order_target_positions()`。
+        *   同周期调仓已升级为 `reduce-first` 语义：先执行释放约束的腿，再执行增加约束的腿。
+    *   `self.order_target_positions(target_positions={"IF2406": -2, "510300": 1000}, liquidate_unmentioned=True)`: 按多标的目标持仓数量统一调仓，支持正负仓位。
+        *   `allow_short` 默认按当前执行环境自动推断；在 `cash` 或 broker 未声明支持做空时，负目标会被明确拒绝。
+        *   `missing_price_mode="ignore" | "skip" | "fail"` 可控制 `price_map` 缺项时的处理方式。
+        *   可通过 `self.get_last_target_positions_plan()` 查看最近一次调仓计划，确认哪些腿进入了 `reduce` / `increase`、哪些腿被跳过或拒绝。
 
 ```python
 def on_timer(self, payload: str):
@@ -650,6 +655,54 @@ def on_timer(self, payload: str):
         rebalance_tolerance=0.01,
     )
 ```
+
+```python
+def on_timer(self, payload: str):
+    self.order_target_positions(
+        target_positions={"IF2406": -2, "510300": 1000},
+        liquidate_unmentioned=True,
+        allow_short=True,
+        missing_price_mode="fail",
+    )
+
+    plan = self.get_last_target_positions_plan()
+    print(plan["status"], plan["submitted_legs"], plan["skipped_legs"])
+```
+
+### 7.2.1 显式开平语义与实盘能力
+
+AKQuant 当前的订单语义已经不再是单纯的 `side`，而是 `side + position_effect`：
+
+*   `buy()` / `sell()` 默认使用 `position_effect="auto"`，进入执行前会按当前净仓自动拆成 `close + open`。
+*   `short()` 默认等价于 `side="Sell", position_effect="open"`。
+*   `cover()` 默认等价于 `side="Buy", position_effect="close"`。
+*   高级场景可直接使用：
+    *   `self.submit_order(..., position_effect="open")`
+    *   `self.submit_order(..., position_effect="close")`
+    *   `self.submit_order(..., position_effect="close_today")`
+    *   `self.submit_order(..., position_effect="close_yesterday")`
+
+在 `broker_live + CTP` 路径中，这些语义会继续映射到底层柜台 offset：
+
+*   `open`
+*   `close`
+*   `close_today`
+*   `close_yesterday`
+
+你可以通过 `self.get_execution_capabilities()` 查询当前执行环境是否支持：
+
+*   `position_effect`
+*   `position_details`
+*   `supports_short_sell`
+*   `account_mode`
+
+对于 broker_live 环境，返回结果里通常还会包含更细的 broker 能力字段，例如：
+
+*   `broker_name`
+*   `supported_position_effects`
+*   `broker_extra_fields`
+
+对不支持显式开平或做空的 broker，AKQuant 会在下单前直接给出明确错误，而不是静默降级。
 
 *   **撤单 (Cancel Order)**:
     *   `self.cancel_order(order_id)`: 撤销指定订单。

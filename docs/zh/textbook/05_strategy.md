@@ -189,9 +189,23 @@ result = aq.run_backtest(
 
 这是最常用的接口，实现了**目标仓位管理**。它会自动计算需要买入或卖出的数量，使持仓达到目标比例。
 
+更准确地说，它最适合：
+
+*   long-only 股票/基金组合
+*   以组合权重为核心的轮动场景
+*   不需要显式控制开仓 / 平仓 offset 的回测
+
+如果你要做：
+
+*   正负目标仓位
+*   融资融券 / 期货 / 方向切换
+*   更强调实盘语义一致性的调仓
+
+请优先使用后面的 `order_target_positions()`。
+
 *   `target=0.5`: 买入直到持仓占总资产的 50%。
 *   `target=0.0`: 清仓卖出所有持仓。
-*   `target=-0.5`: (期货/融券) 卖空直到空头仓位占 50%。
+*   `target=-0.5`: 在支持做空的账户中，可表示卖空直到空头仓位占 50%。
 
 ### 5.3.2 `buy(symbol, quantity)` / `sell(symbol, quantity)`
 
@@ -204,7 +218,86 @@ result = aq.run_backtest(
 
 一键平仓。无论当前持有多头还是空头，都会发出相反方向的市价单将其平掉。
 
-### 5.3.4 信用账户参数与账户快照
+### 5.3.4 `order_target_positions(target_positions, ...)`
+
+这是面向高级调仓场景的新接口。它按“目标持仓数量”工作，而不是按目标权重工作。
+
+```python
+self.order_target_positions(
+    target_positions={"IF2406": -2, "510300": 1000},
+    liquidate_unmentioned=True,
+    allow_short=True,
+    missing_price_mode="fail",
+)
+```
+
+它适合下面这些场景：
+
+*   一个调用里同时表达多头与空头目标
+*   从 `+100 -> -50` 这样的反手切换
+*   `broker_live` 下需要结合 broker capability 提前校验做空能力
+
+这个接口当前支持：
+
+*   `liquidate_unmentioned=True`: 未出现在目标字典中的现有持仓自动调到 0
+*   `allow_short`: 是否允许负目标仓位
+*   `strict_short_capability=True`: 当 broker 未声明支持做空时是否严格拒绝
+*   `missing_price_mode="ignore" | "skip" | "fail"`: 控制 `price_map` 缺项时如何处理
+
+执行完成后，你可以用下面这个 helper 查看最近一次调仓计划：
+
+```python
+plan = self.get_last_target_positions_plan()
+print(plan["status"])
+print(plan["reduce_legs"])
+print(plan["increase_legs"])
+print(plan["submitted_legs"])
+print(plan["skipped_legs"])
+```
+
+这对排查“为什么某条腿被跳过、为什么负目标被拒绝、为什么这条腿先执行”非常有帮助。
+
+### 5.3.5 显式开平语义：`position_effect`
+
+现在的 AKQuant 下单语义已经从“只有买卖方向”升级为“方向 + 开平语义”。
+
+常见映射可以直接记成：
+
+*   `buy()` -> `side=Buy, position_effect=auto`
+*   `sell()` -> `side=Sell, position_effect=auto`
+*   `short()` -> `side=Sell, position_effect=open`
+*   `cover()` -> `side=Buy, position_effect=close`
+
+其中 `auto` 不是简单标签，而是会在执行前按当前净仓自动拆单：
+
+*   `buy 150` 且当前持仓为 `-100` -> `close 100 + open 50`
+*   `sell 150` 且当前持仓为 `+100` -> `close 100 + open 50`
+
+你也可以直接显式提交：
+
+```python
+self.submit_order(
+    symbol="IF2406",
+    side="Buy",
+    quantity=1,
+    position_effect="close_today",
+)
+```
+
+在 `broker_live + CTP` 场景下，`open / close / close_today / close_yesterday` 会继续映射到底层柜台 offset。
+
+如果你要把同一套策略同时跑在回测和实盘上，建议在下单前先查询当前执行环境能力：
+
+```python
+caps = self.get_execution_capabilities()
+print(caps["account_mode"])
+print(caps["supports_short_sell"])
+print(caps["position_effect"])
+```
+
+在 broker_live 场景下，返回结果通常还会带上 `broker_name`、`supported_position_effects` 等更细的 broker 能力字段，可用于决定是否启用 `close_today` / `close_yesterday` 这类更细粒度语义。
+
+### 5.3.6 信用账户参数与账户快照
 
 当你在股票场景做融资/融券回测时，需要在 `RiskConfig` 中显式启用信用账户模式：
 

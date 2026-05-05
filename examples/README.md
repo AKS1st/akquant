@@ -9,6 +9,7 @@
 - 报告与分析: [11_plot_visualization.py](./11_plot_visualization.py) -> [33_report_and_analysis_outputs.py](./33_report_and_analysis_outputs.py)
 - 流式监控: [26_streaming_quickstart.py](./26_streaming_quickstart.py) -> [27_streaming_monitoring_console.py](./27_streaming_monitoring_console.py)
 - 实时可视化: [31_streaming_live_console.py](./31_streaming_live_console.py) -> [32_streaming_live_web.py](./32_streaming_live_web.py)
+- 高级目标仓位: [strategies/08_target_positions_long_short.py](./strategies/08_target_positions_long_short.py) -> `order_target_positions` + `get_last_target_positions_plan`
 
 ## 基础与能力示例
 
@@ -60,6 +61,7 @@
 - [56_functional_warm_start_demo.py](./56_functional_warm_start_demo.py): 函数式 `on_resume(ctx)` 热启动续跑最小示例。
 - [57_functional_multi_slot_warm_start_demo.py](./57_functional_multi_slot_warm_start_demo.py): 函数式多 slot `on_resume(ctx)` 热启动续跑示例。
 - [58_incremental_bootstrap_demo.py](./58_incremental_bootstrap_demo.py): 增量指标“历史预热 + 实时更新”最小示例，演示 `indicator_factory` 与 `warmup_bars`。
+- [59_akshare_etf_rotation.py](./59_akshare_etf_rotation.py): AKShare + ETF 轮动最小示例，演示单个拼接后 `DataFrame` 的推荐多标输入方式。
 
 ## 流式回测与实时报告
 
@@ -81,4 +83,5 @@
 ## 相关子目录
 
 - [strategies/README.md](./strategies/README.md): 策略示例集合。
+- [strategies/08_target_positions_long_short.py](./strategies/08_target_positions_long_short.py): 高级目标仓位与多空切换最小示例，演示 `order_target_positions()`、`allow_short=True` 与调仓计划解释输出。
 - [textbook/ch15_strategy_loader.py](./textbook/ch15_strategy_loader.py): 教程章节动态策略加载示例。

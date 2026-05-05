@@ -163,6 +163,10 @@ fn should_run_post_strategy_match_now(engine: &Engine, orders: &[Order]) -> bool
     has_orders_matching_phase(engine, &ExecutionPhase::PostStrategy, orders)
 }
 
+fn is_reduce_first_order(order: &Order) -> bool {
+    crate::model::is_reduce_first_order(order.side, order.position_effect)
+}
+
 fn emit_execution_reports_for_current_event(engine: &mut Engine) {
     let Some(event) = engine.current_event.clone() else {
         return;
@@ -201,8 +205,8 @@ impl Processor for ChannelProcessor {
         let mut trades_to_process = Vec::new();
         let mut pending_order_requests = Vec::new();
         let mut oco_suppressed_fill_order_ids: HashSet<String> = HashSet::new();
-        let mut settle_sells_before_buys = false;
-        let mut run_intermediate_sell_match = false;
+        let mut settle_reductions_before_increases = false;
+        let mut run_intermediate_reduce_match = false;
         loop {
             let mut drained_event = false;
             while let Some(event) = engine.event_manager.try_recv() {
@@ -348,7 +352,7 @@ impl Processor for ChannelProcessor {
             }
 
             if !pending_order_requests.is_empty() {
-                if settle_sells_before_buys {
+                if settle_reductions_before_increases {
                     if !trades_to_process.is_empty() {
                         engine.state.order_manager.process_trades(
                             std::mem::take(&mut trades_to_process),
@@ -359,55 +363,60 @@ impl Processor for ChannelProcessor {
                             &engine.last_prices,
                         );
                     }
-                    settle_sells_before_buys = false;
+                    settle_reductions_before_increases = false;
                 }
-                if run_intermediate_sell_match {
+                if run_intermediate_reduce_match {
                     emit_execution_reports_for_current_event(engine);
-                    run_intermediate_sell_match = false;
-                    settle_sells_before_buys = true;
+                    run_intermediate_reduce_match = false;
+                    settle_reductions_before_increases = true;
                     continue;
                 }
 
                 pending_order_requests.sort_by(|left, right| {
+                    let left_phase_rank =
+                        crate::model::reduction_priority_rank(left.side, left.position_effect);
+                    let right_phase_rank =
+                        crate::model::reduction_priority_rank(right.side, right.position_effect);
                     let left_priority = engine.strategy_priority_for_order(left);
                     let right_priority = engine.strategy_priority_for_order(right);
-                    right_priority.cmp(&left_priority).then_with(|| {
-                        let left_id =
-                            Engine::normalized_order_strategy_id(left).unwrap_or_default();
-                        let right_id =
-                            Engine::normalized_order_strategy_id(right).unwrap_or_default();
-                        left_id.cmp(&right_id)
-                    })
+                    left_phase_rank
+                        .cmp(&right_phase_rank)
+                        .then_with(|| right_priority.cmp(&left_priority))
+                        .then_with(|| {
+                            let left_id =
+                                Engine::normalized_order_strategy_id(left).unwrap_or_default();
+                            let right_id =
+                                Engine::normalized_order_strategy_id(right).unwrap_or_default();
+                            left_id.cmp(&right_id)
+                        })
                 });
 
-                let has_buy = pending_order_requests
+                let has_reduce = pending_order_requests.iter().any(is_reduce_first_order);
+                let has_increase = pending_order_requests
                     .iter()
-                    .any(|order| order.side == crate::model::OrderSide::Buy);
-                let has_sell = pending_order_requests
-                    .iter()
-                    .any(|order| order.side == crate::model::OrderSide::Sell);
-                let can_do_two_phase = has_buy
-                    && has_sell
+                    .any(|order| !is_reduce_first_order(order));
+                let can_do_two_phase = has_reduce
+                    && has_increase
                     && should_run_post_strategy_match_now(engine, &pending_order_requests);
 
                 if can_do_two_phase {
-                    let mut sell_orders = Vec::new();
-                    let mut buy_orders = Vec::new();
+                    let mut reduce_orders = Vec::new();
+                    let mut increase_orders = Vec::new();
                     for order in pending_order_requests.drain(..) {
-                        if order.side == crate::model::OrderSide::Sell {
-                            sell_orders.push(order);
+                        if is_reduce_first_order(&order) {
+                            reduce_orders.push(order);
                         } else {
-                            buy_orders.push(order);
+                            increase_orders.push(order);
                         }
                     }
 
-                    for order in sell_orders {
+                    for order in reduce_orders {
                         process_order_request(engine, py, order);
                     }
 
-                    if !buy_orders.is_empty() {
-                        pending_order_requests.extend(buy_orders);
-                        run_intermediate_sell_match = true;
+                    if !increase_orders.is_empty() {
+                        pending_order_requests.extend(increase_orders);
+                        run_intermediate_reduce_match = true;
                     }
                 } else {
                     for order in pending_order_requests.drain(..) {

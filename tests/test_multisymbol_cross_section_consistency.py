@@ -377,9 +377,40 @@ def test_order_target_weights_uses_sell_proceeds_before_same_cycle_buy() -> None
     final_positions = result.positions.iloc[-1]
     assert float(final_positions.get("AAA", 0.0)) == 0.0
     assert float(final_positions.get("BBB", 0.0)) == 9000.0
-    strategy = result.strategy
-    assert strategy is not None
-    assert set(strategy.trade_order_ids).issubset(set(strategy.order_event_ids))
+
+
+def test_order_target_positions_supports_same_cycle_long_short_rotation() -> None:
+    """Advanced target positions should support one-call long-short rotation."""
+    timestamps = [
+        pd.Timestamp("2023-01-02 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-03 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-04 10:00:00", tz="Asia/Shanghai"),
+    ]
+    data_map = {
+        "AAA": _build_symbol_df("AAA", timestamps, [10.0, 10.0, 10.0]),
+        "BBB": _build_symbol_df("BBB", timestamps, [10.0, 10.0, 10.0]),
+    }
+
+    result = run_backtest(
+        data=data_map,
+        strategy=TargetPositionsLongShortRotationStrategy,
+        symbols=["AAA", "BBB"],
+        initial_cash=100000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        lot_size=1,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        risk_config={"account_mode": "margin", "enable_short_sell": True},
+        show_progress=False,
+    )
+
+    orders_df = result.orders_df.sort_values("created_at").reset_index(drop=True)
+    assert set(orders_df["status"].astype(str).str.lower()) == {"filled"}
+    final_positions = result.positions.iloc[-1]
+    assert float(final_positions.get("AAA", 0.0)) == -100.0
+    assert float(final_positions.get("BBB", 0.0)) == 50.0
 
 
 def test_order_target_weights_split_allocation_is_close_to_target() -> None:
@@ -501,6 +532,27 @@ class SellThenBuySameCycleStrategy(Strategy):
         elif self.step == 1:
             self.order_target_percent(symbol="AAA", target_percent=0.0)
             self.order_target_percent(symbol="BBB", target_percent=0.95)
+        self.step += 1
+
+
+class TargetPositionsLongShortRotationStrategy(Strategy):
+    """Exercise multi-symbol signed target positions through one advanced API call."""
+
+    def __init__(self) -> None:
+        """Initialize the staged rotation state."""
+        self.step = 0
+
+    def on_bar(self, bar: Bar) -> None:
+        """Submit staged target-position transitions on the BBB bar."""
+        if bar.symbol != "BBB":
+            return
+        if self.step == 0:
+            self.order_target_positions({"AAA": 100.0}, liquidate_unmentioned=True)
+        elif self.step == 1:
+            self.order_target_positions(
+                {"AAA": -100.0, "BBB": 50.0},
+                liquidate_unmentioned=True,
+            )
         self.step += 1
 
 

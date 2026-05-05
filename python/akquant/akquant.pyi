@@ -44,6 +44,13 @@ class OrderType:
     StopTrail: typing.ClassVar["OrderType"]
     StopTrailLimit: typing.ClassVar["OrderType"]
 
+class PositionEffect:
+    Auto: typing.ClassVar["PositionEffect"]
+    Open: typing.ClassVar["PositionEffect"]
+    Close: typing.ClassVar["PositionEffect"]
+    CloseToday: typing.ClassVar["PositionEffect"]
+    CloseYesterday: typing.ClassVar["PositionEffect"]
+
 class OrderRole:
     Standalone: typing.ClassVar["OrderRole"]
     Entry: typing.ClassVar["OrderRole"]
@@ -904,6 +911,8 @@ class Order:
     trail_offset: typing.Optional[float]
     trail_reference_price: typing.Optional[float]
     commission: float
+    position_effect: akquant.PositionEffect
+    reduce_only: bool
     quantity: float
     price: typing.Optional[float]
     trigger_price: typing.Optional[float]
@@ -927,6 +936,8 @@ class Order:
         order_role: typing.Optional[akquant.OrderRole] = ...,
         trail_offset: typing.Optional[float] = ...,
         trail_reference_price: typing.Optional[float] = ...,
+        position_effect: typing.Optional[akquant.PositionEffect] = ...,
+        reduce_only: bool = ...,
     ) -> "Order": ...
     def set_trail_offset(self, value: typing.Optional[float]) -> None: ...
     def set_trail_reference_price(self, value: typing.Optional[float]) -> None: ...
@@ -2624,6 +2635,7 @@ class Trade:
     quantity: float
     price: float
     commission: float
+    position_effect: akquant.PositionEffect
     owner_strategy_id: typing.Optional[str]
     def __new__(
         cls,
@@ -2636,6 +2648,7 @@ class Trade:
         commission: typing.Any,
         timestamp: int,
         bar_index: int,
+        position_effect: typing.Optional[akquant.PositionEffect] = ...,
         owner_strategy_id: typing.Optional[str] = ...,
     ) -> "Trade": ...
     def __repr__(self) -> str: ...

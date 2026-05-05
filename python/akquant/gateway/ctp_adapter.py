@@ -5,6 +5,7 @@ from ..akquant import DataFeed
 from .ctp_native import CTPMarketGateway, CTPTraderGateway
 from .mapper import BrokerEventMapper, create_default_mapper
 from .models import (
+    BrokerCapability,
     UnifiedAccount,
     UnifiedExecutionReport,
     UnifiedOrderRequest,
@@ -12,6 +13,7 @@ from .models import (
     UnifiedOrderStatus,
     UnifiedPosition,
     UnifiedTrade,
+    validate_execution_semantics,
 )
 
 
@@ -96,6 +98,9 @@ class CTPTraderAdapter:
         self.execution_callback: Callable[[UnifiedExecutionReport], None] | None = None
         self.orders: dict[str, UnifiedOrderSnapshot] = {}
         self.trades: list[UnifiedTrade] = []
+        self.trade_ids: set[str] = set()
+        self.positions: dict[tuple[str, str], UnifiedPosition] = {}
+        self.account: UnifiedAccount | None = None
         self.client_to_broker_order_ids: dict[str, str] = {}
         self.broker_to_client_order_ids: dict[str, str] = {}
         self.order_ref_to_client_order_ids: dict[str, str] = {}
@@ -127,6 +132,11 @@ class CTPTraderAdapter:
 
     def place_order(self, req: UnifiedOrderRequest) -> str:
         """Place order through CTP trader channel."""
+        req.position_effect = validate_execution_semantics(
+            self.get_capabilities(),
+            req.position_effect,
+            req.reduce_only,
+        )
         existing_broker_order_id = self.client_to_broker_order_ids.get(
             req.client_order_id
         )
@@ -153,6 +163,7 @@ class CTPTraderAdapter:
             price=req.price,
             order_type=req.order_type,
             time_in_force=req.time_in_force,
+            position_effect=req.position_effect,
         )
         self._order_seq += 1
         now_ns = int(native_result.get("timestamp_ns", time.time_ns()))
@@ -170,6 +181,7 @@ class CTPTraderAdapter:
             symbol=req.symbol,
             status=UnifiedOrderStatus.SUBMITTED,
             timestamp_ns=now_ns,
+            position_effect=req.position_effect,
         )
         self.orders[broker_order_id] = snapshot
         self._sync_order_mapping(req.client_order_id, broker_order_id)
@@ -180,6 +192,7 @@ class CTPTraderAdapter:
             status=UnifiedOrderStatus.SUBMITTED,
             symbol=req.symbol,
             timestamp_ns=now_ns,
+            position_effect=req.position_effect,
         )
         self._emit_execution_report(report)
         return broker_order_id
@@ -204,6 +217,7 @@ class CTPTraderAdapter:
             avg_fill_price=order.avg_fill_price,
             reject_reason=order.reject_reason,
             timestamp_ns=order.timestamp_ns,
+            position_effect=order.position_effect,
         )
         self._emit_execution_report(report)
         self._cleanup_terminal_order_mapping(order)
@@ -220,11 +234,29 @@ class CTPTraderAdapter:
 
     def query_account(self) -> UnifiedAccount | None:
         """Query account snapshot from broker."""
-        return None
+        query_account = getattr(self.gateway, "query_account", None)
+        if not callable(query_account):
+            return self.account
+        raw_account = query_account()
+        if raw_account is None:
+            return self.account
+        self.account = self._map_native_account_payload(raw_account)
+        return self.account
 
     def query_positions(self) -> list[UnifiedPosition]:
         """Query position snapshots from broker."""
-        return []
+        query_positions = getattr(self.gateway, "query_positions", None)
+        if not callable(query_positions):
+            return list(self.positions.values())
+        raw_positions = query_positions()
+        mapped_positions = [
+            self._map_native_position_payload(payload) for payload in raw_positions
+        ]
+        self.positions = {
+            self._position_cache_key(position.symbol, position.direction): position
+            for position in mapped_positions
+        }
+        return mapped_positions
 
     def on_order(self, callback: Callable[[UnifiedOrderSnapshot], None]) -> None:
         """Register order callback."""
@@ -253,7 +285,16 @@ class CTPTraderAdapter:
 
     def sync_today_trades(self) -> list[UnifiedTrade]:
         """Sync today's trade fills from broker."""
-        return []
+        query_trades_today = getattr(self.gateway, "query_trades_today", None)
+        if not callable(query_trades_today):
+            return list(self.trades)
+        raw_trades = query_trades_today()
+        mapped_trades = [
+            self.mapper.map_trade_event(dict(payload)) for payload in raw_trades
+        ]
+        for trade in mapped_trades:
+            self._cache_trade(trade)
+        return mapped_trades
 
     def heartbeat(self) -> bool:
         """Return whether trader connection is alive."""
@@ -261,6 +302,27 @@ class CTPTraderAdapter:
         if callable(can_trade):
             return bool(can_trade())
         return bool(getattr(self.gateway, "connected", False))
+
+    def get_capabilities(self) -> BrokerCapability:
+        """Return broker capability matrix."""
+        return BrokerCapability(
+            broker_name="ctp",
+            broker_live=True,
+            client_order_id=True,
+            order_type=True,
+            time_in_force_str=True,
+            position_effect=True,
+            reduce_only=False,
+            position_details=True,
+            supports_short_sell=True,
+            supported_position_effects=(
+                "auto",
+                "open",
+                "close",
+                "close_today",
+                "close_yesterday",
+            ),
+        )
 
     def start(self) -> None:
         """Start trader adapter."""
@@ -289,7 +351,7 @@ class CTPTraderAdapter:
             client_order_id=trade.client_order_id,
             broker_order_id=trade.broker_order_id,
         )
-        self.trades.append(trade)
+        self._cache_trade(trade)
         if self.trade_callback is not None:
             self.trade_callback(trade)
         return trade
@@ -327,6 +389,104 @@ class CTPTraderAdapter:
             UnifiedOrderStatus.REJECTED,
         )
 
+    def _map_native_position_payload(self, payload: Any) -> UnifiedPosition:
+        if isinstance(payload, UnifiedPosition):
+            return payload
+
+        def _field(name: str, default: Any = "") -> Any:
+            if isinstance(payload, dict):
+                return payload.get(name, default)
+            return getattr(payload, name, default)
+
+        direction = str(
+            _field("direction", _field("side", _field("posi_direction", "")))
+        ).strip()
+        quantity = float(_field("quantity", _field("position", 0.0)) or 0.0)
+        available_quantity = float(
+            _field("available_quantity", _field("available", abs(quantity))) or 0.0
+        )
+        today_quantity = float(
+            _field("today_quantity", _field("today_position", 0.0)) or 0.0
+        )
+        yesterday_quantity = float(
+            _field("yesterday_quantity", _field("yd_position", 0.0)) or 0.0
+        )
+        available_today_quantity = float(
+            _field(
+                "available_today_quantity", _field("today_available", today_quantity)
+            )
+            or 0.0
+        )
+        available_yesterday_quantity = float(
+            _field(
+                "available_yesterday_quantity",
+                _field("yesterday_available", yesterday_quantity),
+            )
+            or 0.0
+        )
+        if direction.lower() in {"sell", "short", "1"} and quantity > 0:
+            quantity = -quantity
+        normalized_direction = self._normalize_position_direction(direction, quantity)
+        return UnifiedPosition(
+            symbol=str(
+                _field("symbol", _field("instrument_id", _field("InstrumentID", "")))
+            ),
+            quantity=quantity,
+            available_quantity=available_quantity,
+            direction=normalized_direction,
+            today_quantity=today_quantity,
+            yesterday_quantity=yesterday_quantity,
+            available_today_quantity=available_today_quantity,
+            available_yesterday_quantity=available_yesterday_quantity,
+            avg_price=float(_field("avg_price", _field("price", 0.0)) or 0.0),
+            timestamp_ns=int(_field("timestamp_ns", 0) or 0),
+        )
+
+    def _map_native_account_payload(self, payload: Any) -> UnifiedAccount:
+        if isinstance(payload, UnifiedAccount):
+            return payload
+
+        def _field(name: str, default: Any = "") -> Any:
+            if isinstance(payload, dict):
+                return payload.get(name, default)
+            return getattr(payload, name, default)
+
+        gateway_user_id = str(getattr(self.gateway, "user_id", ""))
+        return UnifiedAccount(
+            account_id=str(_field("account_id", _field("AccountID", gateway_user_id))),
+            equity=float(_field("equity", _field("Balance", 0.0)) or 0.0),
+            cash=float(_field("cash", _field("Balance", 0.0)) or 0.0),
+            available_cash=float(
+                _field("available_cash", _field("Available", 0.0)) or 0.0
+            ),
+            timestamp_ns=int(_field("timestamp_ns", 0) or 0),
+        )
+
+    def _position_cache_key(self, symbol: str, direction: str) -> tuple[str, str]:
+        return (str(symbol).strip(), self._normalize_position_direction(direction))
+
+    def _normalize_position_direction(
+        self, direction: str, quantity: float = 0.0
+    ) -> str:
+        normalized = str(direction).strip().lower()
+        if normalized in {"buy", "long", "2"}:
+            return "Buy"
+        if normalized in {"sell", "short", "1", "3"}:
+            return "Sell"
+        if quantity > 0:
+            return "Buy"
+        if quantity < 0:
+            return "Sell"
+        return ""
+
+    def _cache_trade(self, trade: UnifiedTrade) -> None:
+        trade_id = str(trade.trade_id).strip()
+        if trade_id and trade_id in self.trade_ids:
+            return
+        if trade_id:
+            self.trade_ids.add(trade_id)
+        self.trades.append(trade)
+
     def _handle_native_order_event(self, payload: dict[str, Any]) -> None:
         data = dict(payload)
         order_ref = str(data.get("order_ref", "")).strip()
@@ -343,6 +503,12 @@ class CTPTraderAdapter:
         ).strip()
         if pending_reject_reason and not str(data.get("reject_reason", "")).strip():
             data["reject_reason"] = pending_reject_reason
+        existing_order = self.orders.get(broker_order_id)
+        if (
+            existing_order is not None
+            and not str(data.get("position_effect", "")).strip()
+        ):
+            data["position_effect"] = existing_order.position_effect
         self.ingest_order_event(data)
 
     def _handle_native_trade_event(self, payload: dict[str, Any]) -> None:
@@ -356,6 +522,12 @@ class CTPTraderAdapter:
         broker_order_id = str(data.get("broker_order_id", "")).strip()
         if not broker_order_id:
             return
+        existing_order = self.orders.get(broker_order_id)
+        if (
+            existing_order is not None
+            and not str(data.get("position_effect", "")).strip()
+        ):
+            data["position_effect"] = existing_order.position_effect
         self.ingest_trade_event(data)
 
     def _handle_native_error_event(self, payload: dict[str, Any]) -> None:
@@ -363,6 +535,12 @@ class CTPTraderAdapter:
         broker_order_id = str(data.get("broker_order_id", "")).strip()
         if not broker_order_id:
             return
+        existing_order = self.orders.get(broker_order_id)
+        if (
+            existing_order is not None
+            and not str(data.get("position_effect", "")).strip()
+        ):
+            data["position_effect"] = existing_order.position_effect
         if self.execution_semantics_mode == "compatible":
             self.ingest_order_event(
                 {
@@ -374,6 +552,7 @@ class CTPTraderAdapter:
                     "avg_fill_price": 0.0,
                     "reject_reason": str(data.get("error_message", "")).strip(),
                     "timestamp_ns": int(data.get("timestamp_ns", time.time_ns())),
+                    "position_effect": str(data.get("position_effect", "auto")),
                 }
             )
             return

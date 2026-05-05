@@ -1,6 +1,7 @@
 use super::market_data::extract_decimal;
 use super::types::{
-    ExecutionPolicyCore, OrderRole, OrderSide, OrderStatus, OrderType, TimeInForce,
+    ExecutionPolicyCore, OrderRole, OrderSide, OrderStatus, OrderType, PositionEffect,
+    TimeInForce,
 };
 use chrono::{FixedOffset, TimeZone, Utc};
 use pyo3::exceptions::PyValueError;
@@ -67,6 +68,65 @@ fn format_timestamp_str(timestamp: i64) -> String {
     }
 }
 
+pub fn project_position_after(
+    side: OrderSide,
+    position_effect: PositionEffect,
+    current_pos: Decimal,
+    quantity: Decimal,
+) -> Decimal {
+    match position_effect {
+        PositionEffect::Close | PositionEffect::CloseToday | PositionEffect::CloseYesterday => {
+            match side {
+                OrderSide::Buy => {
+                    if current_pos < Decimal::ZERO {
+                        current_pos + quantity.min(-current_pos)
+                    } else {
+                        current_pos
+                    }
+                }
+                OrderSide::Sell => {
+                    if current_pos > Decimal::ZERO {
+                        current_pos - quantity.min(current_pos)
+                    } else {
+                        current_pos
+                    }
+                }
+            }
+        }
+        PositionEffect::Open | PositionEffect::Auto => match side {
+            OrderSide::Buy => current_pos + quantity,
+            OrderSide::Sell => current_pos - quantity,
+        },
+    }
+}
+
+pub fn position_delta(
+    side: OrderSide,
+    position_effect: PositionEffect,
+    current_pos: Decimal,
+    quantity: Decimal,
+) -> Decimal {
+    project_position_after(side, position_effect, current_pos, quantity) - current_pos
+}
+
+pub fn reduction_priority_rank(side: OrderSide, position_effect: PositionEffect) -> u8 {
+    match position_effect {
+        PositionEffect::Close | PositionEffect::CloseToday | PositionEffect::CloseYesterday => 0,
+        PositionEffect::Open => 1,
+        PositionEffect::Auto => {
+            if side == OrderSide::Sell {
+                0
+            } else {
+                1
+            }
+        }
+    }
+}
+
+pub fn is_reduce_first_order(side: OrderSide, position_effect: PositionEffect) -> bool {
+    reduction_priority_rank(side, position_effect) == 0
+}
+
 #[gen_stub_pyclass]
 #[pyclass(from_py_object)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,6 +185,9 @@ pub struct Order {
     #[pyo3(get)]
     #[serde(default)]
     pub order_role: OrderRole,
+    #[pyo3(get)]
+    #[serde(default)]
+    pub position_effect: PositionEffect,
     #[pyo3(get, set)]
     pub status: OrderStatus,
     pub filled_quantity: Decimal,
@@ -143,6 +206,9 @@ pub struct Order {
     pub owner_strategy_id: Option<String>,
     #[serde(default)]
     pub allow_quantity_auto_resize: bool,
+    #[pyo3(get)]
+    #[serde(default)]
+    pub reduce_only: bool,
 }
 
 #[gen_stub_pymethods]
@@ -161,7 +227,7 @@ impl Order {
     /// :param created_at: 创建时间戳 (可选，默认 0)
     /// :param tag: 订单标签 (可选，默认 "")
     #[new]
-    #[pyo3(signature = (id, symbol, side, order_type, quantity, price=None, time_in_force=None, trigger_price=None, created_at=None, tag=None, owner_strategy_id=None, graph_id=None, parent_order_id=None, order_role=None, trail_offset=None, trail_reference_price=None))]
+    #[pyo3(signature = (id, symbol, side, order_type, quantity, price=None, time_in_force=None, trigger_price=None, created_at=None, tag=None, owner_strategy_id=None, graph_id=None, parent_order_id=None, order_role=None, trail_offset=None, trail_reference_price=None, position_effect=None, reduce_only=false))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
@@ -180,6 +246,8 @@ impl Order {
         order_role: Option<OrderRole>,
         trail_offset: Option<&Bound<'_, PyAny>>,
         trail_reference_price: Option<&Bound<'_, PyAny>>,
+        position_effect: Option<PositionEffect>,
+        reduce_only: bool,
     ) -> PyResult<Self> {
         let created_at_ts = created_at.unwrap_or(0);
         let quantity_dec = extract_decimal(quantity)?;
@@ -225,6 +293,7 @@ impl Order {
             graph_id,
             parent_order_id,
             order_role: order_role.unwrap_or_default(),
+            position_effect: position_effect.unwrap_or_default(),
             status: OrderStatus::New,
             filled_quantity: Decimal::ZERO,
             average_filled_price: None,
@@ -235,6 +304,7 @@ impl Order {
             reject_reason: String::new(),
             owner_strategy_id,
             allow_quantity_auto_resize: false,
+            reduce_only,
         })
     }
 
@@ -356,7 +426,7 @@ impl Order {
 
     pub fn __repr__(&self) -> String {
         format!(
-            "Order(id={}, symbol={}, side={:?}, type={:?}, qty={}, price={:?}, trigger={:?}, trail_offset={:?}, trail_ref={:?}, graph_id={:?}, parent_order_id={:?}, role={:?}, tif={:?}, status={:?}, tag={}, reject_reason={})",
+            "Order(id={}, symbol={}, side={:?}, type={:?}, qty={}, price={:?}, trigger={:?}, trail_offset={:?}, trail_ref={:?}, graph_id={:?}, parent_order_id={:?}, role={:?}, effect={:?}, reduce_only={}, tif={:?}, status={:?}, tag={}, reject_reason={})",
             self.id,
             self.symbol,
             self.side,
@@ -369,6 +439,8 @@ impl Order {
             self.graph_id,
             self.parent_order_id,
             self.order_role,
+            self.position_effect,
+            self.reduce_only,
             self.time_in_force,
             self.status,
             self.tag,
@@ -405,6 +477,7 @@ impl Order {
             graph_id: None,
             parent_order_id: None,
             order_role: OrderRole::Standalone,
+            position_effect: PositionEffect::Auto,
             status: OrderStatus::New,
             filled_quantity: Decimal::ZERO,
             average_filled_price: None,
@@ -415,6 +488,7 @@ impl Order {
             reject_reason: String::new(),
             owner_strategy_id: None,
             allow_quantity_auto_resize: false,
+            reduce_only: false,
         }
     }
 }
@@ -441,6 +515,9 @@ pub struct Trade {
     pub symbol: String,
     #[pyo3(get)]
     pub side: OrderSide,
+    #[pyo3(get)]
+    #[serde(default)]
+    pub position_effect: PositionEffect,
     pub quantity: Decimal,
     pub price: Decimal,
     pub commission: Decimal,
@@ -468,6 +545,7 @@ impl Trade {
     /// :param timestamp: Unix 时间戳 (纳秒)
     /// :param bar_index: K线索引
     #[new]
+    #[pyo3(signature = (id, order_id, symbol, side, quantity, price, commission, timestamp, bar_index, owner_strategy_id=None, position_effect=None))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
@@ -480,12 +558,14 @@ impl Trade {
         timestamp: i64,
         bar_index: usize,
         owner_strategy_id: Option<String>,
+        position_effect: Option<PositionEffect>,
     ) -> PyResult<Self> {
         Ok(Trade {
             id,
             order_id,
             symbol,
             side,
+            position_effect: position_effect.unwrap_or_default(),
             quantity: extract_decimal(quantity)?,
             price: extract_decimal(price)?,
             commission: extract_decimal(commission)?,
@@ -667,6 +747,7 @@ mod tests {
             order_id: "o1".to_string(),
             symbol: "AAPL".to_string(),
             side: OrderSide::Buy,
+            position_effect: PositionEffect::Auto,
             quantity: Decimal::from(10),
             price: Decimal::from(100),
             commission: Decimal::ZERO,

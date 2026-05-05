@@ -4,8 +4,8 @@ use crate::history::HistoryBuffer;
 use crate::market::MarketModel;
 use crate::model::market_data::extract_decimal;
 use crate::model::{
-    AssetType, ExecutionPolicyCore, Instrument, Order, OrderSide, OrderType, PriceBasis,
-    TemporalPolicy, TimeInForce, Timer, Trade, TradingSession,
+    AssetType, ExecutionPolicyCore, Instrument, Order, OrderSide, OrderType, PositionEffect,
+    PriceBasis, TemporalPolicy, TimeInForce, Timer, Trade, TradingSession,
 };
 use crate::portfolio::Portfolio;
 use crate::risk::RiskConfig;
@@ -582,7 +582,7 @@ impl StrategyContext {
     /// :param trigger_price: 触发价格 (可选, 用于止损/止盈单)
     /// :param tag: 订单标签 (可选)
     /// :return: 订单 ID
-    #[pyo3(signature = (symbol, quantity, price=None, time_in_force=None, trigger_price=None, tag=None, order_type=None, trail_offset=None, trail_reference_price=None, fill_price_basis=None, fill_bar_offset=None, fill_temporal=None, fill_slippage_type=None, fill_slippage_value=None, fill_commission_type=None, fill_commission_value=None, allow_quantity_auto_resize=false))]
+    #[pyo3(signature = (symbol, quantity, price=None, time_in_force=None, trigger_price=None, tag=None, order_type=None, trail_offset=None, trail_reference_price=None, fill_price_basis=None, fill_bar_offset=None, fill_temporal=None, fill_slippage_type=None, fill_slippage_value=None, fill_commission_type=None, fill_commission_value=None, allow_quantity_auto_resize=false, position_effect=None, reduce_only=false))]
     #[allow(clippy::too_many_arguments)]
     fn buy(
         &mut self,
@@ -603,6 +603,8 @@ impl StrategyContext {
         fill_commission_type: Option<String>,
         fill_commission_value: Option<&Bound<'_, PyAny>>,
         allow_quantity_auto_resize: bool,
+        position_effect: Option<PositionEffect>,
+        reduce_only: bool,
     ) -> PyResult<String> {
         let qty_decimal = extract_decimal(quantity)?;
         let price_decimal = if let Some(p) = price {
@@ -659,6 +661,7 @@ impl StrategyContext {
             graph_id: None,
             parent_order_id: None,
             order_role: crate::model::OrderRole::Standalone,
+            position_effect: position_effect.unwrap_or_default(),
             status: crate::model::OrderStatus::New,
             filled_quantity: Decimal::ZERO,
             average_filled_price: None,
@@ -669,6 +672,7 @@ impl StrategyContext {
             reject_reason: String::new(),
             owner_strategy_id: self.strategy_id.clone(),
             allow_quantity_auto_resize,
+            reduce_only,
         };
         self.orders.push(order.clone());
         if let Some(tx) = &self.event_tx {
@@ -688,7 +692,7 @@ impl StrategyContext {
     /// :param trigger_price: 触发价格 (可选, 用于止损/止盈单)
     /// :param tag: 订单标签 (可选)
     /// :return: 订单 ID
-    #[pyo3(signature = (symbol, quantity, price=None, time_in_force=None, trigger_price=None, tag=None, order_type=None, trail_offset=None, trail_reference_price=None, fill_price_basis=None, fill_bar_offset=None, fill_temporal=None, fill_slippage_type=None, fill_slippage_value=None, fill_commission_type=None, fill_commission_value=None))]
+    #[pyo3(signature = (symbol, quantity, price=None, time_in_force=None, trigger_price=None, tag=None, order_type=None, trail_offset=None, trail_reference_price=None, fill_price_basis=None, fill_bar_offset=None, fill_temporal=None, fill_slippage_type=None, fill_slippage_value=None, fill_commission_type=None, fill_commission_value=None, position_effect=None, reduce_only=false))]
     #[allow(clippy::too_many_arguments)]
     fn sell(
         &mut self,
@@ -708,6 +712,8 @@ impl StrategyContext {
         fill_slippage_value: Option<&Bound<'_, PyAny>>,
         fill_commission_type: Option<String>,
         fill_commission_value: Option<&Bound<'_, PyAny>>,
+        position_effect: Option<PositionEffect>,
+        reduce_only: bool,
     ) -> PyResult<String> {
         let qty_decimal = extract_decimal(quantity)?;
         let price_decimal = if let Some(p) = price {
@@ -764,6 +770,7 @@ impl StrategyContext {
             graph_id: None,
             parent_order_id: None,
             order_role: crate::model::OrderRole::Standalone,
+            position_effect: position_effect.unwrap_or_default(),
             status: crate::model::OrderStatus::New,
             filled_quantity: Decimal::ZERO,
             average_filled_price: None,
@@ -774,6 +781,7 @@ impl StrategyContext {
             reject_reason: String::new(),
             owner_strategy_id: self.strategy_id.clone(),
             allow_quantity_auto_resize: false,
+            reduce_only,
         };
         self.orders.push(order.clone());
         if let Some(tx) = &self.event_tx {

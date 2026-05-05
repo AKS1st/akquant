@@ -37,6 +37,12 @@ impl pyo3_stub_gen::PyStubType for OrderSide {
     }
 }
 
+impl pyo3_stub_gen::PyStubType for PositionEffect {
+    fn type_output() -> pyo3_stub_gen::TypeInfo {
+        pyo3_stub_gen::TypeInfo::with_module("akquant.PositionEffect", "akquant".into())
+    }
+}
+
 impl pyo3_stub_gen::PyStubType for OrderStatus {
     fn type_output() -> pyo3_stub_gen::TypeInfo {
         pyo3_stub_gen::TypeInfo::with_module("akquant.OrderStatus", "akquant".into())
@@ -186,6 +192,25 @@ pub enum OrderSide {
 
 #[pymethods]
 impl OrderSide {
+    fn __hash__(&self) -> isize {
+        *self as isize
+    }
+}
+
+#[pyclass(eq, eq_int, from_py_object)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// 开平语义
+pub enum PositionEffect {
+    #[default]
+    Auto,
+    Open,
+    Close,
+    CloseToday,
+    CloseYesterday,
+}
+
+#[pymethods]
+impl PositionEffect {
     fn __hash__(&self) -> isize {
         *self as isize
     }

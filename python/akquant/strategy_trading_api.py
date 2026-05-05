@@ -1,7 +1,7 @@
 import warnings
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
-from .akquant import OrderSide, OrderStatus, OrderType, TimeInForce
+from .akquant import OrderSide, OrderStatus, OrderType, PositionEffect, TimeInForce
 
 OrderFillPolicy = Dict[str, Any]
 OrderSlippage = Dict[str, Any]
@@ -53,6 +53,14 @@ def get_positions(strategy: Any) -> Dict[str, float]:
     if strategy.ctx is None:
         raise RuntimeError("Context not ready")
     return cast(Dict[str, float], strategy.ctx.positions)
+
+
+def get_last_target_positions_plan(strategy: Any) -> Dict[str, Any]:
+    """获取最近一次 order_target_positions() 生成的调仓计划."""
+    plan = getattr(strategy, "_last_target_positions_plan", None)
+    if isinstance(plan, dict):
+        return cast(Dict[str, Any], plan)
+    return {}
 
 
 def get_open_orders(strategy: Any, symbol: Optional[str] = None) -> List[Any]:
@@ -126,21 +134,31 @@ def get_order(strategy: Any, order_id: str) -> Optional[Any]:
 
 
 def _record_broker_options(
-    strategy: Any, order_id: Optional[str], broker_options: Optional[Dict[str, Any]]
+    strategy: Any,
+    order_ids: Optional[Union[str, List[str]]],
+    broker_options: Optional[Dict[str, Any]],
 ) -> None:
-    if not order_id or not broker_options:
+    if not order_ids or not broker_options:
         return
     if not isinstance(broker_options, dict):
         raise TypeError("broker_options must be a dict when provided")
+    normalized_order_ids: List[str]
+    if isinstance(order_ids, list):
+        normalized_order_ids = [str(order_id) for order_id in order_ids if order_id]
+    else:
+        normalized_order_ids = [str(order_ids)]
+    if not normalized_order_ids:
+        return
     store = getattr(strategy, "_broker_options_by_order_id", None)
     if not isinstance(store, dict):
         store = {}
         setattr(strategy, "_broker_options_by_order_id", store)
     normalized = dict(broker_options)
-    store[str(order_id)] = normalized
-    order = get_order(strategy, str(order_id))
-    if order is not None:
-        _attach_broker_options(strategy, str(order_id), order)
+    for order_id in normalized_order_ids:
+        store[order_id] = dict(normalized)
+        order = get_order(strategy, order_id)
+        if order is not None:
+            _attach_broker_options(strategy, order_id, order)
 
 
 def _attach_broker_options(strategy: Any, order_id: str, order: Any) -> None:
@@ -203,6 +221,8 @@ def buy(
     fill_policy: Optional[OrderFillPolicy] = None,
     slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
+    position_effect: Union[PositionEffect, str, None] = None,
+    reduce_only: bool = False,
 ) -> str:
     """买入下单."""
     submit_order_method = getattr(strategy, "submit_order", None)
@@ -223,6 +243,8 @@ def buy(
                 fill_policy=fill_policy,
                 slippage=slippage,
                 commission=commission,
+                position_effect=_normalize_position_effect(position_effect, "auto"),
+                reduce_only=reduce_only,
             ),
         )
     order_type_enum = _parse_order_type(order_type)
@@ -240,6 +262,8 @@ def buy(
         fill_policy=fill_policy,
         slippage=slippage,
         commission=commission,
+        position_effect=_normalize_position_effect(position_effect, "auto"),
+        reduce_only=reduce_only,
     )
 
 
@@ -257,6 +281,8 @@ def sell(
     fill_policy: Optional[OrderFillPolicy] = None,
     slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
+    position_effect: Union[PositionEffect, str, None] = None,
+    reduce_only: bool = False,
 ) -> str:
     """卖出下单."""
     submit_order_method = getattr(strategy, "submit_order", None)
@@ -277,6 +303,8 @@ def sell(
                 fill_policy=fill_policy,
                 slippage=slippage,
                 commission=commission,
+                position_effect=_normalize_position_effect(position_effect, "auto"),
+                reduce_only=reduce_only,
             ),
         )
     order_type_enum = _parse_order_type(order_type)
@@ -294,6 +322,8 @@ def sell(
         fill_policy=fill_policy,
         slippage=slippage,
         commission=commission,
+        position_effect=_normalize_position_effect(position_effect, "auto"),
+        reduce_only=reduce_only,
     )
 
 
@@ -311,7 +341,47 @@ def _submit_buy_side(
     fill_policy: Optional[OrderFillPolicy] = None,
     slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
+    position_effect: str = "auto",
+    reduce_only: bool = False,
 ) -> str:
+    return _first_order_id(
+        _submit_buy_side_orders(
+            strategy=strategy,
+            symbol=symbol,
+            quantity=quantity,
+            price=price,
+            time_in_force=time_in_force,
+            trigger_price=trigger_price,
+            tag=tag,
+            order_type=order_type,
+            trail_offset=trail_offset,
+            trail_reference_price=trail_reference_price,
+            fill_policy=fill_policy,
+            slippage=slippage,
+            commission=commission,
+            position_effect=position_effect,
+            reduce_only=reduce_only,
+        )
+    )
+
+
+def _submit_buy_side_orders(
+    strategy: Any,
+    symbol: Optional[str],
+    quantity: Optional[float],
+    price: Optional[float],
+    time_in_force: Optional[TimeInForce],
+    trigger_price: Optional[float],
+    tag: Optional[str],
+    order_type: Optional[Any] = None,
+    trail_offset: Optional[float] = None,
+    trail_reference_price: Optional[float] = None,
+    fill_policy: Optional[OrderFillPolicy] = None,
+    slippage: Optional[Union[OrderSlippage, float, int]] = None,
+    commission: Optional[OrderCommission] = None,
+    position_effect: str = "auto",
+    reduce_only: bool = False,
+) -> List[str]:
     if strategy.ctx is None:
         raise RuntimeError("Context not ready")
 
@@ -326,6 +396,36 @@ def _submit_buy_side(
         quantity = strategy.sizer.get_size(
             ref_price, strategy.ctx.cash, strategy.ctx, symbol
         )
+    if quantity <= 0:
+        return []
+
+    if position_effect == "auto":
+        current_position = float(strategy.ctx.get_position(symbol))
+        legs = _resolve_auto_position_effect_legs(
+            "buy", current_position, float(quantity), reduce_only
+        )
+        order_ids: List[str] = []
+        for leg_effect, leg_quantity, leg_reduce_only in legs:
+            order_ids.extend(
+                _submit_buy_side_orders(
+                    strategy=strategy,
+                    symbol=symbol,
+                    quantity=leg_quantity,
+                    price=price,
+                    time_in_force=time_in_force,
+                    trigger_price=trigger_price,
+                    tag=tag,
+                    order_type=order_type,
+                    trail_offset=trail_offset,
+                    trail_reference_price=trail_reference_price,
+                    fill_policy=fill_policy,
+                    slippage=slippage,
+                    commission=commission,
+                    position_effect=leg_effect,
+                    reduce_only=leg_reduce_only,
+                )
+            )
+        return order_ids
 
     effective_fill_policy = _resolve_effective_order_fill_policy(strategy, fill_policy)
     fill_price_basis, fill_bar_offset, fill_temporal = _normalize_order_fill_policy(
@@ -341,16 +441,16 @@ def _submit_buy_side(
     fill_commission_type, fill_commission_value = _normalize_order_commission(
         effective_commission
     )
-    if quantity > 0:
-        if (
-            order_type is None
-            and trail_offset is None
-            and trail_reference_price is None
-            and effective_fill_policy is None
-            and effective_slippage is None
-            and effective_commission is None
-        ):
-            return cast(
+    if (
+        order_type is None
+        and trail_offset is None
+        and trail_reference_price is None
+        and effective_fill_policy is None
+        and effective_slippage is None
+        and effective_commission is None
+    ):
+        return [
+            cast(
                 str,
                 strategy.ctx.buy(
                     symbol,
@@ -359,10 +459,14 @@ def _submit_buy_side(
                     time_in_force,
                     trigger_price,
                     tag or "",
+                    position_effect=_position_effect_enum(position_effect),
+                    reduce_only=reduce_only,
                     allow_quantity_auto_resize=allow_quantity_auto_resize,
                 ),
             )
-        return cast(
+        ]
+    return [
+        cast(
             str,
             strategy.ctx.buy(
                 symbol,
@@ -382,9 +486,11 @@ def _submit_buy_side(
                 fill_commission_type,
                 fill_commission_value,
                 allow_quantity_auto_resize,
+                _position_effect_enum(position_effect),
+                reduce_only,
             ),
         )
-    return ""
+    ]
 
 
 def _submit_sell_side(
@@ -401,7 +507,47 @@ def _submit_sell_side(
     fill_policy: Optional[OrderFillPolicy] = None,
     slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
+    position_effect: str = "auto",
+    reduce_only: bool = False,
 ) -> str:
+    return _first_order_id(
+        _submit_sell_side_orders(
+            strategy=strategy,
+            symbol=symbol,
+            quantity=quantity,
+            price=price,
+            time_in_force=time_in_force,
+            trigger_price=trigger_price,
+            tag=tag,
+            order_type=order_type,
+            trail_offset=trail_offset,
+            trail_reference_price=trail_reference_price,
+            fill_policy=fill_policy,
+            slippage=slippage,
+            commission=commission,
+            position_effect=position_effect,
+            reduce_only=reduce_only,
+        )
+    )
+
+
+def _submit_sell_side_orders(
+    strategy: Any,
+    symbol: Optional[str],
+    quantity: Optional[float],
+    price: Optional[float],
+    time_in_force: Optional[TimeInForce],
+    trigger_price: Optional[float],
+    tag: Optional[str],
+    order_type: Optional[Any] = None,
+    trail_offset: Optional[float] = None,
+    trail_reference_price: Optional[float] = None,
+    fill_policy: Optional[OrderFillPolicy] = None,
+    slippage: Optional[Union[OrderSlippage, float, int]] = None,
+    commission: Optional[OrderCommission] = None,
+    position_effect: str = "auto",
+    reduce_only: bool = False,
+) -> List[str]:
     if strategy.ctx is None:
         raise RuntimeError("Context not ready")
 
@@ -412,7 +558,37 @@ def _submit_sell_side(
         if pos > 0:
             quantity = pos
         else:
-            return ""
+            return []
+    if quantity <= 0:
+        return []
+
+    if position_effect == "auto":
+        current_position = float(strategy.ctx.get_position(symbol))
+        legs = _resolve_auto_position_effect_legs(
+            "sell", current_position, float(quantity), reduce_only
+        )
+        order_ids: List[str] = []
+        for leg_effect, leg_quantity, leg_reduce_only in legs:
+            order_ids.extend(
+                _submit_sell_side_orders(
+                    strategy=strategy,
+                    symbol=symbol,
+                    quantity=leg_quantity,
+                    price=price,
+                    time_in_force=time_in_force,
+                    trigger_price=trigger_price,
+                    tag=tag,
+                    order_type=order_type,
+                    trail_offset=trail_offset,
+                    trail_reference_price=trail_reference_price,
+                    fill_policy=fill_policy,
+                    slippage=slippage,
+                    commission=commission,
+                    position_effect=leg_effect,
+                    reduce_only=leg_reduce_only,
+                )
+            )
+        return order_ids
 
     effective_fill_policy = _resolve_effective_order_fill_policy(strategy, fill_policy)
     fill_price_basis, fill_bar_offset, fill_temporal = _normalize_order_fill_policy(
@@ -428,22 +604,31 @@ def _submit_sell_side(
     fill_commission_type, fill_commission_value = _normalize_order_commission(
         effective_commission
     )
-    if quantity > 0:
-        if (
-            order_type is None
-            and trail_offset is None
-            and trail_reference_price is None
-            and effective_fill_policy is None
-            and effective_slippage is None
-            and effective_commission is None
-        ):
-            return cast(
+    if (
+        order_type is None
+        and trail_offset is None
+        and trail_reference_price is None
+        and effective_fill_policy is None
+        and effective_slippage is None
+        and effective_commission is None
+    ):
+        return [
+            cast(
                 str,
                 strategy.ctx.sell(
-                    symbol, quantity, price, time_in_force, trigger_price, tag or ""
+                    symbol,
+                    quantity,
+                    price,
+                    time_in_force,
+                    trigger_price,
+                    tag or "",
+                    position_effect=_position_effect_enum(position_effect),
+                    reduce_only=reduce_only,
                 ),
             )
-        return cast(
+        ]
+    return [
+        cast(
             str,
             strategy.ctx.sell(
                 symbol,
@@ -462,21 +647,94 @@ def _submit_sell_side(
                 fill_slippage_value,
                 fill_commission_type,
                 fill_commission_value,
+                _position_effect_enum(position_effect),
+                reduce_only,
             ),
         )
-    return ""
+    ]
 
 
 def get_execution_capabilities(strategy: Any) -> Dict[str, Any]:
     """获取当前执行环境能力描述."""
-    _ = strategy
+    injected_method = getattr(
+        getattr(strategy, "__dict__", {}), "get", lambda *_: None
+    )("get_execution_capabilities")
+    if callable(injected_method):
+        return cast(Dict[str, Any], injected_method())
+    risk_config = getattr(getattr(strategy, "ctx", None), "risk_config", None)
+    account_mode = str(getattr(risk_config, "account_mode", "cash")).strip().lower()
+    supports_short_sell = bool(getattr(risk_config, "enable_short_sell", False))
     return {
         "broker_live": False,
         "client_order_id": False,
         "order_type": True,
         "time_in_force_str": False,
+        "position_effect": True,
+        "reduce_only": True,
+        "position_details": False,
+        "account_mode": account_mode,
+        "supports_short_sell": supports_short_sell,
         "broker_extra_fields": [],
     }
+
+
+def _normalize_position_effect(
+    position_effect: Union[PositionEffect, str, None], default: str = "auto"
+) -> str:
+    if position_effect is None:
+        return default
+    if isinstance(position_effect, str):
+        value = position_effect.strip().lower()
+    else:
+        value = str(position_effect).split(".")[-1].strip().lower()
+    if value not in {"auto", "open", "close", "close_today", "close_yesterday"}:
+        raise ValueError(
+            "position_effect must be one of: auto, open, close, "
+            "close_today, close_yesterday"
+        )
+    return value
+
+
+def _first_order_id(order_ids: List[str]) -> str:
+    for order_id in order_ids:
+        if order_id:
+            return str(order_id)
+    return ""
+
+
+def _position_effect_enum(position_effect: str) -> PositionEffect:
+    mapping = {
+        "auto": PositionEffect.Auto,
+        "open": PositionEffect.Open,
+        "close": PositionEffect.Close,
+        "close_today": PositionEffect.CloseToday,
+        "close_yesterday": PositionEffect.CloseYesterday,
+    }
+    return mapping[str(position_effect).strip().lower()]
+
+
+def _resolve_auto_position_effect_legs(
+    side: str,
+    current_position: float,
+    quantity: float,
+    reduce_only: bool,
+) -> List[Tuple[str, float, bool]]:
+    if quantity <= 0:
+        return []
+    normalized_side = str(side).strip().lower()
+    legs: List[Tuple[str, float, bool]] = []
+    if normalized_side == "buy":
+        close_qty = (
+            min(quantity, abs(current_position)) if current_position < 0 else 0.0
+        )
+    else:
+        close_qty = min(quantity, current_position) if current_position > 0 else 0.0
+    if close_qty > 0:
+        legs.append(("close", float(close_qty), reduce_only))
+    open_qty = float(max(quantity - close_qty, 0.0))
+    if open_qty > 0 and not reduce_only:
+        legs.append(("open", open_qty, False))
+    return legs
 
 
 def submit_order(
@@ -497,6 +755,8 @@ def submit_order(
     fill_policy: Optional[OrderFillPolicy] = None,
     slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
+    position_effect: Union[PositionEffect, str, None] = None,
+    reduce_only: bool = False,
 ) -> str:
     """统一下单接口."""
     capabilities = get_execution_capabilities(strategy)
@@ -521,7 +781,7 @@ def submit_order(
 
     side_text = side.strip().lower()
     if side_text == "buy":
-        order_id = _submit_buy_side(
+        order_ids = _submit_buy_side_orders(
             strategy=strategy,
             symbol=symbol,
             quantity=quantity,
@@ -535,11 +795,13 @@ def submit_order(
             fill_policy=fill_policy,
             slippage=slippage,
             commission=commission,
+            position_effect=_normalize_position_effect(position_effect, "auto"),
+            reduce_only=reduce_only,
         )
-        _record_broker_options(strategy, order_id, broker_options)
-        return order_id
+        _record_broker_options(strategy, order_ids, broker_options)
+        return _first_order_id(order_ids)
     if side_text == "sell":
-        order_id = _submit_sell_side(
+        order_ids = _submit_sell_side_orders(
             strategy=strategy,
             symbol=symbol,
             quantity=quantity,
@@ -553,9 +815,11 @@ def submit_order(
             fill_policy=fill_policy,
             slippage=slippage,
             commission=commission,
+            position_effect=_normalize_position_effect(position_effect, "auto"),
+            reduce_only=reduce_only,
         )
-        _record_broker_options(strategy, order_id, broker_options)
-        return order_id
+        _record_broker_options(strategy, order_ids, broker_options)
+        return _first_order_id(order_ids)
     raise ValueError(f"Unsupported side: {side}")
 
 
@@ -807,6 +1071,27 @@ def _is_margin_account(strategy: Any) -> bool:
     risk_config = getattr(strategy.ctx, "risk_config", None)
     account_mode = str(getattr(risk_config, "account_mode", "cash")).strip().lower()
     return account_mode == "margin"
+
+
+def _supports_short_targets(
+    strategy: Any, capabilities: Optional[Dict[str, Any]] = None
+) -> bool:
+    capability_map = (
+        capabilities
+        if capabilities is not None
+        else get_execution_capabilities(strategy)
+    )
+    if bool(capability_map.get("supports_short_sell", False)):
+        return True
+    account_mode = str(capability_map.get("account_mode", "")).strip().lower()
+    if account_mode:
+        return account_mode == "margin" and bool(
+            capability_map.get("supports_short_sell", False)
+        )
+    if strategy.ctx is None:
+        return False
+    risk_config = getattr(strategy.ctx, "risk_config", None)
+    return bool(getattr(risk_config, "enable_short_sell", False))
 
 
 def _stock_margin_ratio(strategy: Any, margin_ratio: float) -> float:
@@ -1232,6 +1517,201 @@ def order_target_weights(
         order_target_value(strategy, target_value, symbol, leg_price, **kwargs)
 
 
+def order_target_positions(
+    strategy: Any,
+    target_positions: Dict[str, float],
+    price_map: Optional[Dict[str, float]] = None,
+    liquidate_unmentioned: bool = False,
+    rebalance_tolerance: float = 0.0,
+    allow_short: Optional[bool] = None,
+    strict_short_capability: bool = True,
+    missing_price_mode: str = "ignore",
+    **kwargs: Any,
+) -> None:
+    """按多标的目标持仓数量调仓，支持正负目标仓位."""
+    if strategy.ctx is None:
+        raise RuntimeError("Context not ready")
+
+    if rebalance_tolerance < 0:
+        raise ValueError("rebalance_tolerance must be >= 0")
+    normalized_missing_price_mode = str(missing_price_mode).strip().lower()
+    if normalized_missing_price_mode not in {"ignore", "skip", "fail"}:
+        raise ValueError("missing_price_mode must be one of: ignore, skip, fail")
+
+    normalized_targets: Dict[str, float] = {}
+    for symbol, target_qty in target_positions.items():
+        if not symbol:
+            raise ValueError("symbol in target_positions must be non-empty")
+        normalized_targets[str(symbol)] = float(target_qty)
+
+    has_short_target = any(
+        float(target_qty) < 0.0 for target_qty in normalized_targets.values()
+    )
+    plan: Dict[str, Any] = {
+        "requested_targets": dict(normalized_targets),
+        "liquidate_unmentioned": bool(liquidate_unmentioned),
+        "rebalance_tolerance": float(rebalance_tolerance),
+        "allow_short": allow_short,
+        "strict_short_capability": bool(strict_short_capability),
+        "missing_price_mode": normalized_missing_price_mode,
+        "reduce_legs": [],
+        "increase_legs": [],
+        "skipped_legs": [],
+        "submitted_legs": [],
+    }
+    setattr(strategy, "_last_target_positions_plan", plan)
+    if has_short_target:
+        capabilities = get_execution_capabilities(strategy)
+        plan["execution_capabilities"] = dict(capabilities)
+        inferred_allow_short = _supports_short_targets(strategy, capabilities)
+        effective_allow_short = (
+            inferred_allow_short if allow_short is None else bool(allow_short)
+        )
+        if not effective_allow_short:
+            reject_reason = (
+                "negative target positions require allow_short=True "
+                "and a short-enabled execution environment"
+            )
+            plan["status"] = "rejected"
+            plan["reject_reason"] = reject_reason
+            raise ValueError(reject_reason)
+        if strict_short_capability and not inferred_allow_short:
+            broker_name = str(capabilities.get("broker_name", "")).strip()
+            broker_hint = f" for broker '{broker_name}'" if broker_name else ""
+            plan["status"] = "rejected"
+            plan["reject_reason"] = (
+                "current execution environment does not advertise short-sell support"
+                f"{broker_hint}"
+            )
+            raise RuntimeError(
+                "current execution environment does not advertise short-sell support"
+                f"{broker_hint}"
+            )
+
+    if liquidate_unmentioned:
+        for symbol, qty in strategy.ctx.positions.items():
+            if float(qty) != 0.0 and symbol not in normalized_targets:
+                normalized_targets[str(symbol)] = 0.0
+
+    if not normalized_targets:
+        plan["status"] = "noop"
+        return
+
+    reduce_legs: List[Tuple[str, float, float]] = []
+    increase_legs: List[Tuple[str, float, float]] = []
+
+    for symbol, target_qty in normalized_targets.items():
+        current_qty = float(strategy.ctx.get_position(symbol))
+        delta_qty = float(target_qty) - current_qty
+        if abs(delta_qty) <= float(rebalance_tolerance):
+            continue
+        is_reduction_or_reversal = current_qty != 0.0 and (
+            float(target_qty) == 0.0
+            or current_qty * float(target_qty) < 0.0
+            or abs(float(target_qty)) < abs(current_qty)
+        )
+        if is_reduction_or_reversal:
+            reduce_legs.append((symbol, target_qty, abs(delta_qty)))
+        else:
+            increase_legs.append((symbol, target_qty, abs(delta_qty)))
+
+    plan["reduce_legs"] = [
+        {
+            "symbol": symbol,
+            "target_quantity": float(target_qty),
+            "delta_quantity": float(target_qty)
+            - float(strategy.ctx.get_position(symbol)),
+            "phase": "reduce",
+        }
+        for symbol, target_qty, _ in reduce_legs
+    ]
+    plan["increase_legs"] = [
+        {
+            "symbol": symbol,
+            "target_quantity": float(target_qty),
+            "delta_quantity": float(target_qty)
+            - float(strategy.ctx.get_position(symbol)),
+            "phase": "increase",
+        }
+        for symbol, target_qty, _ in increase_legs
+    ]
+
+    if not reduce_legs and not increase_legs:
+        plan["status"] = "noop"
+        return
+
+    for symbol, target_qty, _ in sorted(
+        reduce_legs,
+        key=lambda item: (float(item[2]), str(item[0])),
+        reverse=True,
+    ):
+        if price_map is not None and symbol not in price_map:
+            if normalized_missing_price_mode == "skip":
+                plan["skipped_legs"].append(
+                    {
+                        "symbol": symbol,
+                        "target_quantity": float(target_qty),
+                        "reason": "missing_price_map",
+                        "phase": "reduce",
+                    }
+                )
+                continue
+            if normalized_missing_price_mode == "fail":
+                missing_price_error = (
+                    f"missing price_map entry for symbol '{symbol}' "
+                    "in order_target_positions"
+                )
+                plan["status"] = "rejected"
+                plan["reject_reason"] = missing_price_error
+                raise RuntimeError(missing_price_error)
+        leg_price = price_map.get(symbol) if price_map else None
+        plan["submitted_legs"].append(
+            {
+                "symbol": symbol,
+                "target_quantity": float(target_qty),
+                "price": leg_price,
+                "phase": "reduce",
+            }
+        )
+        order_target(strategy, target_qty, symbol, leg_price, **kwargs)
+
+    for symbol, target_qty, _ in sorted(
+        increase_legs,
+        key=lambda item: (float(item[2]), str(item[0])),
+        reverse=True,
+    ):
+        if price_map is not None and symbol not in price_map:
+            if normalized_missing_price_mode == "skip":
+                plan["skipped_legs"].append(
+                    {
+                        "symbol": symbol,
+                        "target_quantity": float(target_qty),
+                        "reason": "missing_price_map",
+                        "phase": "increase",
+                    }
+                )
+                continue
+            if normalized_missing_price_mode == "fail":
+                missing_price_error = (
+                    f"missing price_map entry for symbol '{symbol}' "
+                    "in order_target_positions"
+                )
+                plan["status"] = "rejected"
+                plan["reject_reason"] = missing_price_error
+                raise RuntimeError(missing_price_error)
+        leg_price = price_map.get(symbol) if price_map else None
+        plan["submitted_legs"].append(
+            {
+                "symbol": symbol,
+                "target_quantity": float(target_qty),
+                "price": leg_price,
+                "phase": "increase",
+            }
+        )
+        order_target(strategy, target_qty, symbol, leg_price, **kwargs)
+    plan["status"] = "submitted"
+
+
 def buy_all(strategy: Any, symbol: Optional[str] = None) -> None:
     """全仓买入 (Buy All)."""
     if strategy.ctx is None:
@@ -1277,8 +1757,26 @@ def short(
     fill_policy: Optional[OrderFillPolicy] = None,
     slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
+    reduce_only: bool = False,
 ) -> None:
     """卖出开空 (Short Sell)."""
+    submit_order_method = getattr(strategy, "submit_order", None)
+    if callable(submit_order_method):
+        submit_order_method(
+            symbol=symbol,
+            side="Sell",
+            quantity=quantity,
+            price=price,
+            time_in_force=time_in_force,
+            trigger_price=trigger_price,
+            tag=tag,
+            fill_policy=fill_policy,
+            slippage=slippage,
+            commission=commission,
+            position_effect="open",
+            reduce_only=reduce_only,
+        )
+        return
     if strategy.ctx is None:
         raise RuntimeError("Context not ready")
 
@@ -1310,6 +1808,8 @@ def short(
             fill_policy=fill_policy,
             slippage=slippage,
             commission=commission,
+            position_effect="open",
+            reduce_only=reduce_only,
         )
 
 
@@ -1324,8 +1824,26 @@ def cover(
     fill_policy: Optional[OrderFillPolicy] = None,
     slippage: Optional[Union[OrderSlippage, float, int]] = None,
     commission: Optional[OrderCommission] = None,
+    reduce_only: bool = False,
 ) -> None:
     """买入平空 (Buy to Cover)."""
+    submit_order_method = getattr(strategy, "submit_order", None)
+    if callable(submit_order_method):
+        submit_order_method(
+            symbol=symbol,
+            side="Buy",
+            quantity=quantity,
+            price=price,
+            time_in_force=time_in_force,
+            trigger_price=trigger_price,
+            tag=tag,
+            fill_policy=fill_policy,
+            slippage=slippage,
+            commission=commission,
+            position_effect="close",
+            reduce_only=reduce_only,
+        )
+        return
     if strategy.ctx is None:
         raise RuntimeError("Context not ready")
 
@@ -1350,6 +1868,8 @@ def cover(
             fill_policy=fill_policy,
             slippage=slippage,
             commission=commission,
+            position_effect="close",
+            reduce_only=reduce_only,
         )
 
 

@@ -8,6 +8,15 @@ from .ptrade import PTradeMarketGateway, PTradeTraderGateway
 from .registry import create_registered_gateway_bundle, list_registered_brokers
 
 
+def _resolve_trader_capabilities(trader_gateway: TraderGateway | None) -> Any:
+    if trader_gateway is None:
+        return None
+    get_capabilities = getattr(trader_gateway, "get_capabilities", None)
+    if callable(get_capabilities):
+        return get_capabilities()
+    return None
+
+
 def create_gateway_bundle(
     broker: str,
     feed: DataFeed,
@@ -57,6 +66,7 @@ def create_gateway_bundle(
         return GatewayBundle(
             market_gateway=market_gateway,
             trader_gateway=trader_gateway,
+            trader_capabilities=_resolve_trader_capabilities(trader_gateway),
             metadata={"broker": "ctp"},
         )
 
@@ -70,6 +80,7 @@ def create_gateway_bundle(
         return GatewayBundle(
             market_gateway=market_gateway,
             trader_gateway=miniqmt_trader_gateway,
+            trader_capabilities=_resolve_trader_capabilities(miniqmt_trader_gateway),
             metadata={"broker": "miniqmt"},
         )
 
@@ -83,6 +94,7 @@ def create_gateway_bundle(
         return GatewayBundle(
             market_gateway=market_gateway,
             trader_gateway=ptrade_trader_gateway,
+            trader_capabilities=_resolve_trader_capabilities(ptrade_trader_gateway),
             metadata={"broker": "ptrade"},
         )
 
