@@ -896,6 +896,42 @@ class WarmStartHistoryContinuityStrategy(Strategy):
         )
 
 
+class WarmStartInstrumentSnapshotStrategy(Strategy):
+    """Strategy for warm-start instrument snapshot regression tests."""
+
+    def __init__(self) -> None:
+        """Initialize snapshot capture state."""
+        self.captured_counts: list[int] = []
+        self.phase1_snapshot: dict[str, Any] | None = None
+        self.phase2_snapshot: dict[str, Any] | None = None
+
+    def on_start(self) -> None:
+        """Capture available instrument snapshots on cold and warm starts."""
+        current_count = len(self.get_instruments())
+        self.captured_counts.append(current_count)
+        if self.is_restored:
+            phase2 = self.get_instrument("OPT2402C")
+            self.phase2_snapshot = {
+                "asset_type": phase2.asset_type,
+                "multiplier": phase2.multiplier,
+                "option_type": phase2.option_type,
+                "option_margin_model": phase2.option_margin_model,
+                "expiry_date": phase2.expiry_date,
+                "underlying_symbol": phase2.underlying_symbol,
+                "all_count": current_count,
+            }
+        else:
+            phase1 = self.get_instrument("BASE")
+            self.phase1_snapshot = {
+                "asset_type": phase1.asset_type,
+                "all_count": current_count,
+            }
+
+    def on_bar(self, bar: Bar) -> None:
+        """No-op bar handler for lifecycle completeness."""
+        return
+
+
 class RuntimeConfigWarmStartStrategy(Strategy):
     """Strategy for warm start runtime config injection test."""
 
@@ -1639,6 +1675,58 @@ def test_run_warm_start_warns_for_legacy_checkpoint_without_history_feature_mark
             show_progress=False,
         )
     assert result2.strategy is not None
+
+
+def test_run_warm_start_respects_instruments_config_and_merges_snapshots(
+    tmp_path: Path,
+) -> None:
+    """Warm start should rebuild option instruments without dropping old ones."""
+    checkpoint = tmp_path / "snapshot_instruments.pkl"
+    phase1 = _make_bars("2023-01-01", 2, symbol="BASE")
+    phase2 = _make_bars("2023-02-01", 2, symbol="OPT2402C", start_price=12.0)
+
+    result1 = run_backtest(
+        data=phase1,
+        strategy=WarmStartInstrumentSnapshotStrategy,
+        symbols="BASE",
+        show_progress=False,
+    )
+    save_snapshot(result1.engine, result1.strategy, str(checkpoint))  # type: ignore[arg-type]
+
+    result2 = run_warm_start(
+        checkpoint_path=str(checkpoint),
+        data=phase2,
+        symbols="OPT2402C",
+        show_progress=False,
+        config=BacktestConfig(
+            strategy_config=StrategyConfig(),
+            instruments_config=[
+                InstrumentConfig(
+                    symbol="OPT2402C",
+                    asset_type="OPTION",
+                    multiplier=100.0,
+                    option_type="CALL",
+                    option_margin_model="CHINA_SINGLE_LEG",
+                    expiry_date=dt.date(2024, 2, 28),
+                    underlying_symbol="510050.SH",
+                )
+            ],
+        ),
+    )
+
+    strategy = result2.strategy
+    assert strategy is not None
+    assert strategy.phase1_snapshot == {"asset_type": "STOCK", "all_count": 1}
+    assert strategy.phase2_snapshot == {
+        "asset_type": "OPTION",
+        "multiplier": 100.0,
+        "option_type": "CALL",
+        "option_margin_model": "CHINA_SINGLE_LEG",
+        "expiry_date": 20240228,
+        "underlying_symbol": "510050.SH",
+        "all_count": 2,
+    }
+    assert strategy.captured_counts == [1, 2]
 
 
 def test_run_warm_start_functional_lifecycle(tmp_path: Path) -> None:
