@@ -1037,6 +1037,14 @@ def get_portfolio_value(strategy: Any) -> float:
     """计算当前投资组合总价值 (现金 + 持仓市值)."""
     if strategy.ctx is None:
         return 0.0
+    ctx_equity = getattr(strategy.ctx, "account_equity", None)
+    if ctx_equity is not None:
+        return float(ctx_equity)
+    engine = getattr(strategy, "_engine", None)
+    get_metrics = getattr(engine, "get_account_metrics", None)
+    if callable(get_metrics):
+        equity, _, _, _, _, _ = get_metrics()
+        return float(equity)
 
     total_value = float(strategy.ctx.cash)
     for sym, qty in strategy.ctx.positions.items():
@@ -1248,9 +1256,51 @@ def get_account(strategy: Any) -> Dict[str, Any]:
         raise RuntimeError("Context not ready")
 
     cash = float(strategy.ctx.cash)
-    equity = float(strategy.equity)
-    market_value = float(equity - cash)
-    margin = float(_calc_used_margin(strategy))
+    ctx_market_value = getattr(strategy.ctx, "account_market_value", None)
+    ctx_notional_value = getattr(strategy.ctx, "account_notional_value", None)
+    ctx_used_margin = getattr(strategy.ctx, "account_used_margin", None)
+    ctx_unrealized_pnl = getattr(strategy.ctx, "account_unrealized_pnl", None)
+    ctx_maintenance_ratio = getattr(strategy.ctx, "account_maintenance_ratio", None)
+    ctx_equity = getattr(strategy.ctx, "account_equity", None)
+    engine = getattr(strategy, "_engine", None)
+    get_metrics = getattr(engine, "get_account_metrics", None)
+    notional_value = (
+        float(ctx_notional_value) if ctx_notional_value is not None else 0.0
+    )
+    unrealized_pnl = (
+        float(ctx_unrealized_pnl) if ctx_unrealized_pnl is not None else 0.0
+    )
+    if ctx_equity is not None:
+        equity = float(ctx_equity)
+        market_value = (
+            float(ctx_market_value) if ctx_market_value is not None else equity - cash
+        )
+        margin = (
+            float(ctx_used_margin)
+            if ctx_used_margin is not None
+            else float(_calc_used_margin(strategy))
+        )
+        maintenance_ratio = (
+            float(ctx_maintenance_ratio) if ctx_maintenance_ratio is not None else 0.0
+        )
+    elif callable(get_metrics):
+        (
+            equity,
+            market_value,
+            notional_value,
+            margin,
+            unrealized_pnl,
+            maintenance_ratio,
+        ) = get_metrics()
+        equity = float(equity)
+        market_value = float(market_value)
+        margin = float(margin)
+        maintenance_ratio = float(maintenance_ratio)
+    else:
+        equity = float(strategy.equity)
+        market_value = float(equity - cash)
+        margin = float(_calc_used_margin(strategy))
+        maintenance_ratio = 0.0
     frozen_cash = float(_calc_frozen_cash(strategy))
     borrowed_cash = float(max(-cash, 0.0))
     short_market_value = 0.0
@@ -1259,8 +1309,9 @@ def get_account(strategy: Any) -> Dict[str, Any]:
         if qty_f >= 0.0:
             continue
         short_market_value += abs(qty_f) * _resolve_mark_price(strategy, str(sym))
-    denominator = market_value + short_market_value
-    maintenance_ratio = float(equity / denominator) if denominator > 0.0 else 0.0
+    if ctx_equity is None and not callable(get_metrics):
+        denominator = market_value + short_market_value
+        maintenance_ratio = float(equity / denominator) if denominator > 0.0 else 0.0
     account_mode = "margin" if _is_margin_account(strategy) else "cash"
     accrued_interest = float(getattr(strategy.ctx, "margin_accrued_interest", 0.0))
     daily_interest = float(getattr(strategy.ctx, "margin_daily_interest", 0.0))
@@ -1268,8 +1319,11 @@ def get_account(strategy: Any) -> Dict[str, Any]:
         "cash": cash,
         "equity": equity,
         "market_value": market_value,
+        "notional_value": float(notional_value),
         "frozen_cash": frozen_cash,
         "margin": margin,
+        "used_margin": margin,
+        "unrealized_pnl": float(unrealized_pnl),
         "borrowed_cash": borrowed_cash,
         "short_market_value": float(short_market_value),
         "maintenance_ratio": maintenance_ratio,

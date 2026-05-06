@@ -169,6 +169,9 @@ impl RiskRule for CashMarginRule {
     }
 
     fn check(&self, order: &Order, ctx: &RiskCheckContext) -> Result<(), AkQuantError> {
+        if ctx.config.is_margin_account() && ctx.instrument.asset_type == AssetType::Futures {
+            return Ok(());
+        }
         if ctx.config.check_cash {
             let order_price = if let Some(p) = order.price {
                 p
@@ -451,12 +454,14 @@ mod tests {
         };
         let instrument_ref = instruments.get("OPT_P").unwrap();
         let config = RiskConfig::new();
+        let tracker = crate::analysis::TradeTracker::new();
         let ctx = RiskCheckContext {
             portfolio: &portfolio,
             instrument: instrument_ref,
             instruments: &instruments,
             active_orders: &[],
             current_prices: &prices,
+            trade_tracker: &tracker,
             current_time: 0,
             config: &config,
         };
@@ -486,12 +491,14 @@ mod tests {
         };
         let instrument_ref = instruments.get("AAPL").unwrap();
         let config = RiskConfig::new();
+        let tracker = crate::analysis::TradeTracker::new();
         let ctx = RiskCheckContext {
             portfolio: &portfolio,
             instrument: instrument_ref,
             instruments: &instruments,
             active_orders: &[],
             current_prices: &prices,
+            trade_tracker: &tracker,
             current_time: 0,
             config: &config,
         };

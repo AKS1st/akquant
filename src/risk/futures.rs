@@ -1,3 +1,4 @@
+use crate::account::{calculate_account_metrics, estimate_futures_realized_pnl};
 use crate::error::AkQuantError;
 use crate::model::{AssetType, Order, OrderSide, OrderStatus};
 use crate::portfolio::Portfolio;
@@ -47,28 +48,39 @@ impl RiskRule for FuturesMarginRule {
                 active_order,
                 active_price,
                 ctx.instruments,
+                ctx.trade_tracker,
             );
         }
 
-        let current_exposure =
-            calculate_gross_exposure(&current_portfolio, &prices_for_order, ctx.instruments);
+        let current_metrics = calculate_account_metrics(
+            &current_portfolio,
+            &prices_for_order,
+            ctx.instruments,
+            ctx.trade_tracker,
+            ctx.config,
+        );
 
         let mut next_portfolio = current_portfolio.clone();
-        apply_order_to_portfolio(&mut next_portfolio, order, order_price, ctx.instruments);
-        let next_exposure =
-            calculate_gross_exposure(&next_portfolio, &prices_for_order, ctx.instruments);
-        if next_exposure <= Decimal::ZERO {
+        apply_order_to_portfolio(
+            &mut next_portfolio,
+            order,
+            order_price,
+            ctx.instruments,
+            ctx.trade_tracker,
+        );
+        let next_metrics = calculate_account_metrics(
+            &next_portfolio,
+            &prices_for_order,
+            ctx.instruments,
+            ctx.trade_tracker,
+            ctx.config,
+        );
+        if next_metrics.used_margin <= Decimal::ZERO {
             return Ok(());
         }
 
-        let next_equity = next_portfolio.calculate_equity(&prices_for_order, ctx.instruments);
-        let next_ratio = if next_exposure > Decimal::ZERO {
-            next_equity / next_exposure
-        } else {
-            Decimal::MAX
-        };
-
-        if next_ratio < maintenance_ratio && next_exposure >= current_exposure {
+        let next_ratio = next_metrics.maintenance_ratio;
+        if next_ratio < maintenance_ratio && next_metrics.used_margin >= current_metrics.used_margin {
             return Err(AkQuantError::OrderError(format!(
                 "Risk: Futures maintenance margin breach. Ratio: {next_ratio}, Required: {maintenance_ratio}",
             )));
@@ -96,51 +108,35 @@ fn apply_order_to_portfolio(
     order: &Order,
     price: Decimal,
     instruments: &HashMap<String, crate::model::Instrument>,
+    trade_tracker: &crate::analysis::TradeTracker,
 ) {
     let Some(instr) = instruments.get(&order.symbol) else {
         return;
     };
-    let cost = price * order.quantity * instr.multiplier();
+    let multiplier = instr.multiplier();
+    let realized = estimate_futures_realized_pnl(
+        trade_tracker,
+        &order.symbol,
+        order.side,
+        order.quantity,
+        price,
+        multiplier,
+    );
+    portfolio.adjust_cash(realized);
     match order.side {
         OrderSide::Buy => {
-            portfolio.adjust_cash(-cost);
             portfolio.adjust_position(&order.symbol, order.quantity);
         }
         OrderSide::Sell => {
-            portfolio.adjust_cash(cost);
             portfolio.adjust_position(&order.symbol, -order.quantity);
         }
     }
 }
 
-fn calculate_gross_exposure(
-    portfolio: &Portfolio,
-    prices: &HashMap<String, Decimal>,
-    instruments: &HashMap<String, crate::model::Instrument>,
-) -> Decimal {
-    let mut gross_exposure = Decimal::ZERO;
-    for (symbol, quantity) in portfolio.positions.iter() {
-        if quantity.is_zero() {
-            continue;
-        }
-        let Some(price) = prices.get(symbol).copied() else {
-            continue;
-        };
-        if price <= Decimal::ZERO {
-            continue;
-        }
-        let multiplier = instruments
-            .get(symbol)
-            .map(|instr| instr.multiplier())
-            .unwrap_or(Decimal::ONE);
-        gross_exposure += quantity.abs() * price * multiplier;
-    }
-    gross_exposure
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::analysis::TradeTracker;
     use crate::model::instrument::{FuturesInstrument, InstrumentEnum};
     use crate::model::{Instrument, OrderType, TimeInForce};
     use crate::risk::RiskConfig;
@@ -175,6 +171,7 @@ mod tests {
         instrument: &'a Instrument,
         instruments: &'a HashMap<String, Instrument>,
         current_prices: &'a HashMap<String, Decimal>,
+        trade_tracker: &'a TradeTracker,
         config: &'a RiskConfig,
     ) -> RiskCheckContext<'a> {
         RiskCheckContext {
@@ -183,6 +180,7 @@ mod tests {
             instruments,
             active_orders: &[],
             current_prices,
+            trade_tracker,
             current_time: 0,
             config,
         }
@@ -203,7 +201,8 @@ mod tests {
         };
         let mut config = RiskConfig::new();
         config.account_mode = "margin".to_string();
-        config.maintenance_margin_ratio = 0.3;
+        config.maintenance_margin_ratio = 3.0;
+        let tracker = TradeTracker::new();
         let order = make_order(&symbol, OrderSide::Buy, Decimal::from(400));
         let rule = FuturesMarginRule;
         let ctx = make_context(
@@ -211,6 +210,7 @@ mod tests {
             &instrument,
             &instruments,
             &current_prices,
+            &tracker,
             &config,
         );
 
@@ -236,6 +236,7 @@ mod tests {
         let mut config = RiskConfig::new();
         config.account_mode = "margin".to_string();
         config.maintenance_margin_ratio = 0.3;
+        let tracker = TradeTracker::new();
         let order = make_order(&symbol, OrderSide::Sell, Decimal::from(100));
         let rule = FuturesMarginRule;
         let ctx = make_context(
@@ -243,6 +244,7 @@ mod tests {
             &instrument,
             &instruments,
             &current_prices,
+            &tracker,
             &config,
         );
 

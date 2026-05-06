@@ -47,3 +47,23 @@ Low-level Engine API naming:
 - Futures fee APIs are standardized as `set_futures_fee_rules` and
   `set_futures_fee_rules_by_prefix`.
 - Legacy singular names `set_future_fee_rules*` are removed.
+
+## Futures Margin Account Snapshot Semantics
+
+Under AKQuant's futures margin-account semantics, read `get_account()` and
+`get_portfolio_value()` like this:
+
+- `cash`: cash balance. Opening a futures position does not deduct full notional
+  the way a spot buy does; cash mainly reflects fees and realized cash flows.
+- `equity`: account equity. `get_portfolio_value()` is aligned with this field.
+- `used_margin` / `margin`: margin currently in use.
+- `notional_value`: current futures notional exposure.
+- `unrealized_pnl`: floating PnL marked with the latest price.
+- `market_value`: mainly a spot-style marked-value field and should not be read
+  as "futures notional".
+
+For futures strategies, the safer mental model is:
+
+1. use `equity` for total account value,
+2. use `used_margin` for margin usage,
+3. use `notional_value` for leverage exposure.

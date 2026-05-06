@@ -6,6 +6,8 @@ import pytest
 from akquant import (
     BacktestConfig,
     Bar,
+    ChinaFuturesConfig,
+    ChinaFuturesInstrumentTemplateConfig,
     InstrumentConfig,
     Strategy,
     StrategyConfig,
@@ -578,3 +580,201 @@ def test_margin_account_force_liquidation_on_maintenance_breach() -> None:
     assert not liquidation_df.empty
     assert "liquidated_symbols" in liquidation_df.columns
     assert "priority" in liquidation_df.columns
+
+
+def test_futures_margin_account_snapshot_uses_margin_accounting() -> None:
+    """Futures margin account snapshots should not deduct full notional from cash."""
+
+    class FuturesAccountProbeStrategy(Strategy):
+        account_snapshots: list[dict[str, Any]] = []
+
+        def __init__(self) -> None:
+            self.step = 0
+
+        def on_bar(self, bar: Bar) -> None:
+            if self.step == 0:
+                self.buy(bar.symbol, 1.0)
+                self.step = 1
+            elif self.step == 1 and float(self.get_position(bar.symbol)) > 0.0:
+                self.sell(bar.symbol, 1.0)
+                self.step = 2
+
+        def on_trade(self, trade: Any) -> None:
+            self.__class__.account_snapshots.append(self.get_account())
+
+    bars = _build_bars(
+        [
+            pd.Timestamp("2023-05-16 21:00:00", tz="Asia/Shanghai"),
+            pd.Timestamp("2023-05-16 21:30:00", tz="Asia/Shanghai"),
+            pd.Timestamp("2023-05-16 22:00:00", tz="Asia/Shanghai"),
+        ],
+        [4410.0, 4494.0, 4494.0],
+        symbol="RB2305",
+    )
+    FuturesAccountProbeStrategy.account_snapshots = []
+    run_backtest(
+        data=bars,
+        strategy=FuturesAccountProbeStrategy,
+        symbols="RB2305",
+        show_progress=False,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        config=BacktestConfig(
+            strategy_config=StrategyConfig(
+                initial_cash=500000.0,
+                commission_rate=0.0,
+                slippage=0.0,
+                min_commission=0.0,
+                stamp_tax_rate=0.0,
+                transfer_fee_rate=0.0,
+                risk=RiskConfig(
+                    account_mode="margin",
+                    check_cash=True,
+                    initial_margin_ratio=0.1,
+                    maintenance_margin_ratio=0.3,
+                    enable_short_sell=True,
+                    allow_force_liquidation=True,
+                ),
+            ),
+            china_futures=ChinaFuturesConfig(
+                enforce_sessions=False,
+                instrument_templates_by_symbol_prefix=[
+                    ChinaFuturesInstrumentTemplateConfig(
+                        symbol_prefix="RB",
+                        multiplier=10.0,
+                        margin_ratio=0.1,
+                        commission_rate=0.0,
+                        tick_size=1.0,
+                        lot_size=1.0,
+                    )
+                ],
+            ),
+        ),
+    )
+
+    assert len(FuturesAccountProbeStrategy.account_snapshots) >= 2
+    open_snapshot = FuturesAccountProbeStrategy.account_snapshots[0]
+    close_snapshot = FuturesAccountProbeStrategy.account_snapshots[1]
+
+    assert float(open_snapshot["cash"]) == pytest.approx(500000.0, rel=0.0, abs=1e-6)
+    assert float(open_snapshot["equity"]) == pytest.approx(500000.0, rel=0.0, abs=1e-6)
+    assert float(open_snapshot["margin"]) == pytest.approx(4410.0, rel=0.0, abs=1e-6)
+    assert float(open_snapshot["used_margin"]) == pytest.approx(
+        4410.0, rel=0.0, abs=1e-6
+    )
+    assert float(open_snapshot["notional_value"]) == pytest.approx(
+        44100.0, rel=0.0, abs=1e-6
+    )
+    assert float(open_snapshot["unrealized_pnl"]) == pytest.approx(
+        0.0, rel=0.0, abs=1e-6
+    )
+    assert float(open_snapshot["market_value"]) == pytest.approx(0.0, rel=0.0, abs=1e-6)
+    assert float(open_snapshot["maintenance_ratio"]) == pytest.approx(
+        500000.0 / 4410.0, rel=0.0, abs=1e-6
+    )
+
+    assert float(close_snapshot["cash"]) == pytest.approx(500840.0, rel=0.0, abs=1e-6)
+    assert float(close_snapshot["equity"]) == pytest.approx(500840.0, rel=0.0, abs=1e-6)
+    assert float(close_snapshot["margin"]) == pytest.approx(0.0, rel=0.0, abs=1e-6)
+    assert float(close_snapshot["used_margin"]) == pytest.approx(0.0, rel=0.0, abs=1e-6)
+    assert float(close_snapshot["notional_value"]) == pytest.approx(
+        0.0, rel=0.0, abs=1e-6
+    )
+
+
+def test_futures_margin_portfolio_update_can_read_account_metrics() -> None:
+    """Portfolio update callback should read cached futures account metrics safely."""
+
+    class FuturesPortfolioUpdateProbeStrategy(Strategy):
+        portfolio_updates: list[dict[str, float]] = []
+
+        def __init__(self) -> None:
+            self.ordered = False
+
+        def on_bar(self, bar: Bar) -> None:
+            if not self.ordered:
+                self.buy(bar.symbol, 1.0)
+                self.ordered = True
+
+        def on_portfolio_update(self, snapshot: dict[str, Any]) -> None:
+            account = self.get_account()
+            self.__class__.portfolio_updates.append(
+                {
+                    "snapshot_equity": float(snapshot["equity"]),
+                    "portfolio_value": float(self.get_portfolio_value()),
+                    "account_equity": float(account["equity"]),
+                    "used_margin": float(account["used_margin"]),
+                    "notional_value": float(account["notional_value"]),
+                }
+            )
+
+    bars = _build_bars(
+        [
+            pd.Timestamp("2023-05-16 21:00:00", tz="Asia/Shanghai"),
+            pd.Timestamp("2023-05-16 21:30:00", tz="Asia/Shanghai"),
+        ],
+        [4410.0, 4494.0],
+        symbol="RB2305",
+    )
+    FuturesPortfolioUpdateProbeStrategy.portfolio_updates = []
+    run_backtest(
+        data=bars,
+        strategy=FuturesPortfolioUpdateProbeStrategy,
+        symbols="RB2305",
+        show_progress=False,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        config=BacktestConfig(
+            strategy_config=StrategyConfig(
+                initial_cash=500000.0,
+                commission_rate=0.0,
+                slippage=0.0,
+                min_commission=0.0,
+                stamp_tax_rate=0.0,
+                transfer_fee_rate=0.0,
+                risk=RiskConfig(
+                    account_mode="margin",
+                    check_cash=True,
+                    initial_margin_ratio=0.1,
+                    maintenance_margin_ratio=0.3,
+                    enable_short_sell=True,
+                    allow_force_liquidation=True,
+                ),
+            ),
+            china_futures=ChinaFuturesConfig(
+                enforce_sessions=False,
+                instrument_templates_by_symbol_prefix=[
+                    ChinaFuturesInstrumentTemplateConfig(
+                        symbol_prefix="RB",
+                        multiplier=10.0,
+                        margin_ratio=0.1,
+                        commission_rate=0.0,
+                        tick_size=1.0,
+                        lot_size=1.0,
+                    )
+                ],
+            ),
+        ),
+    )
+
+    assert FuturesPortfolioUpdateProbeStrategy.portfolio_updates
+    for update in FuturesPortfolioUpdateProbeStrategy.portfolio_updates:
+        assert update["portfolio_value"] == pytest.approx(
+            update["account_equity"], rel=0.0, abs=1e-6
+        )
+        assert update["snapshot_equity"] == pytest.approx(
+            update["account_equity"], rel=0.0, abs=1e-6
+        )
+
+    leveraged_updates = [
+        update
+        for update in FuturesPortfolioUpdateProbeStrategy.portfolio_updates
+        if update["used_margin"] > 0.0
+    ]
+    assert leveraged_updates
+    assert any(
+        update["used_margin"] == pytest.approx(4410.0, rel=0.0, abs=1e-6)
+        for update in leveraged_updates
+    )
+    assert any(
+        update["notional_value"] == pytest.approx(44100.0, rel=0.0, abs=1e-6)
+        for update in leveraged_updates
+    )

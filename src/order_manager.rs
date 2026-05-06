@@ -5,6 +5,9 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::account::{
+    calculate_account_metrics, estimate_futures_realized_pnl, is_futures_margin_account,
+};
 use crate::analysis::TradeTracker;
 use crate::history::HistoryBuffer;
 use crate::market::MarketModel;
@@ -12,6 +15,7 @@ use crate::model::{
     Instrument, Order, OrderRole, OrderSide, OrderStatus, OrderType, TimeInForce, Trade,
 };
 use crate::portfolio::Portfolio;
+use crate::risk::RiskConfig;
 
 /// 订单管理器
 /// 负责管理订单列表、成交记录及状态流转
@@ -324,6 +328,7 @@ impl OrderManager {
         mut trades: Vec<Trade>,
         portfolio: &mut Portfolio,
         instruments: &HashMap<String, Instrument>,
+        risk_config: &RiskConfig,
         market_model: &dyn MarketModel,
         history_buffer: &Arc<RwLock<HistoryBuffer>>,
         last_prices: &HashMap<String, Decimal>,
@@ -376,15 +381,33 @@ impl OrderManager {
             // 3. Update Portfolio
             portfolio.adjust_cash(-trade.commission);
 
-            let multiplier = instr_opt.map(|i| i.multiplier()).unwrap_or(Decimal::ONE);
-            let cost = trade.price * trade.quantity * multiplier;
-
-            if trade.side == crate::model::OrderSide::Buy {
-                portfolio.adjust_cash(-cost);
-                portfolio.adjust_position(&trade.symbol, trade.quantity);
-            } else {
-                portfolio.adjust_cash(cost); // Sell adds cash
-                portfolio.adjust_position(&trade.symbol, -trade.quantity);
+            if let Some(instr) = instr_opt {
+                let multiplier = instr.multiplier();
+                if is_futures_margin_account(instr, risk_config) {
+                    let realized = estimate_futures_realized_pnl(
+                        &self.trade_tracker,
+                        &trade.symbol,
+                        trade.side,
+                        trade.quantity,
+                        trade.price,
+                        multiplier,
+                    );
+                    portfolio.adjust_cash(realized);
+                    if trade.side == crate::model::OrderSide::Buy {
+                        portfolio.adjust_position(&trade.symbol, trade.quantity);
+                    } else {
+                        portfolio.adjust_position(&trade.symbol, -trade.quantity);
+                    }
+                } else {
+                    let cost = trade.price * trade.quantity * multiplier;
+                    if trade.side == crate::model::OrderSide::Buy {
+                        portfolio.adjust_cash(-cost);
+                        portfolio.adjust_position(&trade.symbol, trade.quantity);
+                    } else {
+                        portfolio.adjust_cash(cost);
+                        portfolio.adjust_position(&trade.symbol, -trade.quantity);
+                    }
+                }
             }
 
             // Update available positions (T+1/T+0 rules)
@@ -436,7 +459,9 @@ impl OrderManager {
             let symbol_history = history_guard.get_history(&trade.symbol);
 
             // Calculate Portfolio Value for % metrics
-            let portfolio_value = portfolio.calculate_equity(last_prices, instruments);
+            let portfolio_value =
+                calculate_account_metrics(portfolio, last_prices, instruments, &self.trade_tracker, risk_config)
+                    .equity;
 
             self.trade_tracker
                 .process_trade(&trade, order_tag, symbol_history, portfolio_value);

@@ -73,11 +73,13 @@ impl RiskManager {
         // Create a dummy market model for context
         use crate::market::{SimpleMarket, SimpleMarketConfig};
         let market_model = SimpleMarket::from_config(SimpleMarketConfig::default());
+        let trade_tracker = crate::analysis::TradeTracker::new();
 
         let ctx = crate::context::EngineContext {
             instruments: &instruments,
             portfolio,
             last_prices: &prices_dec,
+            trade_tracker: &trade_tracker,
             market_model: &market_model,
             execution_policy_core: crate::model::ExecutionPolicyCore::default(),
             bar_index: 0,
@@ -274,6 +276,7 @@ impl RiskManager {
             instruments: ctx.instruments,
             active_orders: ctx.active_orders,
             current_prices: ctx.last_prices,
+            trade_tracker: ctx.trade_tracker,
             current_time: ctx.current_time,
             config: &self.config,
         };

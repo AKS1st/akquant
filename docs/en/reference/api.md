@@ -702,7 +702,10 @@ Note: if you do not pass an explicit `fill_policy` here, the framework defaults 
 *   `get_history_df(count, symbol) -> pd.DataFrame`: Get history data DataFrame (OHLCV).
 *   `get_position(symbol) -> float`: Get current position size.
 *   `get_cash() -> float`: Get current available cash.
-*   `get_account() -> Dict[str, float]`: Get account snapshot. Includes `cash` (available), `equity` (total equity), `market_value` (position value), plus `frozen_cash` and `margin` (reserved fields, currently 0).
+*   `get_account() -> Dict[str, float]`: Get an account snapshot. Common fields include `cash`, `equity`, `market_value`, `notional_value`, `frozen_cash`, `margin`, `used_margin`, `unrealized_pnl`, `borrowed_cash`, `short_market_value`, `maintenance_ratio`, `account_mode`, `accrued_interest`, and `daily_interest`.
+    *   In cash / spot-style accounts, `market_value` usually represents marked position value.
+    *   In futures margin accounts, `equity` is account equity, `used_margin` is margin in use, `notional_value` is futures notional exposure, and `unrealized_pnl` is marked floating PnL. Futures trades do not deduct full notional from `cash` the way spot buys do, and notional exposure is not mirrored into `market_value` as if it were spot inventory.
+    *   Inside strategy callbacks, prefer `get_portfolio_value()` when you only need current total equity; it is aligned with `get_account()["equity"]`.
 *   `get_order(order_id) -> Order`: Get details of a specific order.
 *   `get_open_orders(symbol) -> List[Order]`: Get list of open orders.
 *   `subscribe(instrument_id: str)`: Subscribe to market data. Must be called explicitly for multi-asset backtesting or live trading to receive `on_tick`/`on_bar` callbacks.

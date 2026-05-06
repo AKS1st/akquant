@@ -1,3 +1,4 @@
+use crate::account::{calculate_account_metrics, AccountMetrics};
 use chrono::{DateTime, NaiveDate, NaiveTime, TimeZone, Utc};
 use indicatif::ProgressBar;
 use pyo3::exceptions::PyRuntimeError;
@@ -133,6 +134,16 @@ pub(crate) struct PendingStreamEvent {
 
 // Internal implementation of Engine (not exposed to Python)
 impl Engine {
+    fn current_account_metrics(&self) -> AccountMetrics {
+        calculate_account_metrics(
+            &self.state.portfolio,
+            &self.last_prices,
+            &self.instruments,
+            &self.state.order_manager.trade_tracker,
+            &self.risk_manager.config,
+        )
+    }
+
     pub(crate) fn is_active_timestamp(&self, timestamp: i64) -> bool {
         self.active_start_time_ns
             .is_none_or(|start_ns| timestamp >= start_ns)
@@ -588,6 +599,7 @@ impl Engine {
         step_rejected_orders: Vec<Order>,
     ) -> PyResult<Py<StrategyContext>> {
         self.ensure_strategy_context_capacity();
+        let account_metrics = self.current_account_metrics();
         if let Some(existing_ctx) = self
             .strategy_contexts
             .get(slot_index)
@@ -608,6 +620,27 @@ impl Engine {
                         recent_trades: step_trades,
                         recent_rejected_orders: step_rejected_orders,
                         recent_expiry_events: self.recent_expiry_events.clone(),
+                        account_equity: account_metrics.equity.to_f64().unwrap_or_default(),
+                        account_market_value: account_metrics
+                            .market_value
+                            .to_f64()
+                            .unwrap_or_default(),
+                        account_notional_value: account_metrics
+                            .notional_value
+                            .to_f64()
+                            .unwrap_or_default(),
+                        account_used_margin: account_metrics
+                            .used_margin
+                            .to_f64()
+                            .unwrap_or_default(),
+                        account_unrealized_pnl: account_metrics
+                            .unrealized_pnl
+                            .to_f64()
+                            .unwrap_or_default(),
+                        account_maintenance_ratio: account_metrics
+                            .maintenance_ratio
+                            .to_f64()
+                            .unwrap_or_default(),
                         margin_accrued_interest: self
                             .margin_accrued_interest
                             .to_f64()
@@ -919,6 +952,7 @@ impl Engine {
         step_rejected_orders: Vec<Order>,
         strategy_id: Option<String>,
     ) -> StrategyContext {
+        let account_metrics = self.current_account_metrics();
         // Create a temporary context for the strategy to use
         StrategyContext::new(crate::context::ContextInit {
             cash: self.state.portfolio.cash,
@@ -935,6 +969,15 @@ impl Engine {
             event_tx: Some(self.event_manager.sender()),
             risk_config: self.risk_manager.config.clone(),
             strategy_id,
+            account_equity: account_metrics.equity.to_f64().unwrap_or_default(),
+            account_market_value: account_metrics.market_value.to_f64().unwrap_or_default(),
+            account_notional_value: account_metrics.notional_value.to_f64().unwrap_or_default(),
+            account_used_margin: account_metrics.used_margin.to_f64().unwrap_or_default(),
+            account_unrealized_pnl: account_metrics.unrealized_pnl.to_f64().unwrap_or_default(),
+            account_maintenance_ratio: account_metrics
+                .maintenance_ratio
+                .to_f64()
+                .unwrap_or_default(),
             margin_accrued_interest: self.margin_accrued_interest.to_f64().unwrap_or_default(),
             margin_daily_interest: self.margin_daily_interest.to_f64().unwrap_or_default(),
         })

@@ -1,4 +1,4 @@
-use crate::analysis::ClosedTrade;
+use crate::analysis::{ClosedTrade, TradeTracker};
 use crate::event::Event;
 use crate::history::HistoryBuffer;
 use crate::market::MarketModel;
@@ -26,6 +26,7 @@ pub struct EngineContext<'a> {
     pub instruments: &'a HashMap<String, Instrument>,
     pub portfolio: &'a Portfolio,
     pub last_prices: &'a HashMap<String, Decimal>,
+    pub trade_tracker: &'a TradeTracker,
     pub market_model: &'a dyn MarketModel,
     pub execution_policy_core: ExecutionPolicyCore,
     pub bar_index: usize,
@@ -50,6 +51,12 @@ pub struct ContextInit {
     pub event_tx: Option<Sender<Event>>,
     pub risk_config: RiskConfig,
     pub strategy_id: Option<String>,
+    pub account_equity: f64,
+    pub account_market_value: f64,
+    pub account_notional_value: f64,
+    pub account_used_margin: f64,
+    pub account_unrealized_pnl: f64,
+    pub account_maintenance_ratio: f64,
     pub margin_accrued_interest: f64,
     pub margin_daily_interest: f64,
 }
@@ -65,6 +72,12 @@ pub struct ContextUpdate {
     pub recent_trades: Vec<Trade>,
     pub recent_rejected_orders: Vec<Order>,
     pub recent_expiry_events: Vec<ExpiryEvent>,
+    pub account_equity: f64,
+    pub account_market_value: f64,
+    pub account_notional_value: f64,
+    pub account_used_margin: f64,
+    pub account_unrealized_pnl: f64,
+    pub account_maintenance_ratio: f64,
     pub margin_accrued_interest: f64,
     pub margin_daily_interest: f64,
 }
@@ -283,6 +296,12 @@ impl StrategyContext {
         self.recent_trades = update.recent_trades;
         self.recent_rejected_orders = update.recent_rejected_orders;
         self.recent_expiry_events = update.recent_expiry_events;
+        self.account_equity = update.account_equity;
+        self.account_market_value = update.account_market_value;
+        self.account_notional_value = update.account_notional_value;
+        self.account_used_margin = update.account_used_margin;
+        self.account_unrealized_pnl = update.account_unrealized_pnl;
+        self.account_maintenance_ratio = update.account_maintenance_ratio;
         self.margin_accrued_interest = update.margin_accrued_interest;
         self.margin_daily_interest = update.margin_daily_interest;
 
@@ -356,6 +375,18 @@ pub struct StrategyContext {
     #[pyo3(get)]
     pub strategy_id: Option<String>,
     #[pyo3(get)]
+    pub account_equity: f64,
+    #[pyo3(get)]
+    pub account_market_value: f64,
+    #[pyo3(get)]
+    pub account_notional_value: f64,
+    #[pyo3(get)]
+    pub account_used_margin: f64,
+    #[pyo3(get)]
+    pub account_unrealized_pnl: f64,
+    #[pyo3(get)]
+    pub account_maintenance_ratio: f64,
+    #[pyo3(get)]
     pub margin_accrued_interest: f64,
     #[pyo3(get)]
     pub margin_daily_interest: f64,
@@ -385,6 +416,12 @@ impl StrategyContext {
             event_tx: init.event_tx,
             risk_config: init.risk_config,
             strategy_id: init.strategy_id,
+            account_equity: init.account_equity,
+            account_market_value: init.account_market_value,
+            account_notional_value: init.account_notional_value,
+            account_used_margin: init.account_used_margin,
+            account_unrealized_pnl: init.account_unrealized_pnl,
+            account_maintenance_ratio: init.account_maintenance_ratio,
             margin_accrued_interest: init.margin_accrued_interest,
             margin_daily_interest: init.margin_daily_interest,
         }
@@ -420,6 +457,12 @@ impl StrategyContext {
         recent_expiry_events: Option<Vec<ExpiryEvent>>,
         risk_config: Option<RiskConfig>,
         strategy_id: Option<String>,
+        account_equity: Option<f64>,
+        account_market_value: Option<f64>,
+        account_notional_value: Option<f64>,
+        account_used_margin: Option<f64>,
+        account_unrealized_pnl: Option<f64>,
+        account_maintenance_ratio: Option<f64>,
         margin_accrued_interest: Option<f64>,
         margin_daily_interest: Option<f64>,
     ) -> PyResult<Self> {
@@ -454,6 +497,12 @@ impl StrategyContext {
             event_tx: None,
             risk_config: risk_config.unwrap_or_default(),
             strategy_id,
+            account_equity: account_equity.unwrap_or(0.0),
+            account_market_value: account_market_value.unwrap_or(0.0),
+            account_notional_value: account_notional_value.unwrap_or(0.0),
+            account_used_margin: account_used_margin.unwrap_or(0.0),
+            account_unrealized_pnl: account_unrealized_pnl.unwrap_or(0.0),
+            account_maintenance_ratio: account_maintenance_ratio.unwrap_or(0.0),
             margin_accrued_interest: margin_accrued_interest.unwrap_or(0.0),
             margin_daily_interest: margin_daily_interest.unwrap_or(0.0),
         })

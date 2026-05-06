@@ -1,7 +1,7 @@
 use super::result::BacktestResult;
 use super::tracker::TradeTracker;
 use super::types::{ClosedTrade, TradePnL};
-use crate::model::{OrderSide, Trade};
+use crate::model::{OrderSide, PositionEffect, Trade};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
@@ -22,6 +22,7 @@ fn create_trade(
         commission,
         timestamp: 0,
         bar_index: 0,
+        position_effect: PositionEffect::Auto,
         owner_strategy_id: None,
     }
 }

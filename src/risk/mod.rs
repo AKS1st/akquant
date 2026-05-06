@@ -131,6 +131,7 @@ mod tests {
         let order = create_test_order("AAPL", Decimal::from(10), Some(Decimal::from(100)));
         let market_model =
             crate::market::SimpleMarket::from_config(crate::market::SimpleMarketConfig::default());
+        let trade_tracker = crate::analysis::TradeTracker::new();
 
         let mut prices_high = HashMap::new();
         prices_high.insert("AAPL".to_string(), Decimal::from(100));
@@ -138,6 +139,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &prices_high,
+            trade_tracker: &trade_tracker,
             market_model: &market_model,
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 1,
@@ -154,6 +156,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &prices_low,
+            trade_tracker: &trade_tracker,
             market_model: &market_model,
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 2,
@@ -191,6 +194,7 @@ mod tests {
         let order = create_test_order("AAPL", Decimal::from(10), Some(Decimal::from(100)));
         let market_model =
             crate::market::SimpleMarket::from_config(crate::market::SimpleMarketConfig::default());
+        let trade_tracker = crate::analysis::TradeTracker::new();
 
         let day1_open = 1_700_000_000_000_000_000;
         let mut prices_day1_start = HashMap::new();
@@ -199,6 +203,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &prices_day1_start,
+            trade_tracker: &trade_tracker,
             market_model: &market_model,
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 1,
@@ -215,6 +220,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &prices_day1_drop,
+            trade_tracker: &trade_tracker,
             market_model: &market_model,
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 2,
@@ -235,6 +241,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &prices_day2_start,
+            trade_tracker: &trade_tracker,
             market_model: &market_model,
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 3,
@@ -268,6 +275,7 @@ mod tests {
         let order = create_test_order("AAPL", Decimal::from(10), Some(Decimal::from(100)));
         let market_model =
             crate::market::SimpleMarket::from_config(crate::market::SimpleMarketConfig::default());
+        let trade_tracker = crate::analysis::TradeTracker::new();
 
         let mut prices_start = HashMap::new();
         prices_start.insert("AAPL".to_string(), Decimal::from(100));
@@ -275,6 +283,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &prices_start,
+            trade_tracker: &trade_tracker,
             market_model: &market_model,
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 1,
@@ -291,6 +300,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &prices_drop,
+            trade_tracker: &trade_tracker,
             market_model: &market_model,
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 2,

@@ -107,6 +107,7 @@ mod tests {
         instruments: &'a HashMap<String, Instrument>,
         active_orders: &'a [Order],
         current_prices: &'a HashMap<String, Decimal>,
+        trade_tracker: &'a crate::analysis::TradeTracker,
         config: &'a crate::risk::RiskConfig,
     ) -> RiskCheckContext<'a> {
         RiskCheckContext {
@@ -115,6 +116,7 @@ mod tests {
             instruments,
             active_orders,
             current_prices,
+            trade_tracker,
             current_time: 0,
             config,
         }
@@ -147,6 +149,7 @@ mod tests {
         instruments.insert("AAPL".to_string(), instr.clone());
 
         let config = crate::risk::RiskConfig::new();
+        let tracker = crate::analysis::TradeTracker::new();
 
         let rule = MaxPositionPercentRule {
             max_pct: Decimal::from_str("0.15").unwrap(),
@@ -159,7 +162,7 @@ mod tests {
             Decimal::from(200),
             Decimal::from(100),
         );
-        let ctx = create_context(&portfolio, &instr, &instruments, &[], &prices, &config);
+        let ctx = create_context(&portfolio, &instr, &instruments, &[], &prices, &tracker, &config);
 
         let res = rule.check(&order, &ctx);
         assert!(res.is_err());

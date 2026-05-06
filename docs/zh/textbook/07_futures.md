@@ -210,6 +210,23 @@ rb_config = InstrumentConfig(
 *   **平空仓**：优先使用 `self.cover(symbol, quantity)`；若当前持仓为 -1，回补 1 手后持仓归零。
 *   **杠杆管理**：由于期货自带杠杆，策略在分配资金时需谨慎。建议按**名义本金 (Notional Value)** 而非保证金占用进行风控。
 
+### 7.4.3 账户快照口径（期货保证金账户）
+
+在 AKQuant 的期货保证金账户语义下，`get_account()` 与 `get_portfolio_value()` 建议按下面方式理解：
+
+- `cash`: 账户现金余额。开仓期货时不会像股票买入那样扣减全额名义本金，只会反映手续费、已实现盈亏等现金流。
+- `equity`: 账户权益，是期货保证金账户最重要的总资产口径；`get_portfolio_value()` 与它保持一致。
+- `used_margin` / `margin`: 当前已占用保证金。
+- `notional_value`: 当前期货名义敞口，用于观察杠杆暴露。
+- `unrealized_pnl`: 按最新价格计算的浮动盈亏。
+- `market_value`: 主要用于现货/持仓市值语义；对期货保证金账户，不应把它理解为“名义本金”。
+
+一个常见误区是把期货账户按股票现货账户去理解，认为“开 1 手后现金应该减少整笔合约价值”。这并不符合保证金账户语义。更合理的观察方式是：
+
+1. 看 `equity` 是否反映了浮动盈亏。
+2. 看 `used_margin` 是否反映了保证金占用。
+3. 看 `notional_value` 是否反映了期货敞口规模。
+
 ## 7.5 商品期限结构深入 (Deep Dive into Term Structure)
 
 商品期货的定价核心在于**持有成本 (Cost of Carry)** 和 **便利收益 (Convenience Yield)**。

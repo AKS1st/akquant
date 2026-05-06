@@ -1,9 +1,11 @@
 use rust_decimal::prelude::*;
 use std::collections::HashMap;
 
+use crate::account::calculate_account_metrics;
 use crate::analysis::{BacktestResult, LiquidationAudit, PositionSnapshot};
 use crate::model::Instrument;
 use crate::portfolio::Portfolio;
+use crate::risk::RiskConfig;
 
 /// 统计管理器
 ///
@@ -68,8 +70,10 @@ impl StatisticsManager {
         instruments: &HashMap<String, Instrument>,
         last_prices: &HashMap<String, Decimal>,
         trade_tracker: &crate::analysis::TradeTracker,
+        risk_config: &RiskConfig,
     ) {
-        let snapshots = Self::create_snapshot(portfolio, instruments, last_prices, trade_tracker);
+        let snapshots =
+            Self::create_snapshot(portfolio, instruments, last_prices, trade_tracker, risk_config);
         Self::upsert_timestamped_value(&mut self.snapshots, timestamp, snapshots);
     }
 
@@ -83,8 +87,11 @@ impl StatisticsManager {
         instruments: &HashMap<String, Instrument>,
         last_prices: &HashMap<String, Decimal>,
         trade_tracker: &crate::analysis::TradeTracker,
+        risk_config: &RiskConfig,
     ) -> Vec<PositionSnapshot> {
-        let account_equity = portfolio.calculate_equity(last_prices, instruments);
+        let account_equity =
+            calculate_account_metrics(portfolio, last_prices, instruments, trade_tracker, risk_config)
+                .equity;
         let account_equity_f64 = account_equity.to_f64().unwrap_or(0.0);
 
         let mut current_snapshots = Vec::new();
@@ -143,6 +150,7 @@ impl StatisticsManager {
         instruments: &HashMap<String, Instrument>,
         last_prices: &HashMap<String, Decimal>,
         order_manager: &crate::order_manager::OrderManager,
+        risk_config: &RiskConfig,
         initial_cash: Decimal,
         now_ns: Option<i64>,
     ) -> BacktestResult {
@@ -159,13 +167,21 @@ impl StatisticsManager {
 
         // Add final snapshot if needed
         if let Some(ts) = now_ns {
-            let equity = portfolio.calculate_equity(last_prices, instruments);
+            let equity = calculate_account_metrics(
+                portfolio,
+                last_prices,
+                instruments,
+                &order_manager.trade_tracker,
+                risk_config,
+            )
+            .equity;
             let margin = portfolio.calculate_used_margin(last_prices, instruments);
             let snap = Self::create_snapshot(
                 portfolio,
                 instruments,
                 last_prices,
                 &order_manager.trade_tracker,
+                risk_config,
             );
 
             // Always overwrite the terminal point at the same timestamp so the

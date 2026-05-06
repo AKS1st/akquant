@@ -1,3 +1,7 @@
+use crate::account::{
+    calculate_account_metrics, estimate_futures_realized_pnl, is_futures_margin_account,
+    stock_margin_ratio_override,
+};
 use crate::event::Event;
 use crate::execution::matcher::{ExecutionMatcher, MatchContext};
 use crate::execution::slippage::{SlippageModel, ZeroSlippage};
@@ -178,15 +182,13 @@ impl ExecutionClient for SimulatedExecutionClient {
 
         // Track available margin for this step (snapshot of portfolio + changes in this loop)
         let mut projected_portfolio = ctx.portfolio.clone();
-        let stock_margin_ratio_override = if ctx.risk_config.is_margin_account() {
-            Some(ctx.risk_config.stock_initial_margin_ratio())
-        } else {
-            None
-        };
-        let mut current_free_margin = projected_portfolio.calculate_free_margin_with_stock_ratio(
+        let stock_margin_ratio_override = stock_margin_ratio_override(ctx.risk_config);
+        let mut current_free_margin = calculate_free_margin(
+            &projected_portfolio,
             ctx.last_prices,
             ctx.instruments,
-            stock_margin_ratio_override,
+            ctx.trade_tracker,
+            ctx.risk_config,
         );
 
         let mut queue: Vec<String> = self.order_queue.clone();
@@ -370,12 +372,25 @@ impl ExecutionClient for SimulatedExecutionClient {
                                     trade.price,
                                     trade.quantity,
                                 );
-                                let cost = trade.price * trade.quantity * instrument.multiplier();
                                 projected_portfolio.adjust_cash(-commission);
-                                if trade.side == crate::model::OrderSide::Buy {
-                                    projected_portfolio.adjust_cash(-cost);
+                                if is_futures_margin_account(instrument, ctx.risk_config) {
+                                    let realized = estimate_futures_realized_pnl(
+                                        ctx.trade_tracker,
+                                        &trade.symbol,
+                                        trade.side,
+                                        trade.quantity,
+                                        trade.price,
+                                        instrument.multiplier(),
+                                    );
+                                    projected_portfolio.adjust_cash(realized);
                                 } else {
-                                    projected_portfolio.adjust_cash(cost);
+                                    let cost =
+                                        trade.price * trade.quantity * instrument.multiplier();
+                                    if trade.side == crate::model::OrderSide::Buy {
+                                        projected_portfolio.adjust_cash(-cost);
+                                    } else {
+                                        projected_portfolio.adjust_cash(cost);
+                                    }
                                 }
                                 let current_pos = projected_portfolio
                                     .positions
@@ -390,12 +405,13 @@ impl ExecutionClient for SimulatedExecutionClient {
                                 );
                                 projected_portfolio
                                     .adjust_position(&trade.symbol, next_pos - current_pos);
-                                current_free_margin = projected_portfolio
-                                    .calculate_free_margin_with_stock_ratio(
-                                        &prices_for_margin,
-                                        ctx.instruments,
-                                        stock_margin_ratio_override,
-                                    );
+                                current_free_margin = calculate_free_margin(
+                                    &projected_portfolio,
+                                    &prices_for_margin,
+                                    ctx.instruments,
+                                    ctx.trade_tracker,
+                                    ctx.risk_config,
+                                );
                             }
 
                             let mut keep_report = true;
@@ -455,6 +471,17 @@ impl ExecutionClient for SimulatedExecutionClient {
 
         reports
     }
+}
+
+fn calculate_free_margin(
+    portfolio: &crate::portfolio::Portfolio,
+    prices: &HashMap<String, Decimal>,
+    instruments: &HashMap<String, crate::model::Instrument>,
+    trade_tracker: &crate::analysis::TradeTracker,
+    risk_config: &crate::risk::RiskConfig,
+) -> Decimal {
+    let metrics = calculate_account_metrics(portfolio, prices, instruments, trade_tracker, risk_config);
+    metrics.equity - metrics.used_margin
 }
 
 #[cfg(test)]
@@ -551,6 +578,7 @@ mod tests {
         };
         let last_prices = HashMap::new();
         let risk_manager = crate::risk::RiskManager::new();
+        let trade_tracker = crate::analysis::TradeTracker::new();
 
         let china_config = crate::market::ChinaMarketConfig {
             stock: Some(crate::market::stock::StockConfig::default()),
@@ -565,6 +593,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &last_prices,
+            trade_tracker: &trade_tracker,
             market_model: market_model.as_ref(),
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 0,
@@ -632,6 +661,7 @@ mod tests {
         };
         let last_prices = HashMap::new();
         let risk_manager = crate::risk::RiskManager::new();
+        let trade_tracker = crate::analysis::TradeTracker::new();
 
         let china_config = crate::market::ChinaMarketConfig {
             stock: Some(crate::market::stock::StockConfig::default()),
@@ -645,6 +675,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &last_prices,
+            trade_tracker: &trade_tracker,
             market_model: market_model.as_ref(),
             execution_policy_core: ExecutionPolicyCore {
                 price_basis: PriceBasis::Close,
@@ -704,6 +735,7 @@ mod tests {
         };
         let last_prices = HashMap::new();
         let risk_manager = crate::risk::RiskManager::new();
+        let trade_tracker = crate::analysis::TradeTracker::new();
 
         let china_config = crate::market::ChinaMarketConfig {
             stock: Some(crate::market::stock::StockConfig::default()),
@@ -718,6 +750,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &last_prices,
+            trade_tracker: &trade_tracker,
             market_model: market_model.as_ref(),
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 0,
@@ -774,6 +807,7 @@ mod tests {
         };
         let last_prices = HashMap::new();
         let risk_manager = crate::risk::RiskManager::new();
+        let trade_tracker = crate::analysis::TradeTracker::new();
 
         let china_config = crate::market::ChinaMarketConfig {
             stock: Some(crate::market::stock::StockConfig::default()),
@@ -787,6 +821,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &last_prices,
+            trade_tracker: &trade_tracker,
             market_model: market_model.as_ref(),
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 0,
@@ -845,6 +880,7 @@ mod tests {
         };
         let last_prices = HashMap::new();
         let risk_manager = crate::risk::RiskManager::new();
+        let trade_tracker = crate::analysis::TradeTracker::new();
 
         let china_config = crate::market::ChinaMarketConfig {
             stock: Some(crate::market::stock::StockConfig::default()),
@@ -858,6 +894,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &last_prices,
+            trade_tracker: &trade_tracker,
             market_model: market_model.as_ref(),
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 0,
@@ -948,6 +985,7 @@ mod tests {
         let mut last_prices = HashMap::new();
         last_prices.insert("UL".to_string(), Decimal::from(95));
         let risk_manager = crate::risk::RiskManager::new();
+        let trade_tracker = crate::analysis::TradeTracker::new();
 
         let china_config = crate::market::ChinaMarketConfig {
             stock: Some(crate::market::stock::StockConfig::default()),
@@ -961,6 +999,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &last_prices,
+            trade_tracker: &trade_tracker,
             market_model: market_model.as_ref(),
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 0,
@@ -1054,6 +1093,7 @@ mod tests {
         let mut last_prices = HashMap::new();
         last_prices.insert("UL".to_string(), Decimal::from(95));
         let risk_manager = crate::risk::RiskManager::new();
+        let trade_tracker = crate::analysis::TradeTracker::new();
 
         let china_config = crate::market::ChinaMarketConfig {
             stock: Some(crate::market::stock::StockConfig::default()),
@@ -1067,6 +1107,7 @@ mod tests {
             instruments: &instruments,
             portfolio: &portfolio,
             last_prices: &last_prices,
+            trade_tracker: &trade_tracker,
             market_model: market_model.as_ref(),
             execution_policy_core: ExecutionPolicyCore::default(),
             bar_index: 0,

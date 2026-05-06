@@ -1,3 +1,4 @@
+use crate::account::calculate_account_metrics;
 use crate::context::EngineContext;
 use crate::data::FeedAction;
 use crate::engine::Engine;
@@ -55,6 +56,7 @@ fn process_order_request(engine: &mut Engine, py: Python<'_>, mut order: Order) 
             instruments: &engine.instruments,
             portfolio: &engine.state.portfolio,
             last_prices: &engine.last_prices,
+            trade_tracker: &engine.state.order_manager.trade_tracker,
             market_model: engine.market_manager.model.as_ref(),
             execution_policy_core: engine.execution_policy_core(),
             bar_index: engine.bar_count,
@@ -180,6 +182,7 @@ fn emit_execution_reports_for_current_event(engine: &mut Engine) {
         instruments: &engine.instruments,
         portfolio: &engine.state.portfolio,
         last_prices: &engine.last_prices,
+        trade_tracker: &engine.state.order_manager.trade_tracker,
         market_model: engine.market_manager.model.as_ref(),
         execution_policy_core: engine.execution_policy_core(),
         bar_index: engine.bar_count,
@@ -358,6 +361,7 @@ impl Processor for ChannelProcessor {
                             std::mem::take(&mut trades_to_process),
                             &mut engine.state.portfolio,
                             &engine.instruments,
+                            &engine.risk_manager.config,
                             engine.market_manager.model.as_ref(),
                             &engine.history_buffer,
                             &engine.last_prices,
@@ -436,6 +440,7 @@ impl Processor for ChannelProcessor {
                 trades_to_process,
                 &mut engine.state.portfolio,
                 &engine.instruments,
+                &engine.risk_manager.config,
                 engine.market_manager.model.as_ref(),
                 &engine.history_buffer,
                 &engine.last_prices,
@@ -620,6 +625,7 @@ impl Processor for DataProcessor {
                             &engine.instruments,
                             &engine.last_prices,
                             &engine.state.order_manager.trade_tracker,
+                            &engine.risk_manager.config,
                         );
                     }
                     engine.current_date = Some(local_date);
@@ -1015,6 +1021,7 @@ impl Processor for ExecutionProcessor {
                         instruments: &engine.instruments,
                         portfolio: &engine.state.portfolio,
                         last_prices: &engine.last_prices,
+                        trade_tracker: &engine.state.order_manager.trade_tracker,
                         market_model: engine.market_manager.model.as_ref(),
                         execution_policy_core: engine.execution_policy_core(),
                         bar_index: engine.bar_count,
@@ -1063,10 +1070,14 @@ impl Processor for StatisticsProcessor {
             && let Some(timestamp) = engine.clock.timestamp()
             && engine.is_active_timestamp(timestamp)
         {
-            let equity = engine
-                .state
-                .portfolio
-                .calculate_equity(&engine.last_prices, &engine.instruments);
+            let equity = calculate_account_metrics(
+                &engine.state.portfolio,
+                &engine.last_prices,
+                &engine.instruments,
+                &engine.state.order_manager.trade_tracker,
+                &engine.risk_manager.config,
+            )
+            .equity;
             let margin = engine
                 .state
                 .portfolio

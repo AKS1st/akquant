@@ -314,6 +314,19 @@ print(
 )
 ```
 
+如果策略运行在期货保证金账户语义下，还应重点关注这些字段：
+
+- `snap["equity"]`: 当前账户权益。
+- `snap["used_margin"]` / `snap["margin"]`: 当前已占用保证金。
+- `snap["notional_value"]`: 当前期货名义敞口。
+- `snap["unrealized_pnl"]`: 当前浮动盈亏。
+
+说明：
+
+- 期货保证金账户开仓不会像股票现货买入那样扣减全额名义本金。
+- 因此，期货场景下应优先用 `equity` 观察账户净值变化，用 `used_margin` 观察保证金占用，用 `notional_value` 观察杠杆敞口。
+- 如果只需要一个“当前总权益”数值，优先使用 `get_portfolio_value()`，其口径与 `get_account()["equity"]` 对齐。
+
 ## 4. 常用工具 (Utilities)
 
 AKQuant 提供了一系列便捷工具来简化策略开发。
@@ -827,7 +840,8 @@ def on_bar(self, bar: Bar):
 除了 `get_position`，你还可以查询更多账户信息：
 
 *   **`self.ctx.cash`**: 当前账户可用资金。
-*   **`self.ctx.equity`**: 当前账户总权益（现金 + 持仓市值）。
+*   **`self.get_portfolio_value()`**: 当前账户总权益。
+*   **`self.get_account()`**: 当前账户快照；在保证金账户中可进一步读取 `used_margin`、`notional_value`、`unrealized_pnl`、`maintenance_ratio` 等字段。
 *   **`self.get_trades()`**: 获取历史所有已平仓交易记录（Closed Trades）。
 *   **`self.get_open_orders()`**: 获取当前未成交订单。
 

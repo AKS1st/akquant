@@ -693,6 +693,19 @@ print(
 )
 ```
 
+If the strategy is running with futures margin semantics, these fields become especially important:
+
+- `snap["equity"]`: current account equity.
+- `snap["used_margin"]` / `snap["margin"]`: current margin in use.
+- `snap["notional_value"]`: current futures notional exposure.
+- `snap["unrealized_pnl"]`: current floating PnL.
+
+Notes:
+
+- Opening a futures position does not deduct full notional from cash the way a spot buy does.
+- For futures, use `equity` for net account value, `used_margin` for margin usage, and `notional_value` for leverage exposure.
+- If you only need one "current total equity" number, prefer `get_portfolio_value()`, which is aligned with `get_account()["equity"]`.
+
 ## 6. Using High-Performance Indicators {: #indicatorset }
 
 AKQuant includes commonly used technical indicators built into the Rust layer. They use Incremental Calculation to avoid repeated full recalculations, resulting in extremely high performance.

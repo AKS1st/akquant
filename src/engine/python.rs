@@ -8,6 +8,7 @@ use rust_decimal::prelude::*;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::{Arc, RwLock};
 
+use crate::account::calculate_account_metrics;
 use crate::analysis::{BacktestResult, PositionSnapshot};
 use crate::clock::Clock;
 use crate::data::DataFeed;
@@ -47,6 +48,24 @@ impl Engine {
     #[getter]
     fn get_portfolio(&self) -> Portfolio {
         self.state.portfolio.clone()
+    }
+
+    fn get_account_metrics(&self) -> (f64, f64, f64, f64, f64, f64) {
+        let metrics = calculate_account_metrics(
+            &self.state.portfolio,
+            &self.last_prices,
+            &self.instruments,
+            &self.state.order_manager.trade_tracker,
+            &self.risk_manager.config,
+        );
+        (
+            metrics.equity.to_f64().unwrap_or_default(),
+            metrics.market_value.to_f64().unwrap_or_default(),
+            metrics.notional_value.to_f64().unwrap_or_default(),
+            metrics.used_margin.to_f64().unwrap_or_default(),
+            metrics.unrealized_pnl.to_f64().unwrap_or_default(),
+            metrics.maintenance_ratio.to_f64().unwrap_or_default(),
+        )
     }
 
     /// 获取数据源
@@ -1108,6 +1127,7 @@ impl Engine {
                 &self.instruments,
                 &self.last_prices,
                 &self.state.order_manager.trade_tracker,
+                &self.risk_manager.config,
             );
         }
 
@@ -1135,6 +1155,7 @@ impl Engine {
             &self.instruments,
             &self.last_prices,
             &self.state.order_manager,
+            &self.risk_manager.config,
             self.initial_cash,
             self.terminal_result_timestamp(),
         )

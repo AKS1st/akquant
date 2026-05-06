@@ -1,3 +1,4 @@
+use crate::analysis::TradeTracker;
 use crate::error::AkQuantError;
 use crate::model::{Instrument, Order};
 use crate::portfolio::Portfolio;
@@ -14,6 +15,7 @@ pub struct RiskCheckContext<'a> {
     pub instruments: &'a HashMap<String, Instrument>,
     pub active_orders: &'a [Order],
     pub current_prices: &'a HashMap<String, Decimal>,
+    pub trade_tracker: &'a TradeTracker,
     pub current_time: i64,
     pub config: &'a RiskConfig,
 }

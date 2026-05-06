@@ -83,6 +83,7 @@ mod tests {
         instruments: &'a HashMap<String, Instrument>,
         active_orders: &'a [Order],
         current_prices: &'a HashMap<String, Decimal>,
+        trade_tracker: &'a crate::analysis::TradeTracker,
         config: &'a RiskConfig,
     ) -> super::super::rule::RiskCheckContext<'a> {
         super::super::rule::RiskCheckContext {
@@ -91,6 +92,7 @@ mod tests {
             instruments,
             active_orders,
             current_prices,
+            trade_tracker,
             current_time: 0,
             config,
         }
@@ -122,6 +124,7 @@ mod tests {
         instruments.insert(symbol.clone(), instrument.clone());
         let current_prices = HashMap::new();
         let config = RiskConfig::new();
+        let tracker = crate::analysis::TradeTracker::new();
 
         let cancelled_ioc = make_order(
             "o1",
@@ -137,6 +140,7 @@ mod tests {
             &instruments,
             &active_orders,
             &current_prices,
+            &tracker,
             &config,
         );
 
@@ -178,6 +182,7 @@ mod tests {
         instruments.insert(symbol.clone(), instrument.clone());
         let current_prices = HashMap::new();
         let config = RiskConfig::new();
+        let tracker = crate::analysis::TradeTracker::new();
 
         let submitted_sell = make_order(
             "o1",
@@ -193,6 +198,7 @@ mod tests {
             &instruments,
             &active_orders,
             &current_prices,
+            &tracker,
             &config,
         );
 
@@ -233,6 +239,7 @@ mod tests {
         let mut config = RiskConfig::new();
         config.account_mode = "margin".to_string();
         config.enable_short_sell = true;
+        let tracker = crate::analysis::TradeTracker::new();
 
         let active_orders: Vec<Order> = vec![];
         let ctx = make_context(
@@ -241,6 +248,7 @@ mod tests {
             &instruments,
             &active_orders,
             &current_prices,
+            &tracker,
             &config,
         );
 

@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
 
+mod account;
 mod analysis;
 mod clock;
 mod context;
