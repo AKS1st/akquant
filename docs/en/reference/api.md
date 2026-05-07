@@ -14,21 +14,40 @@ The most commonly used backtest entry function, encapsulating the initialization
 
 ```python
 def run_backtest(
-    data: Optional[Union[pd.DataFrame, Dict[str, pd.DataFrame], List[Bar]]] = None,
+    data: Optional[BacktestDataInput] = None,
     strategy: Union[Type[Strategy], Strategy, Callable[[Any, Bar], None], None] = None,
+    strategy_source: Optional[Union[str, bytes, os.PathLike[str]]] = None,
+    strategy_loader: Optional[str] = None,
+    strategy_loader_options: Optional[Dict[str, Any]] = None,
     symbols: Union[str, List[str], Tuple[str, ...], set[str]] = "BENCHMARK",
     initial_cash: Optional[float] = None,
     commission_rate: Optional[float] = None,
-    stamp_tax_rate: float = 0.0,
-    transfer_fee_rate: float = 0.0,
-    min_commission: float = 0.0,
-    slippage: Optional[float] = None,
+    stamp_tax_rate: Optional[float] = None,
+    transfer_fee_rate: Optional[float] = None,
+    min_commission: Optional[float] = None,
+    slippage: SlippageInput = None,
     volume_limit_pct: Optional[float] = None,
     timezone: Optional[str] = None,
     t_plus_one: bool = False,
     initialize: Optional[Callable[[Any], None]] = None,
     on_start: Optional[Callable[[Any], None]] = None,
+    on_resume: Optional[Callable[[Any], None]] = None,
+    on_train_signal: Optional[Callable[[Any], None]] = None,
     on_stop: Optional[Callable[[Any], None]] = None,
+    on_tick: Optional[Callable[[Any, Any], None]] = None,
+    on_order: Optional[Callable[[Any, Any], None]] = None,
+    on_trade: Optional[Callable[[Any, Any], None]] = None,
+    on_reject: Optional[Callable[[Any, Any], None]] = None,
+    on_session_start: Optional[Callable[[Any, Any, int], None]] = None,
+    on_session_end: Optional[Callable[[Any, Any, int], None]] = None,
+    on_before_trading: Optional[Callable[[Any, Any, int], None]] = None,
+    on_after_trading: Optional[Callable[[Any, Any, int], None]] = None,
+    on_daily_rebalance: Optional[Callable[[Any, Any, int], None]] = None,
+    on_portfolio_update: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
+    on_error: Optional[Callable[[Any, Exception, str, Any], None]] = None,
+    on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
+    on_pre_open: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
+    on_timer: Optional[Callable[[Any, str], None]] = None,
     context: Optional[Dict[str, Any]] = None,
     history_depth: Optional[int] = None,
     warmup_period: int = 0,
@@ -36,10 +55,12 @@ def run_backtest(
     show_progress: Optional[bool] = None,
     start_time: Optional[Union[str, Any]] = None,
     end_time: Optional[Union[str, Any]] = None,
+    catalog_path: Optional[str] = None,
     config: Optional[BacktestConfig] = None,
-    instruments_config: Optional[Union[List[InstrumentConfig], Dict[str, InstrumentConfig]]] = None,
     custom_matchers: Optional[Dict[AssetType, Any]] = None,
     risk_config: Optional[Union[Dict[str, Any], RiskConfig]] = None,
+    strategy_runtime_config: Optional[Union[StrategyRuntimeConfig, Dict[str, Any]]] = None,
+    runtime_config_override: bool = True,
     strategy_id: Optional[str] = None,
     strategies_by_slot: Optional[Dict[str, Union[Type[Strategy], Strategy, Callable[[Any, Bar], None]]]] = None,
     strategy_max_order_value: Optional[Dict[str, float]] = None,
@@ -51,12 +72,16 @@ def run_backtest(
     strategy_risk_cooldown_bars: Optional[Dict[str, int]] = None,
     strategy_priority: Optional[Dict[str, int]] = None,
     strategy_risk_budget: Optional[Dict[str, float]] = None,
+    strategy_fill_policy: Optional[Dict[str, FillPolicy]] = None,
+    strategy_slippage: Optional[Dict[str, SlippageInput]] = None,
+    strategy_commission: Optional[Dict[str, CommissionPolicy]] = None,
     portfolio_risk_budget: Optional[float] = None,
-    risk_budget_mode: Literal["order_notional", "trade_notional"] = "order_notional",
+    risk_budget_mode: str = "order_notional",
     risk_budget_reset_daily: bool = False,
+    analyzer_plugins: Optional[Sequence[AnalyzerPlugin]] = None,
     on_event: Optional[Callable[[BacktestStreamEvent], None]] = None,
     broker_profile: Optional[str] = None,
-    fill_policy: Optional[Dict[str, Any]] = None,
+    fill_policy: Optional[FillPolicy] = None,
     strict_strategy_params: bool = True,
     **kwargs: Any,
 ) -> BacktestResult
@@ -64,12 +89,13 @@ def run_backtest(
 
 **Key Parameters:**
 
-*   `data`: Backtest data. Supports a single DataFrame, a `{symbol: DataFrame}` dictionary, `List[Bar]`, or any object implementing `DataFeedAdapter.load(request)`.
+*   `data`: Backtest data. Supports a single DataFrame, a `{symbol: DataFrame}` dictionary, `List[Bar]`, `DataFeed`, or any object implementing `DataFeedAdapter.load(request)`.
 *   `strategy`: Strategy class or instance. Also supports passing an `on_bar` function (functional style).
-*   `initialize` / `on_start` / `on_stop`: Functional-strategy lifecycle callbacks for initialization, start, and stop stages.
-*   `on_tick` / `on_order` / `on_trade` / `on_expiry` / `on_timer`: Functional event callbacks. `on_expiry(ctx, event)` fires only after the engine actually executes expiry settlement/removal.
+*   `strategy_source` / `strategy_loader` / `strategy_loader_options`: Dynamic strategy loading entry points. When `strategy=None`, the framework can build the strategy from source, a path, or a custom loader.
+*   `initialize` / `on_start` / `on_resume` / `on_stop`: Functional-strategy lifecycle callbacks for initialization, start, resume, and stop stages.
+*   `on_tick` / `on_order` / `on_trade` / `on_reject` / `on_session_start` / `on_session_end` / `on_before_trading` / `on_after_trading` / `on_daily_rebalance` / `on_portfolio_update` / `on_error` / `on_expiry` / `on_pre_open` / `on_timer` / `on_train_signal`: Functional event callbacks. `on_expiry(ctx, event)` fires only after the engine actually executes expiry settlement/removal.
 *   `symbols`: Preferred parameter. Symbol or list of symbols.
-*   `initial_cash`: Initial cash (default 1,000,000.0).
+*   `initial_cash`: Initial cash. If omitted, it falls back to `StrategyConfig.initial_cash`, whose default is `100000.0`.
 *   Legacy price-basis parameter: Removed.
 *   Legacy timer-temporal parameter: Removed.
 *   `fill_policy`: Unified fill semantics.
@@ -87,10 +113,10 @@ def run_backtest(
 *   `volume_limit_pct`: Volume limit percentage (Default 0.25). Limits single trade to not exceed this percentage of the bar's total volume.
 *   `warmup_period`: Strategy warmup period. Specifies the length of historical data (number of Bars) to preload for indicator calculation.
 *   `start_time` / `end_time`: Backtest start/end time.
+*   `catalog_path`: When `data` is omitted, load data from this directory using `ParquetDataCatalog` rules.
 *   `config`: `BacktestConfig` object for centralized configuration.
-*   `instruments_config`: Instrument configuration. Used to set parameters for non-stock assets like futures/options (e.g., multiplier, margin ratio).
-    *   Accepts `List[InstrumentConfig]` or `{symbol: InstrumentConfig}`.
 *   `risk_config`: Risk configuration. Supports dict (e.g., `{"max_position_pct": 0.1}`) or `RiskConfig` object. Overrides fields in `config.strategy_config.risk` if both are provided.
+*   `strategy_runtime_config` / `runtime_config_override`: Runtime behavior injection and conflict-resolution controls. Accepts `StrategyRuntimeConfig` or `dict`.
 *   `strategy_id`: Primary strategy ownership id. Default `_default`.
 *   `strategies_by_slot`: Optional multi-strategy mapping. Keys are slot ids and values are strategy class/instance/functional callback used by slot-iterative execution.
 *   `strategy_max_order_size` / `strategy_max_order_value` / `strategy_max_position_size`: Optional strategy-level risk maps keyed by strategy id.
@@ -156,15 +182,15 @@ Grid-search entry for batch backtesting and metric-based parameter ranking.
 ```python
 def run_grid_search(
     strategy: Type[Strategy],
-    param_grid: Dict[str, Sequence[Any]],
-    data: Union[pd.DataFrame, Dict[str, pd.DataFrame], List[Bar]],
+    param_grid: Mapping[str, Sequence[Any]],
+    data: Any = None,
+    max_workers: Optional[int] = None,
     sort_by: Union[str, List[str]] = "sharpe_ratio",
     ascending: Union[bool, List[bool]] = False,
     return_df: bool = True,
-    result_filter: Optional[Callable[[Dict[str, Any]], bool]] = None,
-    constraint: Optional[Callable[[Dict[str, Any]], bool]] = None,
-    max_workers: Optional[int] = None,
-    show_progress: bool = True,
+    warmup_calc: Optional[Any] = None,
+    constraint: Optional[Any] = None,
+    result_filter: Optional[Any] = None,
     timeout: Optional[float] = None,
     max_tasks_per_child: Optional[int] = None,
     db_path: Optional[str] = None,
@@ -236,8 +262,11 @@ def run_warm_start(
     strategy_risk_cooldown_bars: Optional[Dict[str, int]] = None,
     strategy_priority: Optional[Dict[str, int]] = None,
     strategy_risk_budget: Optional[Dict[str, float]] = None,
+    strategy_fill_policy: Optional[Dict[str, FillPolicy]] = None,
+    strategy_slippage: Optional[Dict[str, SlippageInput]] = None,
+    strategy_commission: Optional[Dict[str, CommissionPolicy]] = None,
     portfolio_risk_budget: Optional[float] = None,
-    risk_budget_mode: Literal["order_notional", "trade_notional"] = "order_notional",
+    risk_budget_mode: str = "order_notional",
     risk_budget_reset_daily: bool = False,
     on_event: Optional[Callable[[BacktestStreamEvent], None]] = None,
     config: Optional[BacktestConfig] = None,
@@ -245,7 +274,7 @@ def run_warm_start(
 ) -> BacktestResult
 ```
 
-`run_warm_start` uses the same strategy-slot and strategy-level risk parameters as `run_backtest`.
+`run_warm_start` uses the same strategy-slot, strategy-level risk, and strategy-level execution defaults as `run_backtest`.
 For these fields, priority is:
 
 1. explicit function arguments
@@ -378,6 +407,8 @@ class BacktestConfig:
     end_time: Optional[str] = None
     instruments: Optional[List[str]] = None
     instruments_config: Optional[Union[List[InstrumentConfig], Dict[str, InstrumentConfig]]] = None
+    china_futures: Optional[ChinaFuturesConfig] = None
+    china_options: Optional[ChinaOptionsConfig] = None
     benchmark: Optional[str] = None
     timezone: str = "Asia/Shanghai"
     show_progress: bool = True
@@ -405,9 +436,10 @@ class StrategyConfig:
     # Execution
     enable_fractional_shares: bool = False
     round_fill_price: bool = True
-    slippage: float = 0.0
+    slippage: Union[float, Dict[str, Any], None] = 0.0
     volume_limit_pct: float = 0.25
     exit_on_last_bar: bool = True
+    indicator_mode: str = "precompute"
 
     # Position Sizing
     max_long_positions: Optional[int] = None
@@ -418,6 +450,9 @@ class StrategyConfig:
     # Multi-strategy topology & strategy-level controls
     strategy_id: Optional[str] = None
     strategies_by_slot: Optional[Dict[str, Any]] = None
+    strategy_source: Optional[str] = None
+    strategy_loader: Optional[str] = None
+    strategy_loader_options: Optional[Dict[str, Any]] = None
     strategy_max_order_value: Optional[Dict[str, float]] = None
     strategy_max_order_size: Optional[Dict[str, float]] = None
     strategy_max_position_size: Optional[Dict[str, float]] = None
@@ -427,6 +462,9 @@ class StrategyConfig:
     strategy_risk_cooldown_bars: Optional[Dict[str, int]] = None
     strategy_priority: Optional[Dict[str, int]] = None
     strategy_risk_budget: Optional[Dict[str, float]] = None
+    strategy_fill_policy: Optional[Dict[str, Dict[str, Any]]] = None
+    strategy_slippage: Optional[Dict[str, Dict[str, Any]]] = None
+    strategy_commission: Optional[Dict[str, Dict[str, Any]]] = None
     portfolio_risk_budget: Optional[float] = None
 ```
 
@@ -445,14 +483,14 @@ class InstrumentConfig:
     multiplier: float = 1.0    # Contract multiplier
     margin_ratio: float = 1.0  # Margin ratio (0.1 means 10% margin)
     tick_size: float = 0.01    # Minimum price variation
-    lot_size: int = 1          # Minimum trade unit
+    lot_size: Optional[int] = None
 
     # Costs & Execution (Asset Specific)
     commission_rate: Optional[float] = None
     min_commission: Optional[float] = None
     stamp_tax_rate: Optional[float] = None
     transfer_fee_rate: Optional[float] = None
-    slippage: Optional[float] = None
+    slippage: Optional[Union[float, Dict[str, Any]]] = None
 
     # Option specific
     option_type: Optional[
@@ -461,6 +499,9 @@ class InstrumentConfig:
     strike_price: Optional[float] = None
     expiry_date: Optional[Union[int, date, datetime]] = None
     underlying_symbol: Optional[str] = None
+    option_margin_model: Optional[InstrumentOptionMarginModelEnum] = None
+    implied_volatility: Optional[float] = None
+    reference_volatility: Optional[float] = None
     settlement_type: Optional[
         Union[
             Literal["cash", "settlement_price", "force_close"],
@@ -468,11 +509,13 @@ class InstrumentConfig:
         ]
     ] = None
     settlement_price: Optional[float] = None
+    static_attrs: Dict[str, Union[str, int, float, bool]] = field(default_factory=dict)
 ```
 
 Common enums (available directly from top-level `akquant`):
 
 - `InstrumentAssetTypeEnum`: `STOCK` / `FUTURES` / `FUND` / `OPTION`
+- `InstrumentOptionMarginModelEnum`: `RATIO` / `CHINA_SINGLE_LEG` / `US_BROKER_SINGLE_LEG` / `US_BROKER_SINGLE_LEG_VOL_ADJUSTED`
 - `InstrumentOptionTypeEnum`: `CALL` / `PUT`
 - `InstrumentSettlementTypeEnum`: `CASH` / `SETTLEMENT_PRICE` / `FORCE_CLOSE`
 
@@ -499,10 +542,13 @@ class InstrumentSnapshot:
     margin_ratio: float
     tick_size: float
     lot_size: float
+    option_margin_model: Optional[Literal["RATIO", "CHINA_SINGLE_LEG", "US_BROKER_SINGLE_LEG", "US_BROKER_SINGLE_LEG_VOL_ADJUSTED"]] = None
     option_type: Optional[Literal["CALL", "PUT"]] = None
     strike_price: Optional[float] = None
     expiry_date: Optional[int] = None  # YYYYMMDD
     underlying_symbol: Optional[str] = None
+    implied_volatility: Optional[float] = None
+    reference_volatility: Optional[float] = None
     settlement_type: Optional[Literal["CASH", "SETTLEMENT_PRICE", "FORCE_CLOSE"]] = None
     settlement_price: Optional[float] = None
     static_attrs: Dict[str, Union[str, int, float, bool]] = field(default_factory=dict)
@@ -601,6 +647,7 @@ Configuration for risk management.
 @dataclass
 class RiskConfig:
     active: bool = True
+    check_cash: bool = True
     safety_margin: float = 0.0001
     max_order_size: Optional[float] = None
     max_order_value: Optional[float] = None
@@ -613,12 +660,14 @@ class RiskConfig:
     max_account_drawdown: Optional[float] = None
     max_daily_loss: Optional[float] = None
     stop_loss_threshold: Optional[float] = None
-```
-    lot_size: int = 1          # Minimum trading unit
-    # Option specific
-    option_type: Optional[str] = None  # "CALL" or "PUT"
-    strike_price: Optional[float] = None
-    expiry_date: Optional[str] = None  # YYYY-MM-DD
+    account_mode: str = "cash"
+    enable_short_sell: bool = False
+    initial_margin_ratio: float = 1.0
+    maintenance_margin_ratio: float = 0.3
+    financing_rate_annual: float = 0.08
+    borrow_rate_annual: float = 0.10
+    allow_force_liquidation: bool = True
+    liquidation_priority: str = "short_first"
 ```
 
 ## 2. Strategy Development (Strategy)

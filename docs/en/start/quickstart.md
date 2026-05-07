@@ -7,7 +7,7 @@ Welcome to AKQuant! Let's run the simplest strategy as quickly as possible.
 Open your terminal and run:
 
 ```bash
-pip install akquant
+uv pip install akquant akshare
 ```
 
 ## 2. Minimal Example
@@ -21,7 +21,7 @@ This strategy is very simple:
 import akshare as ak
 from akquant import Strategy, run_backtest
 
-# 1. Prepare Data (Using AKShare to get data, install via `pip install akshare`)
+# 1. Prepare Data (Using AKShare to get data; if needed, install it first via `uv pip install akshare`)
 df = ak.stock_zh_a_daily(symbol="sh600000", start_date="20250101", end_date="20260212")
 
 
@@ -302,7 +302,7 @@ When strategy logic needs static contract fields (for example expiry, strike, mu
 
 ```python
 import akquant
-from akquant import InstrumentConfig, Strategy, run_backtest
+from akquant import BacktestConfig, InstrumentConfig, Strategy, StrategyConfig, run_backtest
 
 
 class MetaQuickStrategy(Strategy):
@@ -319,7 +319,8 @@ class MetaQuickStrategy(Strategy):
             pass
 
 
-config = akquant.BacktestConfig(
+config = BacktestConfig(
+    strategy_config=StrategyConfig(),
     instruments_config=[
         InstrumentConfig(
             symbol="OPTION_A",

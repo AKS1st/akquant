@@ -7,7 +7,7 @@
 打开终端，运行：
 
 ```bash
-pip install akquant
+uv pip install akquant akshare
 ```
 
 ## 2. 极简示例
@@ -21,7 +21,7 @@ pip install akquant
 import akshare as ak
 from akquant import Strategy, run_backtest
 
-# 1. 准备数据 (这里利用 AKShare 来获取数据，需要通过 pip install akshare 来进行安装)
+# 1. 准备数据 (这里利用 AKShare 来获取数据；若尚未安装，可先执行 `uv pip install akshare`)
 df = ak.stock_zh_a_daily(symbol="sh600000", start_date="20250101", end_date="20260212")
 
 
@@ -336,7 +336,7 @@ executions_by_strategy = result.executions_by_strategy()
 
 ```python
 import akquant
-from akquant import InstrumentConfig, Strategy, run_backtest
+from akquant import BacktestConfig, InstrumentConfig, Strategy, StrategyConfig, run_backtest
 
 
 class MetaQuickStrategy(Strategy):
@@ -353,7 +353,8 @@ class MetaQuickStrategy(Strategy):
             pass
 
 
-config = akquant.BacktestConfig(
+config = BacktestConfig(
+    strategy_config=StrategyConfig(),
     instruments_config=[
         InstrumentConfig(
             symbol="OPTION_A",

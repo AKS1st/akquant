@@ -161,13 +161,13 @@ source .venv/bin/activate
 在激活的 uv 虚拟环境中，运行以下命令安装（建议使用清华源加速）：
 
 ```bash
-uv pip install akquant akshare pandas matplotlib --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+uv pip install akquant akshare pandas plotly --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 *   `AKQuant`: **高性能事件驱动量化框架**。作为本课程的核心，它提供了回测引擎、订单管理、风控模块等全套基础设施，让用户只需专注于编写策略逻辑 (`Strategy`)。
 *   `akshare`: **强大的开源财经数据接口库**。它专为 Python 量化交易员设计，提供了从股票、期货、期权、基金到宏观经济、另类数据等全方位的金融数据获取能力。其完全开源、免费且持续更新的特性，使其成为国内量化社区的首选数据源。
 *   `pandas`: **Python 数据分析标准库**。在量化中，它几乎无处不在：我们用 `DataFrame` 存储历史行情，用 `Series` 计算技术指标，用 `Timestamp` 处理时间序列。掌握 Pandas 是成为量化开发者的第一道门槛。
-*   `matplotlib`: **基础绘图库**。量化不仅是数字的游戏，更是图形的艺术。我们使用 Matplotlib 绘制资金曲线、K 线图和技术指标，直观地评估策略表现。此外，`AKQuant` 内置的绘图功能也是基于它构建的。
+*   `plotly`: **交互式绘图库**。量化不仅是数字的游戏，更是图形的艺术。我们可以用 Plotly 生成交互式权益曲线、回撤图和分析仪表盘；`AKQuant` 当前内置报告与可视化主路径也基于 Plotly。
 
 ### 1.5.3 IDE 选择 (Trae / VS Code / PyCharm)
 
