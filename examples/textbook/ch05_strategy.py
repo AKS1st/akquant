@@ -64,8 +64,9 @@ class MyFirstStrategy(Strategy):
         self.entry_price = 0.0  # 记录开仓价格
 
         # 设置预热期 (Warmup Period)
-        # 引擎会在正式回测前预加载数据，确保 get_history 能获取到足够的数据
-        self.warmup_period = long_window
+        # 本示例会请求 long_window + 1 根数据，并用 [:-1] 排除当前 Bar，
+        # 因此预热期也需要同步加 1，避免首次回调拿到前导 NaN。
+        self.warmup_period = long_window + 1
 
     # --------------------------------------------------------------------------
     # 2. 启动回调 (On Start)

@@ -48,7 +48,8 @@ class AnalysisStrategy(Strategy):
         super().__init__()
         self.short_window = short_window
         self.long_window = long_window
-        self.warmup_period = long_window
+        # 本示例会请求 long_window + 1 根数据，并用 [:-1] 排除当前 Bar。
+        self.warmup_period = long_window + 1
 
     def on_bar(self, bar: Bar) -> None:
         """收到 Bar 事件的回调."""
