@@ -71,6 +71,7 @@ plugins:
             First Strategy: 第一个策略
             User Guide: 核心指南
             Strategy Manual: 策略开发手册
+            Custom Indicator Guide: 自定义指标指南
             Python Basics: Python 金融入门
             Quant Basics: 量化交易新手指南
             Data Guide: 数据指南
@@ -140,6 +141,7 @@ plugins:
             First Strategy: First Strategy
             User Guide: User Guide
             Strategy Manual: Strategy Manual
+            Custom Indicator Guide: Custom Indicator Guide
             Python Basics: Python Basics
             Data Guide: Data Guide
             Factor Engine Guide: Factor Engine Guide
@@ -233,6 +235,7 @@ nav:
       - Data Guide: guide/data.md
       - Factor Engine Guide: guide/factor.md
       - Strategy Manual: guide/strategy.md
+      - Custom Indicator Guide: guide/custom_indicator.md
       - Cross-Section Checklist: guide/cross_section_checklist.md
       - Indicator Playbook: guide/talib_indicator_playbook.md
       - AKQuant Indicator Reference: guide/rust_indicator_reference.md

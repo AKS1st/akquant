@@ -403,41 +403,116 @@ class FSMStrategy(Strategy):
 
 `AKQuant` 目前已经提供了 `AKQuant.talib` 兼容层，并支持 `python/rust` 双后端；但在实战中，我们仍会频繁遇到需要开发私有指标或策略专用信号的场景。
 
-### 5.5.1 继承 `Indicator` 基类
+### 5.5.1 两种自定义指标路径
 
-所有的指标都应继承自 `AKQuant.Indicator`，并实现 `update` 方法。这种设计支持**增量计算 (Incremental Calculation)**，避免了每次重算整个历史序列的浪费。
+在 AKQuant 里，“自定义指标”通常有两条主路径：
+
+1.  **预计算指标（`precompute`）**：适合一次性对完整 `DataFrame` 做向量化计算。
+2.  **增量指标（`incremental`）**：适合在事件流里逐 Bar 更新状态，便于多标的、热启动和实时场景复用。
+
+两条路径都可以使用 `akquant.Indicator` 体系，但接入方式不同。
+
+### 5.5.2 预计算：使用 `Indicator(name, fn, **kwargs)`
+
+如果你的指标天然适合用 pandas / numpy 在整段历史上一次性计算，最简单的方式是直接构造 `Indicator`：
 
 ```python
-class MyMomentum(Indicator):
-    def __init__(self, period=10):
+from akquant import Indicator, Strategy
+
+
+class PrecomputeMomentumStrategy(Strategy):
+    def __init__(self):
         super().__init__()
-        self.period = period
-        self.history = []
+        self.indicator_mode = "precompute"
+        self.mom10 = Indicator(
+            "mom10",
+            lambda df: df["close"] - df["close"].shift(10),
+        )
+        self.register_precomputed_indicator("mom10", self.mom10)
 
-    def update(self, value):
-        self.history.append(value)
-        if len(self.history) > self.period:
-            self.history.pop(0)
-
-        if len(self.history) < self.period:
-            return float('nan')
-
-        return self.history[-1] - self.history[0]
+    def on_bar(self, bar):
+        value = self.mom10.get_value(bar.symbol, bar.timestamp)
+        if value == value and value > 0:
+            self.buy(bar.symbol, 100)
 ```
 
-### 5.5.2 在策略中使用
+这种写法的优点是：
+
+- 代码最短，适合快速原型；
+- 指标结果会按 `symbol` 缓存；
+- 可以直接复用 pandas `rolling` / `shift` / `ewm` 等向量化能力。
+
+### 5.5.3 增量：继承 `Indicator` 并实现 `update`
+
+如果你希望指标跟随事件流逐步更新，或者需要把内部状态一起随热启动保存，推荐继承 `Indicator` 并实现 `update`：
 
 ```python
-def __init__(self):
-    self.my_mom = MyMomentum(period=10)
+from collections import deque
 
-def on_bar(self, bar):
-    mom_value = self.my_mom.update(bar.close)
-    if not math.isnan(mom_value) and mom_value > 0:
-        # Do something...
+import pandas as pd
+from akquant import Indicator
+
+
+class MyMomentum(Indicator):
+    def __init__(self, period: int = 10):
+        super().__init__("my_momentum", lambda df: df["close"] - df["close"].shift(period))
+        self.period = period
+        self.buffer: deque[float] = deque(maxlen=period)
+        self._current_value = float("nan")
+
+    def update(self, value: float) -> float:
+        if pd.isna(value):
+            return self._current_value
+        self.buffer.append(float(value))
+        if len(self.buffer) < self.period:
+            self._current_value = float("nan")
+        else:
+            self._current_value = self.buffer[-1] - self.buffer[0]
+        return self._current_value
+
+    @property
+    def value(self) -> float:
+        return self._current_value
 ```
 
-### 5.5.3 使用 `AKQuant.talib` 双后端
+### 5.5.4 在策略中注册增量指标
+
+手动在 `on_bar` 里直接调用 `update()` 可以做快速实验，但工程里更推荐通过框架注册，让 AKQuant 负责按 `source` 自动喂数、按 `symbol` 隔离实例，并和热启动逻辑保持一致：
+
+```python
+from akquant import Strategy
+
+
+class IncrementalMomentumStrategy(Strategy):
+    def __init__(self):
+        super().__init__()
+        self.indicator_mode = "incremental"
+
+    def on_start(self):
+        self.register_incremental_indicator(
+            "mom10",
+            indicator_factory=lambda: MyMomentum(period=10),
+            source="close",
+            symbols=["AAPL", "MSFT"],
+            warmup_bars=10,
+        )
+
+    def on_bar(self, bar):
+        value = self.mom10.value
+        if value == value and value > 0:
+            self.buy(bar.symbol, 100)
+```
+
+实战建议：
+
+- 单标的临时实验：可以直接传单个指标实例；
+- 多标的正式策略：优先使用 `indicator_factory`，为每个 `symbol` 创建独立实例；
+- 需要首根有效 Bar 就有值：结合 `warmup_bars` 使用；
+- 需要断点续跑：确保自定义指标可被 `pickle` 序列化。
+
+更系统的说明，请直接参考：[自定义指标指南](../guide/custom_indicator.md)。
+
+### 5.5.5 使用 `AKQuant.talib` 双后端
 
 当策略从 TA-Lib 迁移时，建议先保持函数签名不变，再通过 `backend` 参数切换执行后端。
 
@@ -509,7 +584,7 @@ if np.isnan(last_signal):
 3. 用固定数据集回归验证 warmup 与输出形态（单值或 tuple）一致。
 4. 对支持 `period` 别名的指标优先沿用旧参数命名，降低迁移成本。
 
-### 5.5.4 指标选型与组合模板
+### 5.5.6 指标选型与组合模板
 
 实战里不建议“单指标决策”，更推荐“趋势 + 动量 + 波动率/风险”组合。
 

@@ -47,6 +47,15 @@ def test_talib_backend_rust_rsi_runs() -> None:
     assert np.isfinite(rsi[20:]).any()
 
 
+def test_talib_backend_rust_ma_runs() -> None:
+    """Rust backend should run for MA using the default SMA matype."""
+    close = np.linspace(10.0, 20.0, 40)
+    ma = ta.MA(close, timeperiod=10, backend="rust")
+    assert isinstance(ma, np.ndarray)
+    assert ma.shape == close.shape
+    assert np.isfinite(ma[15:]).any()
+
+
 def test_talib_backend_rust_macd_runs() -> None:
     """Rust backend should run for MACD and return three arrays."""
     close = np.linspace(10.0, 20.0, 80)

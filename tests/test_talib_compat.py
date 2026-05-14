@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 from akquant import talib as ta
 
 
@@ -62,6 +63,23 @@ def test_talib_mom_period_alias_matches_timeperiod() -> None:
     assert isinstance(a, np.ndarray)
     assert isinstance(b, np.ndarray)
     np.testing.assert_allclose(a, b, equal_nan=True)
+
+
+def test_talib_ma_matches_sma_for_default_matype() -> None:
+    """MA should match SMA when using the default SMA matype."""
+    _, _, close = _sample_ohlc(size=40)
+    ma = ta.MA(close, timeperiod=10)
+    sma = ta.SMA(close, timeperiod=10)
+    assert isinstance(ma, np.ndarray)
+    assert isinstance(sma, np.ndarray)
+    np.testing.assert_allclose(ma, sma, equal_nan=True)
+
+
+def test_talib_ma_rejects_unsupported_matype() -> None:
+    """MA should raise for unsupported moving-average types."""
+    _, _, close = _sample_ohlc(size=40)
+    with pytest.raises(ValueError, match="only matype=0"):
+        _ = ta.MA(close, timeperiod=10, matype=1)
 
 
 def test_talib_mfi_supports_series_output_with_index() -> None:
