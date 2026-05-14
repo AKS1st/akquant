@@ -1292,6 +1292,27 @@ def SMA(
     return finalize_output(out, as_series=as_series)
 
 
+def MA(
+    close: SeriesLike,
+    timeperiod: int = 30,
+    matype: int = 0,
+    *,
+    period: int | None = None,
+    as_series: bool = False,
+    backend: str = "auto",
+) -> pd.Series | object:
+    """Return a moving average, currently limited to SMA-compatible `matype`."""
+    if matype != 0:
+        raise ValueError("only matype=0 (SMA) is supported")
+    return SMA(
+        close,
+        timeperiod=timeperiod,
+        period=period,
+        as_series=as_series,
+        backend=backend,
+    )
+
+
 def EMA(
     close: SeriesLike,
     timeperiod: int = 30,

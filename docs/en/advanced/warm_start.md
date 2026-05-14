@@ -100,7 +100,7 @@ def on_start(self):
 
 ### 3.3 Indicator Serialization
 
-Built-in indicators (`SMA`, `EMA`, etc.) support pickle serialization. For custom indicators or third-party objects (for example TA-Lib wrappers), ensure they are pickle-compatible or implement state handling explicitly.
+Built-in indicators (`SMA`, `EMA`, etc.) support pickle serialization. For custom indicators or third-party objects (for example TA-Lib wrappers), ensure they are pickle-compatible or implement state handling explicitly. For the full custom-indicator workflow, see the [Custom Indicator Guide](../guide/custom_indicator.md).
 
 ## 4. Notes
 

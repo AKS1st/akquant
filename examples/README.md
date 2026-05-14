@@ -62,6 +62,7 @@
 - [57_functional_multi_slot_warm_start_demo.py](./57_functional_multi_slot_warm_start_demo.py): 函数式多 slot `on_resume(ctx)` 热启动续跑示例。
 - [58_incremental_bootstrap_demo.py](./58_incremental_bootstrap_demo.py): 增量指标“历史预热 + 实时更新”最小示例，演示 `indicator_factory` 与 `warmup_bars`。
 - [59_akshare_etf_rotation.py](./59_akshare_etf_rotation.py): AKShare + ETF 轮动最小示例，演示单个拼接后 `DataFrame` 的推荐多标输入方式。
+- [60_custom_indicator_demo.py](./60_custom_indicator_demo.py): 自定义指标最小示例，同时演示 `Indicator(name, fn)` 的预计算写法和 `indicator_factory` 的增量写法。
 
 ## 流式回测与实时报告
 

@@ -15,6 +15,7 @@ This chapter is currently maintained in Chinese first.
   - Indicator playbook example: [examples/45_talib_indicator_playbook_demo.py](https://github.com/akfamily/akquant/blob/main/examples/45_talib_indicator_playbook_demo.py)
   - Real-data mode: `python examples/45_talib_indicator_playbook_demo.py --data-source akshare --symbol sh600000 --start-date 20240101 --end-date 20260301`
   - Guide: [Strategy Guide](../guide/strategy.md)
+  - Guide: [Custom Indicator Guide](../guide/custom_indicator.md)
 
 ## TA-Lib Backend Usage
 

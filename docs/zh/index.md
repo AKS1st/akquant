@@ -172,3 +172,5 @@ run_backtest(strategy=MyStrategy, data=df, symbols="600000")
 ## 策略实战入口
 
 *   横截面策略实战清单：[横截面策略实战清单](guide/cross_section_checklist.md)
+*   自定义指标开发主入口：[自定义指标指南](guide/custom_indicator.md)
+*   指标注册与模式切换：[策略开发手册](guide/strategy.md)

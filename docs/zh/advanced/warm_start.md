@@ -108,7 +108,7 @@ def on_start(self):
 
 ### 3.3 指标持久化
 
-AKQuant 内置的指标（如 `SMA`, `EMA`）已经支持 Pickle 序列化。如果你使用自定义指标或第三方库（如 TA-Lib），请确保它们支持 `pickle`，或者在 `__getstate__` 和 `__setstate__` 中手动处理状态保存。
+AKQuant 内置的指标（如 `SMA`, `EMA`）已经支持 Pickle 序列化。如果你使用自定义指标或第三方库（如 TA-Lib），请确保它们支持 `pickle`，或者在 `__getstate__` 和 `__setstate__` 中手动处理状态保存。关于自定义指标的完整接入方式，可继续阅读：[自定义指标指南](../guide/custom_indicator.md)。
 
 ## 4. 注意事项
 

@@ -156,6 +156,9 @@ Example response (showing parameter routing result):
 *   **Vectorized Indicators**:
     *   Demonstrates how to use `IndicatorSet` to pre-calculate indicators to improve backtest speed. Refer to [Strategy Guide](strategy.md#indicatorset).
 
+*   **Custom Indicators**:
+    *   Demonstrates both the precompute style with `Indicator(name, fn)` and the incremental style with `indicator_factory`. Refer to the [Custom Indicator Guide](custom_indicator.md) and [60_custom_indicator_demo.py](https://github.com/akfamily/akquant/blob/main/examples/60_custom_indicator_demo.py).
+
 ### Fetching A-Share Daily Data with AKShare (stock_zh_a_daily)
 
 ```python

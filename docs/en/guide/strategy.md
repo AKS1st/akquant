@@ -795,6 +795,7 @@ Notes:
 * The legacy single-symbol form `register_incremental_indicator("sma20", self.sma20, ...)` remains supported.
 * If one shared instance is reused across multiple symbols, AKQuant raises an explicit error and points users to `indicator_factory`.
 * `warmup_bars` only consumes history before the active start boundary and does not double-consume the first active bar.
+* If you need to build private indicators instead of only using built-ins such as `SMA` or `EMA`, continue with the [Custom Indicator Guide](./custom_indicator.md).
 
 ## 7. Strategy Cookbook
 

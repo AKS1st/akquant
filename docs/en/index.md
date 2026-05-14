@@ -233,3 +233,5 @@ For more examples, please refer to the `examples/` directory.
 ## Strategy Playbook Entry
 
 *   Cross-section strategy checklist: [Cross-Section Strategy Playbook Checklist](guide/cross_section_checklist.md)
+*   Primary custom indicator entry: [Custom Indicator Guide](guide/custom_indicator.md)
+*   Indicator registration and mode selection: [Strategy Guide](guide/strategy.md)

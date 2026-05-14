@@ -994,6 +994,7 @@ class MultiSymbolIncrementalStrategy(Strategy):
 *   单标的旧写法 `register_incremental_indicator("sma20", self.sma20, ...)` 仍然兼容。
 *   如果一个共享实例被多个 `symbol` 复用，框架会显式报错，提示改为 `indicator_factory`。
 *   `warmup_bars` 只会消费正式开始时间之前的历史数据，不会重复消费第一根有效 Bar。
+*   如果你需要编写自己的私有指标，而不仅仅是使用内置 `SMA/EMA`，请继续阅读：[自定义指标指南](./custom_indicator.md)。
 ## 8. 高级特性：热启动 (Warm Start)
 
 
