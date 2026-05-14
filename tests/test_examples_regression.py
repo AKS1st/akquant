@@ -132,6 +132,24 @@ def test_textbook_futures_strategy_uses_short_for_bearish_signal(
     assert captured["buy"] is None
 
 
+def test_textbook_dual_ma_examples_request_enough_warmup_bars() -> None:
+    """Dual-MA textbook examples should align warmup with N+1 history windows."""
+    ch05 = _load_example_module(
+        "example_textbook_ch05_strategy",
+        "examples/textbook/ch05_strategy.py",
+    )
+    ch10 = _load_example_module(
+        "example_textbook_ch10_analysis",
+        "examples/textbook/ch10_analysis.py",
+    )
+
+    ch05_strategy = ch05.MyFirstStrategy(short_window=5, long_window=20)
+    ch10_strategy = ch10.AnalysisStrategy(short_window=5, long_window=20)
+
+    assert ch05_strategy.warmup_period == 21
+    assert ch10_strategy.warmup_period == 21
+
+
 def test_textbook_futures_example_documents_fill_policy_and_bps_slippage() -> None:
     """Textbook futures example should retain safer fill/slippage configuration."""
     root = Path(__file__).resolve().parents[1]

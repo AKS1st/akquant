@@ -206,6 +206,7 @@ class DualMovingAverageStrategy(Strategy):
         # 定义策略参数：短期窗口5，长期窗口20
         self.short_window = 5
         self.long_window = 20
+        self.warmup_period = self.long_window + 1
 
     def on_bar(self, bar: Bar):
         # 获取历史收盘价数据
@@ -213,7 +214,7 @@ class DualMovingAverageStrategy(Strategy):
         hist = self.get_history(count=self.long_window + 1, field="close")
 
         # 如果数据不足，无法计算均线，直接返回
-        if len(hist) < self.long_window:
+        if len(hist) < self.long_window + 1:
             return
 
         # 计算短期和长期均线

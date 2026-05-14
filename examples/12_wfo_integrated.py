@@ -24,6 +24,7 @@ class DualMovingAverageStrategy(Strategy):
         """
         self.short_window = short_window
         self.long_window = long_window
+        self.warmup_period = long_window + 1
 
     def on_bar(self, bar: Bar) -> None:
         """处理 Bar 数据.
@@ -33,7 +34,7 @@ class DualMovingAverageStrategy(Strategy):
         """
         # 获取历史收盘价
         hist = self.get_history(count=self.long_window + 1, field="close")
-        if len(hist) < self.long_window:
+        if len(hist) < self.long_window + 1:
             return
 
         closes = hist

@@ -25,6 +25,7 @@ class DualMovingAverageStrategy(Strategy):
         # 定义策略参数：短期窗口5，长期窗口20
         self.short_window = short_window
         self.long_window = long_window
+        self.warmup_period = long_window + 1
 
     def on_bar(self, bar: Bar) -> None:
         """Handle new bar data.
@@ -37,7 +38,7 @@ class DualMovingAverageStrategy(Strategy):
         hist = self.get_history(count=self.long_window + 1, field="close")
 
         # 如果数据不足，无法计算均线，直接返回
-        if len(hist) < self.long_window:
+        if len(hist) < self.long_window + 1:
             return
 
         # 计算短期和长期均线
