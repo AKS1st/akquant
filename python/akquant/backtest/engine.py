@@ -370,6 +370,40 @@ def _index_to_local_trading_days(
     return cast(pd.DatetimeIndex, local_index.tz_convert(timezone))
 
 
+def _build_trading_day_metadata(
+    data_map_for_indicators: Dict[str, pd.DataFrame], timezone: str
+) -> Tuple[List[pd.Timestamp], Dict[str, Tuple[int, int]]]:
+    """Build sorted trading days and per-day nanosecond bounds."""
+    all_dates: set[pd.Timestamp] = set()
+    day_bounds: Dict[str, Tuple[int, int]] = {}
+
+    for df in data_map_for_indicators.values():
+        if df.empty or not isinstance(df.index, pd.DatetimeIndex):
+            continue
+
+        local_index = _index_to_local_trading_days(
+            cast(pd.DatetimeIndex, df.index), timezone
+        )
+        normalized_index = cast(pd.DatetimeIndex, local_index.normalize())
+        all_dates.update(normalized_index.unique())
+
+        grouped = df.groupby(normalized_index, sort=False)
+        for day_ts, day_df in grouped:
+            day_key = pd.Timestamp(day_ts).date().isoformat()
+            start_ns = int(day_df.index.min().value)
+            end_ns = int(day_df.index.max().value)
+            if day_key in day_bounds:
+                prev_start, prev_end = day_bounds[day_key]
+                day_bounds[day_key] = (
+                    min(prev_start, start_ns),
+                    max(prev_end, end_ns),
+                )
+            else:
+                day_bounds[day_key] = (start_ns, end_ns)
+
+    return sorted(all_dates), day_bounds
+
+
 BacktestDataInput = Union[
     pd.DataFrame, Dict[str, pd.DataFrame], List[Bar], DataFeed, DataFeedAdapter
 ]
@@ -2912,36 +2946,13 @@ def run_backtest(
     # Inject trading days to strategy (for add_daily_timer)
     all_strategy_instances = [strategy_instance, *slot_strategy_instances.values()]
     if data_map_for_indicators:
-        all_dates: set[pd.Timestamp] = set()
-        day_bounds: Dict[str, Tuple[int, int]] = {}
-        for df in data_map_for_indicators.values():
-            if not df.empty and isinstance(df.index, pd.DatetimeIndex):
-                local_index = _index_to_local_trading_days(
-                    cast(pd.DatetimeIndex, df.index), timezone
-                )
-                normalized_index = cast(pd.DatetimeIndex, local_index.normalize())
-                dates = normalized_index.unique()
-                all_dates.update(dates)
-                for raw_day_ts in dates:
-                    day_ts = pd.Timestamp(raw_day_ts)
-                    day_df = df[normalized_index == day_ts]
-                    if day_df.empty:
-                        continue
-                    day_key = day_ts.date().isoformat()
-                    start_ns = int(day_df.index.min().value)
-                    end_ns = int(day_df.index.max().value)
-                    if day_key in day_bounds:
-                        prev_start, prev_end = day_bounds[day_key]
-                        day_bounds[day_key] = (
-                            min(prev_start, start_ns),
-                            max(prev_end, end_ns),
-                        )
-                    else:
-                        day_bounds[day_key] = (start_ns, end_ns)
+        all_dates, day_bounds = _build_trading_day_metadata(
+            data_map_for_indicators, timezone
+        )
 
         for current_strategy in all_strategy_instances:
             if hasattr(current_strategy, "_trading_days") and all_dates:
-                current_strategy._trading_days = sorted(list(all_dates))
+                current_strategy._trading_days = all_dates
             if hasattr(current_strategy, "_trading_day_bounds"):
                 current_strategy._trading_day_bounds = day_bounds
 
@@ -4641,32 +4652,13 @@ def run_warm_start(
         warnings.warn(warning_message, RuntimeWarning, stacklevel=2)
         logger.warning(warning_message)
     if data_map_for_indicators:
-        all_dates: set[pd.Timestamp] = set()
-        day_bounds: Dict[str, Tuple[int, int]] = {}
-        for df in data_map_for_indicators.values():
-            if not df.empty and isinstance(df.index, pd.DatetimeIndex):
-                local_index = _index_to_local_trading_days(
-                    cast(pd.DatetimeIndex, df.index), timezone_name
-                )
-                dates = local_index.normalize().unique()
-                all_dates.update(dates)
-                grouped = df.groupby(local_index.normalize())
-                for day_ts, day_df in grouped:
-                    day_key = pd.Timestamp(day_ts).date().isoformat()
-                    start_ns = int(day_df.index.min().value)
-                    end_ns = int(day_df.index.max().value)
-                    if day_key in day_bounds:
-                        prev_start, prev_end = day_bounds[day_key]
-                        day_bounds[day_key] = (
-                            min(prev_start, start_ns),
-                            max(prev_end, end_ns),
-                        )
-                    else:
-                        day_bounds[day_key] = (start_ns, end_ns)
+        all_dates, day_bounds = _build_trading_day_metadata(
+            data_map_for_indicators, timezone_name
+        )
 
         for current_strategy in all_strategy_instances:
             if all_dates and hasattr(current_strategy, "_trading_days"):
-                current_strategy._trading_days = sorted(list(all_dates))
+                current_strategy._trading_days = all_dates
             if hasattr(current_strategy, "_trading_day_bounds"):
                 current_strategy._trading_day_bounds = day_bounds
             setattr(current_strategy, "_engine", engine)

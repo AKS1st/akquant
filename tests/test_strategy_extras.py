@@ -29,6 +29,7 @@ from akquant.akquant import (
 )
 from akquant.backtest import FunctionalStrategy
 from akquant.backtest.engine import (
+    _build_trading_day_metadata,
     _prime_framework_boundary_timers,
     _prime_framework_pre_open_timers,
 )
@@ -3796,6 +3797,40 @@ def test_collect_boundary_timers_and_prime_globally_once() -> None:
         (start_ts, "__framework_boundary__|before|2023-01-03"),
         (end_ts + 1, "__framework_boundary__|after|2023-01-03"),
     ]
+
+
+def test_build_trading_day_metadata_merges_multi_symbol_day_bounds() -> None:
+    """Trading day metadata should merge per-day bounds across symbols."""
+    data_map = {
+        "AAA": pd.DataFrame(
+            {"close": [10.0, 10.5]},
+            index=pd.DatetimeIndex(
+                [
+                    pd.Timestamp("2023-01-03 01:30:00", tz="UTC"),
+                    pd.Timestamp("2023-01-03 07:00:00", tz="UTC"),
+                ]
+            ),
+        ),
+        "BBB": pd.DataFrame(
+            {"close": [20.0, 21.0]},
+            index=pd.DatetimeIndex(
+                [
+                    pd.Timestamp("2023-01-03 02:00:00", tz="UTC"),
+                    pd.Timestamp("2023-01-03 06:00:00", tz="UTC"),
+                ]
+            ),
+        ),
+    }
+
+    trading_days, day_bounds = _build_trading_day_metadata(data_map, "Asia/Shanghai")
+
+    assert trading_days == [pd.Timestamp("2023-01-03", tz="Asia/Shanghai")]
+    assert day_bounds == {
+        "2023-01-03": (
+            pd.Timestamp("2023-01-03 01:30:00", tz="UTC").value,
+            pd.Timestamp("2023-01-03 07:00:00", tz="UTC").value,
+        )
+    }
 
 
 def test_precise_boundary_hooks_delay_after_trading_until_day_end() -> None:
