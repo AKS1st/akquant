@@ -681,6 +681,215 @@ def test_futures_margin_account_snapshot_uses_margin_accounting() -> None:
     )
 
 
+def test_futures_short_overnight_avoids_spurious_liquidation() -> None:
+    """Short futures should not accrue stock-style borrow interest.
+
+    It also should not trigger spurious liquidation.
+    """
+
+    class FuturesShortOvernightProbeStrategy(Strategy):
+        account_snapshots: list[dict[str, Any]] = []
+
+        def __init__(self) -> None:
+            self.ordered = False
+
+        def on_bar(self, bar: Bar) -> None:
+            if not self.ordered:
+                self.short(bar.symbol, 1.0)
+                self.ordered = True
+            self.__class__.account_snapshots.append(self.get_account())
+
+    bars = _build_bars(
+        [
+            pd.Timestamp("2023-01-04 22:30:00", tz="Asia/Shanghai"),
+            pd.Timestamp("2023-01-04 23:00:00", tz="Asia/Shanghai"),
+            pd.Timestamp("2023-01-05 09:30:00", tz="Asia/Shanghai"),
+        ],
+        [4008.0, 3999.0, 3985.0],
+        symbol="RB2305",
+    )
+    FuturesShortOvernightProbeStrategy.account_snapshots = []
+    result = run_backtest(
+        data=bars,
+        strategy=FuturesShortOvernightProbeStrategy,
+        symbols="RB2305",
+        show_progress=False,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        config=BacktestConfig(
+            strategy_config=StrategyConfig(
+                initial_cash=500000.0,
+                commission_rate=0.0,
+                slippage=0.0,
+                min_commission=0.0,
+                stamp_tax_rate=0.0,
+                transfer_fee_rate=0.0,
+                risk=RiskConfig(
+                    account_mode="margin",
+                    check_cash=True,
+                    initial_margin_ratio=0.1,
+                    maintenance_margin_ratio=0.3,
+                    enable_short_sell=True,
+                    allow_force_liquidation=True,
+                    liquidation_priority="long_first",
+                ),
+            ),
+            china_futures=ChinaFuturesConfig(
+                enforce_sessions=False,
+                instrument_templates_by_symbol_prefix=[
+                    ChinaFuturesInstrumentTemplateConfig(
+                        symbol_prefix="RB",
+                        multiplier=10.0,
+                        margin_ratio=0.1,
+                        commission_rate=0.0,
+                        tick_size=1.0,
+                        lot_size=1.0,
+                    )
+                ],
+            ),
+        ),
+    )
+
+    assert len(FuturesShortOvernightProbeStrategy.account_snapshots) >= 3
+    day2_snapshot = FuturesShortOvernightProbeStrategy.account_snapshots[-1]
+    assert float(day2_snapshot.get("daily_interest", 0.0)) == pytest.approx(
+        0.0, rel=0.0, abs=1e-6
+    )
+    assert float(day2_snapshot.get("accrued_interest", 0.0)) == pytest.approx(
+        0.0, rel=0.0, abs=1e-6
+    )
+    assert result.liquidation_audit_df.empty
+    assert float(result.positions.iloc[-1].get("RB2305", 0.0)) == pytest.approx(
+        -1.0, rel=0.0, abs=1e-6
+    )
+
+
+def test_futures_force_liquidation_emits_callbacks_and_realizes_pnl_only() -> None:
+    """Forced liquidation should emit order/trade callbacks.
+
+    It should also keep futures equity on a PnL basis.
+    """
+
+    class FuturesForcedLiquidationProbeStrategy(Strategy):
+        order_events: list[dict[str, Any]] = []
+        trade_events: list[dict[str, Any]] = []
+        position_snapshots: list[float] = []
+
+        def __init__(self) -> None:
+            self.ordered = False
+
+        def on_bar(self, bar: Bar) -> None:
+            if not self.ordered:
+                self.short(bar.symbol, 1.0)
+                self.ordered = True
+            self.__class__.position_snapshots.append(
+                float(self.get_position(bar.symbol))
+            )
+
+        def on_order(self, order: Any) -> None:
+            self.__class__.order_events.append(
+                {
+                    "symbol": str(order.symbol),
+                    "side": str(order.side),
+                    "status": str(order.status),
+                    "filled_quantity": float(order.filled_quantity),
+                    "tag": str(getattr(order, "tag", "")),
+                }
+            )
+
+        def on_trade(self, trade: Any) -> None:
+            self.__class__.trade_events.append(
+                {
+                    "symbol": str(trade.symbol),
+                    "side": str(trade.side),
+                    "quantity": float(trade.quantity),
+                    "price": float(trade.price),
+                }
+            )
+
+    bars = _build_bars(
+        [
+            pd.Timestamp("2023-01-04 22:30:00", tz="Asia/Shanghai"),
+            pd.Timestamp("2023-01-04 23:00:00", tz="Asia/Shanghai"),
+            pd.Timestamp("2023-01-05 09:30:00", tz="Asia/Shanghai"),
+            pd.Timestamp("2023-01-05 10:00:00", tz="Asia/Shanghai"),
+        ],
+        [4000.0, 6000.0, 6000.0, 6000.0],
+        symbol="RB2305",
+    )
+    FuturesForcedLiquidationProbeStrategy.order_events = []
+    FuturesForcedLiquidationProbeStrategy.trade_events = []
+    FuturesForcedLiquidationProbeStrategy.position_snapshots = []
+    result = run_backtest(
+        data=bars,
+        strategy=FuturesForcedLiquidationProbeStrategy,
+        symbols="RB2305",
+        show_progress=False,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        config=BacktestConfig(
+            strategy_config=StrategyConfig(
+                initial_cash=5000.0,
+                commission_rate=0.0,
+                slippage=0.0,
+                min_commission=0.0,
+                stamp_tax_rate=0.0,
+                transfer_fee_rate=0.0,
+                risk=RiskConfig(
+                    account_mode="margin",
+                    check_cash=True,
+                    initial_margin_ratio=0.1,
+                    maintenance_margin_ratio=0.3,
+                    enable_short_sell=True,
+                    allow_force_liquidation=True,
+                    liquidation_priority="long_first",
+                ),
+            ),
+            china_futures=ChinaFuturesConfig(
+                enforce_sessions=False,
+                instrument_templates_by_symbol_prefix=[
+                    ChinaFuturesInstrumentTemplateConfig(
+                        symbol_prefix="RB",
+                        multiplier=10.0,
+                        margin_ratio=0.1,
+                        commission_rate=0.0,
+                        tick_size=1.0,
+                        lot_size=1.0,
+                    )
+                ],
+            ),
+        ),
+    )
+
+    assert not result.liquidation_audit_df.empty
+    assert (
+        result.orders_df["status"].astype(str).str.lower().tolist().count("filled") == 2
+    )
+    assert len(result.trades_df) == 1
+    assert float(result.trades_df.iloc[0]["exit_price"]) == pytest.approx(
+        6000.0, rel=0.0, abs=1e-6
+    )
+    assert float(result.positions.iloc[-1].get("RB2305", 0.0)) == pytest.approx(
+        0.0, rel=0.0, abs=1e-6
+    )
+    assert float(result.equity_curve.iloc[-1]) == pytest.approx(
+        -15000.0, rel=0.0, abs=1e-6
+    )
+
+    assert any(
+        event["tag"] == "__forced_liquidation__"
+        and event["status"].lower().endswith("filled")
+        for event in FuturesForcedLiquidationProbeStrategy.order_events
+    )
+    assert len(FuturesForcedLiquidationProbeStrategy.trade_events) == 2
+    assert (
+        FuturesForcedLiquidationProbeStrategy.trade_events[-1]["side"]
+        .lower()
+        .endswith("buy")
+    )
+    assert FuturesForcedLiquidationProbeStrategy.position_snapshots[
+        -1
+    ] == pytest.approx(0.0, rel=0.0, abs=1e-6)
+
+
 def test_futures_margin_portfolio_update_can_read_account_metrics() -> None:
     """Portfolio update callback should read cached futures account metrics safely."""
 

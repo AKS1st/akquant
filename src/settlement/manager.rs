@@ -1,5 +1,11 @@
+use crate::account::{calculate_account_metrics, estimate_futures_realized_pnl};
+use crate::analysis::TradeTracker;
+use crate::event::Event;
 use crate::market::manager::MarketManager;
-use crate::model::{Instrument, Order, OrderStatus, TimeInForce};
+use crate::model::{
+    Instrument, Order, OrderRole, OrderSide, OrderStatus, OrderType, PositionEffect, TimeInForce,
+    Trade,
+};
 use crate::portfolio::Portfolio;
 use crate::risk::RiskConfig;
 use chrono::NaiveDate;
@@ -7,6 +13,7 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use super::expiry::ExpirySettlementHandler;
 use super::handler::SettlementHandler;
@@ -18,7 +25,11 @@ pub struct SettlementContext<'a> {
     pub instruments: &'a HashMap<String, Instrument>,
     pub last_prices: &'a HashMap<String, Decimal>,
     pub market_manager: &'a MarketManager,
+    pub trade_tracker: &'a TradeTracker,
     pub risk_config: &'a RiskConfig,
+    pub timestamp: i64,
+    pub bar_index: usize,
+    pub default_strategy_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +53,7 @@ pub struct SettlementOutcome {
     pub forced_liquidation: bool,
     pub liquidated_symbols: Vec<String>,
     pub expiry_events: Vec<ExecutedExpiryEvent>,
+    pub forced_liquidation_events: Vec<Event>,
 }
 
 /// Settlement Manager
@@ -177,17 +189,21 @@ impl SettlementManager {
             return outcome;
         }
 
-        let (_, _, short_market_value) =
-            compute_portfolio_metrics(portfolio, ctx.last_prices, ctx.instruments);
-
         let borrowed_cash = (-portfolio.cash).max(Decimal::ZERO);
+        let pre_interest_metrics = calculate_account_metrics(
+            portfolio,
+            ctx.last_prices,
+            ctx.instruments,
+            ctx.trade_tracker,
+            ctx.risk_config,
+        );
         let financing_rate =
             Decimal::from_f64(ctx.risk_config.financing_rate_annual).unwrap_or(Decimal::ZERO);
         let borrow_rate =
             Decimal::from_f64(ctx.risk_config.borrow_rate_annual).unwrap_or(Decimal::ZERO);
         let day_divisor = Decimal::from(365);
         let financing_interest = borrowed_cash * financing_rate / day_divisor;
-        let borrow_interest = short_market_value * borrow_rate / day_divisor;
+        let borrow_interest = pre_interest_metrics.short_market_value * borrow_rate / day_divisor;
         let total_interest = (financing_interest + borrow_interest).max(Decimal::ZERO);
         if total_interest > Decimal::ZERO {
             portfolio.cash -= total_interest;
@@ -198,13 +214,20 @@ impl SettlementManager {
             return outcome;
         }
 
-        let (_, equity, gross_exposure) =
-            compute_portfolio_metrics(portfolio, ctx.last_prices, ctx.instruments);
-        if gross_exposure <= Decimal::ZERO {
+        let required_maintenance = ctx.risk_config.maintenance_margin_ratio_decimal();
+        let mut simulated_portfolio = portfolio.clone();
+        let mut simulated_trade_tracker = ctx.trade_tracker.clone();
+        let account_metrics = calculate_account_metrics(
+            &simulated_portfolio,
+            ctx.last_prices,
+            ctx.instruments,
+            &simulated_trade_tracker,
+            ctx.risk_config,
+        );
+        if account_metrics.used_margin <= Decimal::ZERO {
             return outcome;
         }
-        let maintenance_ratio = equity / gross_exposure;
-        if maintenance_ratio >= ctx.risk_config.maintenance_margin_ratio_decimal() {
+        if account_metrics.maintenance_ratio >= required_maintenance {
             return outcome;
         }
 
@@ -265,7 +288,7 @@ impl SettlementManager {
             .map(|(symbol, _)| symbol)
             .collect();
         for symbol in symbols_to_close {
-            let qty = portfolio
+            let qty = simulated_portfolio
                 .positions
                 .get(&symbol)
                 .copied()
@@ -276,62 +299,176 @@ impl SettlementManager {
             let Some(price) = ctx.last_prices.get(&symbol).copied() else {
                 continue;
             };
-            let multiplier = ctx
-                .instruments
-                .get(&symbol)
-                .map(|i| i.multiplier())
-                .unwrap_or(Decimal::ONE);
-            portfolio.cash += qty * price * multiplier;
+            let side = if qty > Decimal::ZERO {
+                OrderSide::Sell
+            } else {
+                OrderSide::Buy
+            };
+            let quantity = qty.abs();
+            let order_id = Uuid::new_v4().to_string();
+            let trade_id = Uuid::new_v4().to_string();
+            let owner_strategy_id = normalized_strategy_id(ctx.default_strategy_id.clone());
+            let mut filled_order = forced_liquidation_order(
+                order_id.clone(),
+                symbol.clone(),
+                side,
+                quantity,
+                price,
+                ctx.timestamp,
+                owner_strategy_id.clone(),
+            );
+            filled_order.status = OrderStatus::Filled;
+            filled_order.filled_quantity = quantity;
+            filled_order.average_filled_price = Some(price);
+            filled_order.updated_at = ctx.timestamp;
+            let trade = Trade {
+                id: trade_id,
+                order_id,
+                symbol: symbol.clone(),
+                side,
+                position_effect: PositionEffect::Close,
+                quantity,
+                price,
+                commission: Decimal::ZERO,
+                timestamp: ctx.timestamp,
+                bar_index: ctx.bar_index,
+                owner_strategy_id,
+            };
+            outcome
+                .forced_liquidation_events
+                .push(Event::ExecutionReport(filled_order, Some(trade.clone())));
 
-            {
-                let positions = Arc::make_mut(&mut portfolio.positions);
-                positions.remove(&symbol);
-            }
-            {
-                let avail_pos = Arc::make_mut(&mut portfolio.available_positions);
-                avail_pos.remove(&symbol);
-            }
+            apply_liquidation_trade_simulation(
+                &mut simulated_portfolio,
+                &mut simulated_trade_tracker,
+                &trade,
+                ctx.instruments,
+                ctx.last_prices,
+                ctx.risk_config,
+            );
             outcome.liquidated_symbols.push(symbol.clone());
 
-            let (_, next_equity, next_exposure) =
-                compute_portfolio_metrics(portfolio, ctx.last_prices, ctx.instruments);
-            if next_exposure <= Decimal::ZERO {
+            let next_metrics = calculate_account_metrics(
+                &simulated_portfolio,
+                ctx.last_prices,
+                ctx.instruments,
+                &simulated_trade_tracker,
+                ctx.risk_config,
+            );
+            if next_metrics.used_margin <= Decimal::ZERO {
                 break;
             }
-            let next_ratio = next_equity / next_exposure;
-            if next_ratio >= ctx.risk_config.maintenance_margin_ratio_decimal() {
+            if next_metrics.maintenance_ratio >= required_maintenance {
                 break;
             }
         }
-        outcome.forced_liquidation = true;
+        outcome.forced_liquidation = !outcome.forced_liquidation_events.is_empty();
         outcome
     }
 }
 
-fn compute_portfolio_metrics(
-    portfolio: &Portfolio,
-    prices: &HashMap<String, Decimal>,
-    instruments: &HashMap<String, Instrument>,
-) -> (Decimal, Decimal, Decimal) {
-    let mut gross_exposure = Decimal::ZERO;
-    for (symbol, quantity) in portfolio.positions.iter() {
-        if quantity.is_zero() {
-            continue;
-        }
-        let Some(price) = prices.get(symbol).copied() else {
-            continue;
-        };
-        if price <= Decimal::ZERO {
-            continue;
-        }
-        let multiplier = instruments
-            .get(symbol)
-            .map(|i| i.multiplier())
-            .unwrap_or(Decimal::ONE);
-        gross_exposure += quantity.abs() * price * multiplier;
+fn normalized_strategy_id(value: Option<String>) -> Option<String> {
+    value
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+}
+
+fn forced_liquidation_order(
+    id: String,
+    symbol: String,
+    side: OrderSide,
+    quantity: Decimal,
+    price: Decimal,
+    timestamp: i64,
+    owner_strategy_id: Option<String>,
+) -> Order {
+    Order {
+        id,
+        symbol,
+        side,
+        order_type: OrderType::Market,
+        quantity,
+        price: Some(price),
+        time_in_force: TimeInForce::Day,
+        trigger_price: None,
+        trail_offset: None,
+        trail_reference_price: None,
+        fill_policy_override: None,
+        slippage_type_override: None,
+        slippage_value_override: None,
+        commission_type_override: None,
+        commission_value_override: None,
+        graph_id: None,
+        parent_order_id: None,
+        order_role: OrderRole::Standalone,
+        position_effect: PositionEffect::Close,
+        status: OrderStatus::New,
+        filled_quantity: Decimal::ZERO,
+        average_filled_price: None,
+        created_at: timestamp,
+        updated_at: timestamp,
+        commission: Decimal::ZERO,
+        tag: "__forced_liquidation__".to_string(),
+        reject_reason: String::new(),
+        owner_strategy_id,
+        allow_quantity_auto_resize: false,
+        reduce_only: true,
     }
-    let equity = portfolio.calculate_equity(prices, instruments);
-    (portfolio.cash, equity, gross_exposure)
+}
+
+fn apply_liquidation_trade_simulation(
+    portfolio: &mut Portfolio,
+    trade_tracker: &mut TradeTracker,
+    trade: &Trade,
+    instruments: &HashMap<String, Instrument>,
+    prices: &HashMap<String, Decimal>,
+    risk_config: &RiskConfig,
+) {
+    let Some(instr) = instruments.get(&trade.symbol) else {
+        return;
+    };
+    let multiplier = instr.multiplier();
+
+    if crate::account::is_futures_margin_account(instr, risk_config) {
+        let realized = estimate_futures_realized_pnl(
+            trade_tracker,
+            &trade.symbol,
+            trade.side,
+            trade.quantity,
+            trade.price,
+            multiplier,
+        );
+        portfolio.adjust_cash(realized);
+        if trade.side == OrderSide::Buy {
+            portfolio.adjust_position(&trade.symbol, trade.quantity);
+        } else {
+            portfolio.adjust_position(&trade.symbol, -trade.quantity);
+        }
+    } else {
+        let notional = trade.price * trade.quantity * multiplier;
+        if trade.side == OrderSide::Buy {
+            portfolio.adjust_cash(-notional);
+            portfolio.adjust_position(&trade.symbol, trade.quantity);
+        } else {
+            portfolio.adjust_cash(notional);
+            portfolio.adjust_position(&trade.symbol, -trade.quantity);
+        }
+    }
+
+    let portfolio_value = calculate_account_metrics(
+        portfolio,
+        prices,
+        instruments,
+        trade_tracker,
+        risk_config,
+    )
+    .equity;
+    trade_tracker.process_trade(
+        trade,
+        Some("__forced_liquidation__"),
+        None,
+        portfolio_value,
+    );
 }
 
 impl Default for SettlementManager {
@@ -343,6 +480,7 @@ impl Default for SettlementManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::analysis::TradeTracker;
     use crate::model::instrument::{InstrumentEnum, StockInstrument};
     use crate::model::types::AssetType;
     use std::str::FromStr;
@@ -376,13 +514,18 @@ mod tests {
         risk.borrow_rate_annual = 0.0;
         risk.allow_force_liquidation = false;
         let market_manager = MarketManager::new();
+        let tracker = TradeTracker::new();
 
         let ctx = SettlementContext {
             date: NaiveDate::from_ymd_opt(2024, 1, 2).expect("valid date"),
             instruments: &instruments,
             last_prices: &prices,
             market_manager: &market_manager,
+            trade_tracker: &tracker,
             risk_config: &risk,
+            timestamp: 0,
+            bar_index: 0,
+            default_strategy_id: None,
         };
         let outcome = SettlementManager::new().process_daily_settlement(
             &mut portfolio,
@@ -418,13 +561,18 @@ mod tests {
         risk.allow_force_liquidation = true;
         risk.maintenance_margin_ratio = 0.5;
         let market_manager = MarketManager::new();
+        let tracker = TradeTracker::new();
 
         let ctx = SettlementContext {
             date: NaiveDate::from_ymd_opt(2024, 1, 2).expect("valid date"),
             instruments: &instruments,
             last_prices: &prices,
             market_manager: &market_manager,
+            trade_tracker: &tracker,
             risk_config: &risk,
+            timestamp: 0,
+            bar_index: 0,
+            default_strategy_id: None,
         };
         let outcome = SettlementManager::new().process_daily_settlement(
             &mut portfolio,
@@ -432,11 +580,9 @@ mod tests {
             &mut Vec::new(),
             &ctx,
         );
-        assert!(portfolio.positions.is_empty());
-        assert!(portfolio.available_positions.is_empty());
-        assert_eq!(portfolio.cash, Decimal::from(-2000));
         assert!(outcome.forced_liquidation);
         assert_eq!(outcome.liquidated_symbols, vec!["AAA".to_string()]);
+        assert_eq!(outcome.forced_liquidation_events.len(), 1);
     }
 
     #[test]
@@ -466,6 +612,8 @@ mod tests {
 
         let market_manager = MarketManager::new();
         let date = NaiveDate::from_ymd_opt(2024, 1, 2).expect("valid date");
+        let tracker_short = TradeTracker::new();
+        let tracker_long = TradeTracker::new();
 
         let mut portfolio_short_first = Portfolio {
             cash: Decimal::from(2000),
@@ -477,29 +625,17 @@ mod tests {
             instruments: &instruments,
             last_prices: &prices,
             market_manager: &market_manager,
+            trade_tracker: &tracker_short,
             risk_config: &risk_short_first,
+            timestamp: 0,
+            bar_index: 0,
+            default_strategy_id: None,
         };
         let outcome_short_first = SettlementManager::new().process_daily_settlement(
             &mut portfolio_short_first,
             &mut Vec::new(),
             &mut Vec::new(),
             &ctx_short_first,
-        );
-        assert_eq!(
-            portfolio_short_first
-                .positions
-                .get("SHORT")
-                .copied()
-                .unwrap_or(Decimal::ZERO),
-            Decimal::ZERO
-        );
-        assert_eq!(
-            portfolio_short_first
-                .positions
-                .get("LONG")
-                .copied()
-                .unwrap_or(Decimal::ZERO),
-            Decimal::from(100)
         );
         assert_eq!(
             outcome_short_first.liquidated_symbols,
@@ -516,29 +652,17 @@ mod tests {
             instruments: &instruments,
             last_prices: &prices,
             market_manager: &market_manager,
+            trade_tracker: &tracker_long,
             risk_config: &risk_long_first,
+            timestamp: 0,
+            bar_index: 0,
+            default_strategy_id: None,
         };
         let outcome_long_first = SettlementManager::new().process_daily_settlement(
             &mut portfolio_long_first,
             &mut Vec::new(),
             &mut Vec::new(),
             &ctx_long_first,
-        );
-        assert_eq!(
-            portfolio_long_first
-                .positions
-                .get("LONG")
-                .copied()
-                .unwrap_or(Decimal::ZERO),
-            Decimal::ZERO
-        );
-        assert_eq!(
-            portfolio_long_first
-                .positions
-                .get("SHORT")
-                .copied()
-                .unwrap_or(Decimal::ZERO),
-            Decimal::from(-50)
         );
         assert_eq!(
             outcome_long_first.liquidated_symbols,

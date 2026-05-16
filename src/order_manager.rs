@@ -275,11 +275,13 @@ impl OrderManager {
                 terminal_without_fill_id = Some(existing.id.clone());
             }
         } else {
-            // If it's a new order report (e.g. Rejected immediately), add to active so it can be moved to history later
+            // If the first report we see is already terminal/filled, keep a snapshot so
+            // downstream callbacks/history can still observe the order lifecycle.
             if report.status == OrderStatus::Rejected
                 || report.status == OrderStatus::New
                 || report.status == OrderStatus::PartiallyFilled
                 || report.status == OrderStatus::Submitted
+                || report.status == OrderStatus::Filled
             {
                 if report.status == OrderStatus::Rejected {
                     terminal_without_fill_id = Some(report.id.clone());

@@ -688,7 +688,11 @@ impl Processor for DataProcessor {
                         instruments: &engine.instruments,
                         last_prices: &engine.last_prices,
                         market_manager: &engine.market_manager,
+                        trade_tracker: &engine.state.order_manager.trade_tracker,
                         risk_config: &engine.risk_manager.config,
+                        timestamp,
+                        bar_index: engine.bar_count,
+                        default_strategy_id: engine.default_strategy_id.clone(),
                     };
                     let settlement_outcome = engine.settlement_manager.process_daily_settlement(
                         &mut engine.state.portfolio,
@@ -758,7 +762,17 @@ impl Processor for DataProcessor {
                             .insert("liquidated_count", liquidated_symbols.len().to_string());
                         risk_payload.insert("liquidated_symbols", liquidated_symbols.join(","));
                         risk_payload.insert("priority", priority);
+                        if let Some(owner_strategy_id) = engine
+                            .default_strategy_id
+                            .clone()
+                            .filter(|text| !text.trim().is_empty())
+                        {
+                            risk_payload.insert("owner_strategy_id", owner_strategy_id);
+                        }
                         engine.emit_stream_event(py, "risk", None, "warn", risk_payload);
+                    }
+                    for event in settlement_outcome.forced_liquidation_events {
+                        let _ = engine.event_manager.send(event);
                     }
                     let recent_expiry_events = engine.recent_expiry_events.clone();
                     for expiry_event in recent_expiry_events {
