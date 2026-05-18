@@ -205,3 +205,10 @@ def on_timer_event(strategy: Any, payload: str, ctx: StrategyContext) -> None:
 
     call_user_callback(strategy, "on_timer", payload, payload=payload)
     _flush_indicator_snapshots(strategy)
+
+
+def flush_pending_order_events(strategy: Any, ctx: StrategyContext) -> None:
+    """Flush pending order/trade callbacks without invoking a user market callback."""
+    ensure_framework_state(strategy)
+    strategy.ctx = ctx
+    strategy._check_order_events()

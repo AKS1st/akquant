@@ -1211,6 +1211,55 @@ impl Engine {
         }
     }
 
+    pub(crate) fn flush_terminal_pending_order_events(
+        &mut self,
+        py: Python<'_>,
+        strategy: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        if self.state.order_manager.current_step_trades.is_empty()
+            && self.state.order_manager.current_step_rejected_orders.is_empty()
+        {
+            return Ok(());
+        }
+
+        self.ensure_strategy_slot_exists();
+        self.ensure_strategy_context_capacity();
+        let slot_count = self.strategy_slots.len();
+        let active_orders = Arc::new(self.state.order_manager.active_orders.clone());
+        let step_trades = self.state.order_manager.current_step_trades.clone();
+        let step_rejected_orders = self.state.order_manager.current_step_rejected_orders.clone();
+        let previous_cash = self.state.portfolio.cash;
+        let previous_account_metrics = self.current_account_metrics();
+
+        for slot_index in 0..slot_count {
+            self.active_strategy_slot = slot_index;
+            let py_ctx = self.get_or_create_strategy_context(
+                slot_index,
+                active_orders.clone(),
+                step_trades.clone(),
+                step_rejected_orders.clone(),
+                previous_cash,
+                previous_account_metrics,
+            )?;
+            let slot_strategy = self
+                .strategy_slot_strategies
+                .get(slot_index)
+                .and_then(|slot| slot.as_ref())
+                .map(|slot| slot.clone_ref(py));
+            if let Some(ref slot_py) = slot_strategy {
+                slot_py
+                    .bind(py)
+                    .call_method1("_flush_pending_order_events", (py_ctx.clone_ref(py),))?;
+            } else {
+                strategy.call_method1("_flush_pending_order_events", (py_ctx,))?;
+            }
+        }
+
+        self.state.order_manager.current_step_trades.clear();
+        self.state.order_manager.current_step_rejected_orders.clear();
+        Ok(())
+    }
+
     pub(crate) fn build_pipeline(&self) -> PipelineRunner {
         let mut pipeline = PipelineRunner::new();
         // 1. Process events from previous iteration (or init)

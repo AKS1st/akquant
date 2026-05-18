@@ -29,6 +29,9 @@ from .akquant import (
 from .indicator_recording import IndicatorRecorder
 from .sizer import FixedSize, Sizer
 from .strategy_events import (
+    flush_pending_order_events as _flush_pending_order_events_impl,
+)
+from .strategy_events import (
     on_bar_event as _on_bar_event_impl,
 )
 from .strategy_events import (
@@ -1461,6 +1464,9 @@ class Strategy:
 
     def _on_timer_event(self, payload: str, ctx: StrategyContext) -> None:
         _on_timer_event_impl(self, payload, ctx)
+
+    def _flush_pending_order_events(self, ctx: StrategyContext) -> None:
+        _flush_pending_order_events_impl(self, ctx)
 
     def on_bar(self, bar: Bar) -> None:
         """

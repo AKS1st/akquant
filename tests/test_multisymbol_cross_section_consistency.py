@@ -548,6 +548,46 @@ class SellThenBuySameCycleStrategy(Strategy):
         self.step += 1
 
 
+class DailyRebalanceSellThenBuySameCycleStrategy(Strategy):
+    """Validate day-rebalance callbacks also observe terminal same-cycle fills."""
+
+    def __init__(self) -> None:
+        """Initialize staged rebalance state and callback logs."""
+        super().__init__()
+        self.step = 0
+        self.order_events: list[tuple[str, str, str]] = []
+        self.trade_events: list[tuple[str, str]] = []
+
+    def on_daily_rebalance(self, trading_date: object, timestamp: int) -> None:
+        """Rotate from AAA to BBB during the framework rebalance hook."""
+        _ = (trading_date, timestamp)
+        if self.step == 1:
+            self.order_target_percent(symbol="AAA", target_percent=0.95)
+        elif self.step == 2:
+            self.order_target_percent(symbol="AAA", target_percent=0.0)
+            self.order_target_percent(symbol="BBB", target_percent=0.95)
+        self.step += 1
+
+    def on_order(self, order: Any) -> None:
+        """Record observable order callbacks."""
+        self.order_events.append(
+            (
+                str(order.symbol),
+                str(order.side).split(".")[-1].lower(),
+                str(order.status).split(".")[-1].lower(),
+            )
+        )
+
+    def on_trade(self, trade: Any) -> None:
+        """Record observable trade callbacks."""
+        self.trade_events.append(
+            (
+                str(trade.symbol),
+                str(trade.side).split(".")[-1].lower(),
+            )
+        )
+
+
 class TargetPositionsLongShortRotationStrategy(Strategy):
     """Exercise multi-symbol signed target positions through one advanced API call."""
 
@@ -615,3 +655,38 @@ def test_same_cycle_sell_then_buy_uses_post_sell_cash_for_sizing() -> None:
     final_positions = result.positions.iloc[-1]
     assert float(final_positions.get("AAA", 0.0)) == 0.0
     assert float(final_positions.get("BBB", 0.0)) >= 499.0
+
+
+def test_daily_rebalance_same_cycle_terminal_fill_emits_callbacks() -> None:
+    """Last-timestamp same-cycle fills should still reach order/trade callbacks."""
+    timestamps = [
+        pd.Timestamp("2023-01-02 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-03 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-04 10:00:00", tz="Asia/Shanghai"),
+    ]
+    data_map = {
+        "AAA": _build_symbol_df("AAA", timestamps, [10.0, 10.0, 10.0]),
+        "BBB": _build_symbol_df("BBB", timestamps, [10.0, 10.0, 10.0]),
+    }
+
+    strategy = DailyRebalanceSellThenBuySameCycleStrategy()
+    result = run_backtest(
+        data=data_map,
+        strategy=strategy,
+        symbols=["AAA", "BBB"],
+        initial_cash=100000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        lot_size=1,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        show_progress=False,
+    )
+
+    orders_df = result.orders_df.sort_values("created_at").reset_index(drop=True)
+    bbb_buys = orders_df[(orders_df["symbol"] == "BBB") & (orders_df["side"] == "buy")]
+    assert not bbb_buys.empty
+    assert set(bbb_buys["status"].astype(str).str.lower()) == {"filled"}
+    assert ("BBB", "buy", "filled") in strategy.order_events
+    assert ("BBB", "buy") in strategy.trade_events

@@ -1134,6 +1134,8 @@ impl Engine {
             return Err(e);
         }
 
+        self.flush_terminal_pending_order_events(py, strategy)?;
+
         // Final cleanup
         self.state.order_manager.cleanup_finished_orders();
 
