@@ -1,6 +1,7 @@
 use crate::event::Event;
 use crate::execution::common::CommonMatcher;
 use crate::execution::matcher::{ExecutionMatcher, MatchContext};
+use crate::log_context::{execution_order_context_from_event, render_log_message};
 use crate::model::{Order, OrderStatus, OrderType};
 use rust_decimal::Decimal;
 
@@ -11,6 +12,13 @@ pub struct FuturesMatcher {
 }
 
 impl FuturesMatcher {
+    fn validation_reject_warning(order: &Order, ctx: &MatchContext, reason: &str) -> String {
+        render_log_message(
+            format!("Rejected futures order because {reason}"),
+            execution_order_context_from_event(order, ctx.event),
+        )
+    }
+
     pub fn new(enforce_tick_size: bool, enforce_lot_size: bool) -> Self {
         Self {
             default_enforce_tick_size: enforce_tick_size,
@@ -32,6 +40,7 @@ impl FuturesMatcher {
     }
 
     fn reject(order: &mut Order, ctx: &MatchContext, reason: String) -> Option<Event> {
+        let warning = Self::validation_reject_warning(order, ctx, &reason);
         order.status = OrderStatus::Rejected;
         order.reject_reason = reason;
         match ctx.event {
@@ -39,6 +48,7 @@ impl FuturesMatcher {
             Event::Tick(t) => order.updated_at = t.timestamp,
             _ => {}
         }
+        log::warn!("{}", warning);
         Some(Event::ExecutionReport(order.clone(), None))
     }
 
@@ -259,6 +269,67 @@ mod tests {
         assert!(res.is_some());
         assert_eq!(order.status, OrderStatus::Rejected);
         assert!(order.reject_reason.contains("tick size"));
+    }
+
+    #[test]
+    fn test_validation_reject_warning_includes_order_context_for_lot_size() {
+        let mut order = create_order(OrderSide::Sell);
+        order.quantity = Decimal::from_str("1.5").unwrap();
+        order.owner_strategy_id = Some("fut-alpha".to_string());
+        let instrument = create_futures_instrument();
+        let bar = crate::model::Bar {
+            timestamp: 2_000_000_000,
+            symbol: "RB2310".to_string(),
+            open: dec!(3500.0),
+            high: dec!(3510.0),
+            low: dec!(3490.0),
+            close: dec!(3505.0),
+            volume: dec!(1000),
+            extra: Default::default(),
+        };
+        let event = Event::Bar(bar);
+        let ctx = create_context(&event, &instrument);
+
+        let rendered = FuturesMatcher::validation_reject_warning(
+            &order,
+            &ctx,
+            "Quantity 1.5 is not a multiple of lot size 1",
+        );
+
+        assert!(rendered.contains("Rejected futures order because Quantity 1.5"));
+        assert!(rendered.contains("\"phase\":\"execution\""));
+        assert!(rendered.contains("\"symbol\":\"RB2310\""));
+        assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
+        assert!(rendered.contains("\"strategy_id\":\"fut-alpha\""));
+        assert!(rendered.contains("\"slot\":\"fut-alpha\""));
+        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:02\""));
+    }
+
+    #[test]
+    fn test_validation_reject_warning_includes_tick_context() {
+        let mut order = create_order(OrderSide::Buy);
+        order.price = Some(dec!(3500.1));
+        let instrument = create_futures_instrument();
+        let tick = crate::model::Tick {
+            timestamp: 3_000_000_000,
+            price: dec!(3500.0),
+            volume: dec!(10),
+            symbol: "RB2310".to_string(),
+        };
+        let event = Event::Tick(tick);
+        let ctx = create_context(&event, &instrument);
+
+        let rendered = FuturesMatcher::validation_reject_warning(
+            &order,
+            &ctx,
+            "price 3500.1 is not aligned with tick size 0.2",
+        );
+
+        assert!(rendered.contains("Rejected futures order because price 3500.1"));
+        assert!(rendered.contains("\"phase\":\"execution\""));
+        assert!(rendered.contains("\"symbol\":\"RB2310\""));
+        assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
+        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:03\""));
     }
 
     #[test]

@@ -226,16 +226,15 @@ impl RiskRule for CashMarginRule {
                 return Ok(());
             }
 
-            let free_margin =
-                projected_portfolio.calculate_free_margin_with_stock_ratio(
-                    ctx.current_prices,
-                    ctx.instruments,
-                    if ctx.config.is_margin_account() {
-                        Some(ctx.config.stock_initial_margin_ratio())
-                    } else {
-                        None
-                    },
-                );
+            let free_margin = projected_portfolio.calculate_free_margin_with_stock_ratio(
+                ctx.current_prices,
+                ctx.instruments,
+                if ctx.config.is_margin_account() {
+                    Some(ctx.config.stock_initial_margin_ratio())
+                } else {
+                    None
+                },
+            );
             let safety_margin = ctx.config.safety_margin;
             let safety_factor = Decimal::from_f64(1.0 - safety_margin)
                 .unwrap_or(Decimal::from_f64(0.9999).unwrap());
@@ -363,12 +362,7 @@ fn calc_required_margin_delta(
         let entry = positions
             .entry(order.symbol.clone())
             .or_insert(Decimal::ZERO);
-        *entry = project_position_after(
-            order.side,
-            order.position_effect,
-            *entry,
-            order.quantity,
-        );
+        *entry = project_position_after(order.side, order.position_effect, *entry, order.quantity);
     }
     let next_used = projected_portfolio.calculate_used_margin_with_stock_ratio(
         prices,

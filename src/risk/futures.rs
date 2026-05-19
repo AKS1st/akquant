@@ -80,7 +80,8 @@ impl RiskRule for FuturesMarginRule {
         }
 
         let next_ratio = next_metrics.maintenance_ratio;
-        if next_ratio < maintenance_ratio && next_metrics.used_margin >= current_metrics.used_margin {
+        if next_ratio < maintenance_ratio && next_metrics.used_margin >= current_metrics.used_margin
+        {
             return Err(AkQuantError::OrderError(format!(
                 "Risk: Futures maintenance margin breach. Ratio: {next_ratio}, Required: {maintenance_ratio}",
             )));

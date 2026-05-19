@@ -695,6 +695,8 @@ Behavior notes:
 *   `profile` only fills unspecified fields; explicit config values always win.
 *   `profile="optimize"` uses a process-aware default text format so worker output is easier to distinguish.
 *   `profile="live"` is the natural place to enable structured context and/or JSON output.
+*   Rust-side runtime warnings under `akquant.*` are also bridged into Python `logging` and restored into the same structured field model whenever possible.
+*   For example, execution-path warnings such as insufficient-margin rejects, session-close expiry, unknown cancel requests, or same-slice `same-cycle` deferrals carry `phase="execution"` and may also include `symbol`, `order_id`, `strategy_id`, `slot`, and `event_time_str`.
 
 #### `akquant.register_logger`
 
@@ -733,6 +735,7 @@ Updates the current `akquant` root logger level.
 *   `self.log(...)` is the primary human-readable strategy logging path.
 *   `run_backtest(..., on_event=...)` is the machine-consumable event stream and is better suited for realtime UI, alerting, and audit sinks.
 *   Inside `on_order` / `on_trade` / `on_reject`, `self.log(...)` automatically carries structured fields such as `order_id` and `client_order_id`.
+*   Rust execution/data warnings do not require manual user wiring; once an `akquant` logger handler is configured, they flow through the same text or JSON logging pipeline.
 
 ### `akquant.RiskConfig`
 

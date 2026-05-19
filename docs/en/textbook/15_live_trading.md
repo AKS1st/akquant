@@ -12,3 +12,26 @@ This chapter is currently maintained in Chinese first.
   - Extended example: [examples/textbook/ch15_strategy_loader.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch15_strategy_loader.py)
   - Supplementary example: [examples/44_strategy_source_loader_demo.py](https://github.com/akfamily/akquant/blob/main/examples/44_strategy_source_loader_demo.py)
   - Guide: [Live Functional Quickstart Guide](../advanced/live_functional_quickstart.md)
+
+## Operational Logging Note
+
+Before live or paper troubleshooting, explicitly configure logging instead of relying on defaults:
+
+```python
+import akquant
+
+akquant.configure_logging(
+    akquant.LogConfig(
+        profile="live",
+        level="INFO",
+        console=True,
+        filename="logs/live.log",
+        file_level="DEBUG",
+        file_json=True,
+        file_max_bytes=50_000_000,
+        file_backup_count=5,
+    )
+)
+```
+
+This keeps strategy-side `on_order` / `on_trade` logs and gateway/execution warnings in the same pipeline. It is especially useful when tracing rejects, unknown cancel requests, session-close expiry, or strict-semantics cases where terminal state is not confirmed until broker callbacks arrive.

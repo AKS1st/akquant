@@ -28,7 +28,10 @@ impl MarginEngine {
         if let Some(override_ratio) =
             Self::stock_margin_ratio_override(instrument, stock_margin_ratio_override)
         {
-            return quantity.abs() * price.abs() * instrument.multiplier().abs() * override_ratio.abs();
+            return quantity.abs()
+                * price.abs()
+                * instrument.multiplier().abs()
+                * override_ratio.abs();
         }
         LinearMarginCalculator.calculate_margin(quantity, price, instrument, None)
     }
@@ -45,18 +48,23 @@ impl MarginEngine {
                 let underlying_price = instrument
                     .underlying_symbol()
                     .and_then(|symbol| prices.get(symbol.as_str()).copied());
-                OptionMarginCalculator
-                    .calculate_margin(quantity, price, instrument, underlying_price)
+                OptionMarginCalculator.calculate_margin(
+                    quantity,
+                    price,
+                    instrument,
+                    underlying_price,
+                )
             }
             AssetType::Futures => {
                 FuturesMarginCalculator.calculate_margin(quantity, price, instrument, None)
             }
-            AssetType::Stock | AssetType::Fund => {
-                Self::calculate_linear_margin(quantity, price, instrument, stock_margin_ratio_override)
-            }
-            _ => {
-                LinearMarginCalculator.calculate_margin(quantity, price, instrument, None)
-            }
+            AssetType::Stock | AssetType::Fund => Self::calculate_linear_margin(
+                quantity,
+                price,
+                instrument,
+                stock_margin_ratio_override,
+            ),
+            _ => LinearMarginCalculator.calculate_margin(quantity, price, instrument, None),
         }
     }
 
@@ -84,9 +92,7 @@ impl MarginEngine {
                 prices,
                 stock_margin_ratio_override,
             );
-            used_margin = used_margin
-                .checked_add(margin)
-                .unwrap_or(Decimal::MAX);
+            used_margin = used_margin.checked_add(margin).unwrap_or(Decimal::MAX);
             if used_margin == Decimal::MAX {
                 break;
             }

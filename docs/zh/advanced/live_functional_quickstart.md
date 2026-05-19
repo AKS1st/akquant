@@ -85,6 +85,24 @@ runner.run(duration="30s", show_progress=False)
   - 原因：当前为严格语义，状态需等待 `OnRtnOrder(Cancelled)`。
   - 处理：检查交易侧回报链路与订单回报日志，不要用本地请求发送成功替代终态。
 
+建议在 live/paper 排查前先显式打开日志：
+
+```python
+import akquant
+
+akquant.configure_logging(
+    akquant.LogConfig(
+        profile="live",
+        level="INFO",
+        console=True,
+        file_json=True,
+        filename="logs/live_runner.log",
+    )
+)
+```
+
+这样 `on_order` / `on_trade` 的策略日志与网关/执行层 warning 会进入同一套输出链路；遇到拒单、未知撤单、严格语义下状态未终态推进等问题时，更容易按 `symbol`、`order_id`、`client_order_id`、`strategy_id` 做排查。
+
 ## 5. 建议上线流程
 
 - 第一步：先跑 paper 模式，确认回调顺序与策略状态变更。

@@ -38,7 +38,7 @@ from .strategy import Strategy
 
 _WORKER_LOG_QUEUE: Any = None
 OptimizationData = Union[pd.DataFrame, Dict[str, pd.DataFrame]]
-logger = logging.getLogger("akquant.optimize")
+logger = get_logger("optimize")
 
 
 def _normalize_backtest_symbol_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -293,8 +293,11 @@ def _run_single_backtest(args: Dict[str, Any]) -> OptimizationResult:
             dynamic_warmup = warmup_calc(params)
             base_warmup = kwargs.get("warmup_period", 0)
             kwargs["warmup_period"] = max(base_warmup, dynamic_warmup)
-        except Exception as e:
-            print(f"Warning: Failed to calculate dynamic warmup period: {e}")
+        except Exception as exc:
+            logger.warning(
+                "Failed to calculate dynamic warmup period: %s",
+                exc,
+            )
 
     start_time = time.time()
     metrics: Dict[str, Any] = {}

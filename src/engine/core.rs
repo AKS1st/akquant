@@ -1,4 +1,4 @@
-use crate::account::{calculate_account_metrics, AccountMetrics};
+use crate::account::{AccountMetrics, calculate_account_metrics};
 use chrono::{DateTime, NaiveDate, NaiveTime, TimeZone, Utc};
 use indicatif::ProgressBar;
 use pyo3::exceptions::PyRuntimeError;
@@ -1025,10 +1025,7 @@ impl Engine {
                 .maintenance_ratio
                 .to_f64()
                 .unwrap_or_default(),
-            previous_account_equity: previous_account_metrics
-                .equity
-                .to_f64()
-                .unwrap_or_default(),
+            previous_account_equity: previous_account_metrics.equity.to_f64().unwrap_or_default(),
             previous_account_market_value: previous_account_metrics
                 .market_value
                 .to_f64()
@@ -1217,7 +1214,11 @@ impl Engine {
         strategy: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
         if self.state.order_manager.current_step_trades.is_empty()
-            && self.state.order_manager.current_step_rejected_orders.is_empty()
+            && self
+                .state
+                .order_manager
+                .current_step_rejected_orders
+                .is_empty()
         {
             return Ok(());
         }
@@ -1227,7 +1228,11 @@ impl Engine {
         let slot_count = self.strategy_slots.len();
         let active_orders = Arc::new(self.state.order_manager.active_orders.clone());
         let step_trades = self.state.order_manager.current_step_trades.clone();
-        let step_rejected_orders = self.state.order_manager.current_step_rejected_orders.clone();
+        let step_rejected_orders = self
+            .state
+            .order_manager
+            .current_step_rejected_orders
+            .clone();
         let previous_cash = self.state.portfolio.cash;
         let previous_account_metrics = self.current_account_metrics();
 
@@ -1256,7 +1261,10 @@ impl Engine {
         }
 
         self.state.order_manager.current_step_trades.clear();
-        self.state.order_manager.current_step_rejected_orders.clear();
+        self.state
+            .order_manager
+            .current_step_rejected_orders
+            .clear();
         Ok(())
     }
 

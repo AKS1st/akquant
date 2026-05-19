@@ -162,7 +162,15 @@ mod tests {
             Decimal::from(200),
             Decimal::from(100),
         );
-        let ctx = create_context(&portfolio, &instr, &instruments, &[], &prices, &tracker, &config);
+        let ctx = create_context(
+            &portfolio,
+            &instr,
+            &instruments,
+            &[],
+            &prices,
+            &tracker,
+            &config,
+        );
 
         let res = rule.check(&order, &ctx);
         assert!(res.is_err());

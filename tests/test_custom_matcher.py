@@ -1,6 +1,7 @@
 """Test custom matcher functionality."""
 
-from typing import Optional
+import logging
+from typing import Any, Optional
 
 import akquant as aq
 import pandas as pd
@@ -14,7 +15,7 @@ class CustomStockMatcher:
         self,
         order: Order,
         event: Bar,
-        instrument: Instrument,
+        _instrument: Instrument,
         bar_index: int,
     ) -> Optional[Trade]:
         """Match order at the event close price and return a Trade or None."""
@@ -47,6 +48,34 @@ class CustomStockMatcher:
             f"bar_index={bar_index}"
         )
         return trade
+
+
+class RaisingStockMatcher:
+    """Matcher that raises to test Rust->Python execution warning bridging."""
+
+    def match(
+        self,
+        order: Order,
+        _event: Bar,
+        _instrument: Instrument,
+        bar_index: int,
+    ) -> Optional[Trade]:
+        """Raise a matcher error."""
+        raise RuntimeError(f"matcher boom for {order.symbol} at {bar_index}")
+
+
+class InvalidResultStockMatcher:
+    """Matcher that returns an invalid payload for logging regression tests."""
+
+    def match(
+        self,
+        order: Order,
+        _event: Bar,
+        _instrument: Instrument,
+        bar_index: int,
+    ) -> object:
+        """Return a non-Trade object to trigger the Rust warning path."""
+        return {"symbol": order.symbol, "bar_index": bar_index}
 
 
 def _make_data() -> pd.DataFrame:
@@ -107,3 +136,63 @@ def test_custom_matcher_generates_closed_trade() -> None:
     assert trade["quantity"] == 100.0
     assert trade["entry_price"] == 100.0
     assert trade["exit_price"] == 100.0
+
+
+def test_custom_matcher_exception_bridges_rust_warning(caplog: Any) -> None:
+    """Matcher exceptions should enter the structured execution logging pipeline."""
+    aq.configure_logging(aq.LogConfig(console=False, level="WARNING"))
+
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        result = aq.run_backtest(
+            strategy=MatcherStrategy,
+            data=_make_data(),
+            symbols="TEST",
+            initial_cash=100000,
+            custom_matchers={AssetType.Stock: RaisingStockMatcher()},
+            show_progress=False,
+        )
+
+    assert result is not None
+    matching_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.execution.python"
+        and "Custom Python matcher raised an exception: RuntimeError: matcher boom"
+        in record.getMessage()
+    )
+    assert matching_record.phase == "execution"
+    assert matching_record.symbol == "TEST"
+    assert getattr(matching_record, "order_id", None)
+    assert matching_record.event_time_str.startswith("2024-01-01")
+
+    aq.register_logger(console=False, level="INFO")
+
+
+def test_custom_matcher_invalid_result_bridges_rust_warning(caplog: Any) -> None:
+    """Matcher invalid return values should enter structured execution logging."""
+    aq.configure_logging(aq.LogConfig(console=False, level="WARNING"))
+
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        result = aq.run_backtest(
+            strategy=MatcherStrategy,
+            data=_make_data(),
+            symbols="TEST",
+            initial_cash=100000,
+            custom_matchers={AssetType.Stock: InvalidResultStockMatcher()},
+            show_progress=False,
+        )
+
+    assert result is not None
+    matching_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.execution.python"
+        and "Ignored custom Python matcher result because it is not a Trade"
+        in record.getMessage()
+    )
+    assert matching_record.phase == "execution"
+    assert matching_record.symbol == "TEST"
+    assert getattr(matching_record, "order_id", None)
+    assert matching_record.event_time_str.startswith("2024-01-01")
+
+    aq.register_logger(console=False, level="INFO")

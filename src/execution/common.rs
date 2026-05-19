@@ -1,5 +1,6 @@
 use crate::event::Event;
 use crate::execution::matcher::MatchContext;
+use crate::log_context::{execution_order_context_from_event, render_log_message};
 use crate::model::{Order, OrderSide, OrderStatus, OrderType, PriceBasis, TimeInForce, Trade};
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -8,6 +9,30 @@ use uuid::Uuid;
 pub struct CommonMatcher;
 
 impl CommonMatcher {
+    fn cancelled_unfilled_ioc_fok_warning(order: &Order, event: &Event) -> String {
+        render_log_message(
+            format!(
+                "Cancelled {:?} order because it was not filled on current event",
+                order.time_in_force
+            ),
+            execution_order_context_from_event(order, event),
+        )
+    }
+
+    fn deferred_triggered_stop_limit_warning(
+        order: &Order,
+        event: &Event,
+        trigger_price: Decimal,
+        limit_price: Decimal,
+    ) -> String {
+        render_log_message(
+            format!(
+                "Deferred triggered stop-limit order because trigger price {trigger_price} breached limit price {limit_price} during in-bar activation"
+            ),
+            execution_order_context_from_event(order, event),
+        )
+    }
+
     fn apply_slippage(order: &Order, base_price: Decimal, ctx: &MatchContext) -> Decimal {
         let override_type = order
             .slippage_type_override
@@ -117,6 +142,13 @@ impl CommonMatcher {
                 Event::Timer(t) => order.updated_at = t.timestamp,
                 _ => {}
             }
+            log::warn!(
+                "{}",
+                render_log_message(
+                    format!("Rejected order because {}", order.reject_reason),
+                    execution_order_context_from_event(order, event),
+                )
+            );
             return Some(Event::ExecutionReport(order.clone(), None));
         }
 
@@ -259,6 +291,15 @@ impl CommonMatcher {
                                                     final_fill_price = tp;
                                                 }
                                                 if final_fill_price > limit_price {
+                                                    log::warn!(
+                                                        "{}",
+                                                        Self::deferred_triggered_stop_limit_warning(
+                                                            order,
+                                                            event,
+                                                            tp,
+                                                            limit_price,
+                                                        )
+                                                    );
                                                     return None;
                                                 }
                                             }
@@ -267,6 +308,15 @@ impl CommonMatcher {
                                                     final_fill_price = tp;
                                                 }
                                                 if final_fill_price < limit_price {
+                                                    log::warn!(
+                                                        "{}",
+                                                        Self::deferred_triggered_stop_limit_warning(
+                                                            order,
+                                                            event,
+                                                            tp,
+                                                            limit_price,
+                                                        )
+                                                    );
                                                     return None;
                                                 }
                                             }
@@ -334,6 +384,7 @@ impl CommonMatcher {
                     // Cancel IOC/FOK if not filled
                     order.status = OrderStatus::Cancelled;
                     order.updated_at = bar.timestamp;
+                    log::warn!("{}", Self::cancelled_unfilled_ioc_fok_warning(order, event));
                     return Some(Event::ExecutionReport(order.clone(), None));
                 }
             }
@@ -413,6 +464,13 @@ impl CommonMatcher {
                         };
                         return Some(Event::ExecutionReport(order.clone(), Some(trade)));
                     }
+                } else if order.time_in_force == TimeInForce::IOC
+                    || order.time_in_force == TimeInForce::FOK
+                {
+                    order.status = OrderStatus::Cancelled;
+                    order.updated_at = tick.timestamp;
+                    log::warn!("{}", Self::cancelled_unfilled_ioc_fok_warning(order, event));
+                    return Some(Event::ExecutionReport(order.clone(), None));
                 }
             }
             Event::Timer(timer) => {
@@ -490,6 +548,7 @@ impl CommonMatcher {
                 {
                     order.status = OrderStatus::Cancelled;
                     order.updated_at = timer.timestamp;
+                    log::warn!("{}", Self::cancelled_unfilled_ioc_fok_warning(order, event));
                     return Some(Event::ExecutionReport(order.clone(), None));
                 }
             }

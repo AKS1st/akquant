@@ -3146,6 +3146,33 @@ def test_live_mode_daily_timer_reschedules_once_per_trigger() -> None:
     assert schedule_call.args[1] == "__daily__|14:55:00|daily_timer"
 
 
+def test_live_mode_daily_timer_logs_reschedule_failures(caplog: Any) -> None:
+    """Live daily timer reschedule failures should be logged with strategy context."""
+    strategy = TimerIdempotencyStrategy()
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.canceled_order_ids = []
+    ctx.active_orders = []
+    ctx.recent_trades = []
+    strategy.ctx = ctx
+    strategy._trading_days = []
+    strategy._owner_strategy_id = "alpha"
+    cast(Any, strategy).schedule = MagicMock(
+        side_effect=RuntimeError("schedule failed")
+    )
+
+    with caplog.at_level(logging.WARNING, logger="akquant.strategy.events"):
+        strategy._on_timer_event("__daily__|14:55:00|daily_timer", ctx)
+
+    record = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "Failed to reschedule live daily timer"
+    )
+    assert record.phase == "strategy"
+    assert record.strategy_id == "alpha"
+    assert record.slot == "alpha"
+
+
 class TimerOrderTradeMixedStrategy(Strategy):
     """Strategy for mixed timer/order/trade event ordering tests."""
 

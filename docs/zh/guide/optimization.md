@@ -226,6 +226,7 @@ akquant.configure_logging(
 *   `forward_worker_logs=True` 只负责“把子进程日志送回主进程”，不负责自动创建 handler。
 *   如果你只想快速打开控制台日志，也可以继续使用 `akquant.register_logger(level="INFO")`。
 *   如果你希望文件日志更方便被日志平台消费，可额外打开 `file_json=True`。
+*   开启日志聚合后，来自 Rust 执行链路的 warning 也会回传到主进程。例如保证金不足拒单、收盘过期、未知取消订单、`same-cycle` 延后等执行 warning，会按统一结构化字段输出，便于批量筛查 `phase=execution`、`order_id`、`strategy_id` 等信息。
 
 ### 持久化与断点续传 (Persistence & Resume)
 

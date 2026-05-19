@@ -4,8 +4,7 @@ use crate::data::FeedAction;
 use crate::engine::Engine;
 use crate::event::Event;
 use crate::model::{
-    Bar, ExecutionPolicyCore, Order, OrderStatus, PriceBasis, TemporalPolicy, Trade,
-    TradingSession,
+    Bar, ExecutionPolicyCore, Order, OrderStatus, PriceBasis, TemporalPolicy, Trade, TradingSession,
 };
 use crate::pipeline::processor::{Processor, ProcessorResult};
 use pyo3::prelude::*;
@@ -277,10 +276,7 @@ fn apply_execution_report(
             if let Some(cancelled_order_snapshot) = cancelled_order_snapshot {
                 let mut cancel_payload = HashMap::new();
                 cancel_payload.insert("order_id", cancelled_order_snapshot.id.clone());
-                cancel_payload.insert(
-                    "status",
-                    format!("{:?}", cancelled_order_snapshot.status),
-                );
+                cancel_payload.insert("status", format!("{:?}", cancelled_order_snapshot.status));
                 cancel_payload.insert(
                     "filled_qty",
                     cancelled_order_snapshot.filled_quantity.to_string(),
@@ -315,7 +311,9 @@ fn apply_execution_report(
                 .order_manager
                 .consume_bracket_activation_on_fill(&filled_order_snapshot);
             for bracket_order in bracket_exit_orders {
-                let _ = engine.event_manager.send(Event::OrderRequest(bracket_order));
+                let _ = engine
+                    .event_manager
+                    .send(Event::OrderRequest(bracket_order));
             }
         }
     }
@@ -335,13 +333,7 @@ fn apply_execution_report(
             "owner_strategy_id",
             t.owner_strategy_id.clone().unwrap_or_default(),
         );
-        engine.emit_stream_event(
-            py,
-            "trade",
-            Some(t.symbol.as_str()),
-            "info",
-            trade_payload,
-        );
+        engine.emit_stream_event(py, "trade", Some(t.symbol.as_str()), "info", trade_payload);
         trades_to_process.push(t);
     }
 }
@@ -539,7 +531,9 @@ impl DataProcessor {
 
         for order in rejected_orders {
             engine.execution_model.on_cancel(&order.id);
-            let _ = engine.event_manager.send(Event::ExecutionReport(order, None));
+            let _ = engine
+                .event_manager
+                .send(Event::ExecutionReport(order, None));
         }
     }
 
@@ -562,7 +556,9 @@ impl DataProcessor {
                 active_orders: &engine.state.order_manager.active_orders,
                 risk_config: &engine.risk_manager.config,
             };
-            let reports = engine.execution_model.finalize_timestamp(&current_events, &ctx);
+            let reports = engine
+                .execution_model
+                .finalize_timestamp(&current_events, &ctx);
             let mut trades_to_process = Vec::new();
             let mut oco_suppressed_fill_order_ids: HashSet<String> = HashSet::new();
             for report in reports {
@@ -1334,13 +1330,16 @@ mod tests {
             let strategy = locals.getattr("None").unwrap();
 
             data_processor.process(&mut engine, py, &strategy).unwrap();
-            channel_processor.process(&mut engine, py, &strategy).unwrap();
+            channel_processor
+                .process(&mut engine, py, &strategy)
+                .unwrap();
             data_processor.process(&mut engine, py, &strategy).unwrap();
-            channel_processor.process(&mut engine, py, &strategy).unwrap();
+            channel_processor
+                .process(&mut engine, py, &strategy)
+                .unwrap();
             cleanup_processor
                 .process(&mut engine, py, &strategy)
                 .unwrap();
-
 
             let rejected_order = engine
                 .state
@@ -1352,7 +1351,11 @@ mod tests {
             assert_eq!(rejected_order.status, OrderStatus::Rejected);
             assert!(rejected_order.reject_reason.contains("Missing market data"));
             assert_eq!(
-                engine.state.order_manager.current_step_rejected_orders.len(),
+                engine
+                    .state
+                    .order_manager
+                    .current_step_rejected_orders
+                    .len(),
                 1
             );
             assert!(

@@ -6,10 +6,10 @@ use crate::event::Event;
 use crate::execution::matcher::{ExecutionMatcher, MatchContext};
 use crate::execution::slippage::{SlippageModel, ZeroSlippage};
 use crate::execution::{ExecutionClient, crypto, forex, futures, option, stock};
-use crate::log_context::{AkqLogContext, format_event_time_nanos, render_log_message};
+use crate::log_context::{AkqLogContext, execution_order_context, render_log_message};
 use crate::model::{
-    AssetType, ExecutionPolicyCore, Order, OrderStatus, PriceBasis, TemporalPolicy,
-    TimeInForce, TradingSession,
+    AssetType, ExecutionPolicyCore, Order, OrderStatus, PriceBasis, TemporalPolicy, TimeInForce,
+    TradingSession,
 };
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
@@ -36,22 +36,7 @@ pub struct SimulatedExecutionClient {
 
 impl SimulatedExecutionClient {
     fn order_log_context(order: &Order, event_time: i64) -> AkqLogContext {
-        let mut context = AkqLogContext::new()
-            .phase("execution")
-            .symbol(order.symbol.clone())
-            .order_id(order.id.clone())
-            .event_time_str(format_event_time_nanos(event_time));
-        if let Some(strategy_id) = order
-            .owner_strategy_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            context = context
-                .strategy_id(strategy_id.to_string())
-                .slot(strategy_id.to_string());
-        }
-        context
+        execution_order_context(order, event_time)
     }
 
     fn insufficient_margin_warning(
@@ -190,7 +175,9 @@ impl SimulatedExecutionClient {
     }
 
     fn effective_policy(order: &Order, ctx: &crate::context::EngineContext) -> ExecutionPolicyCore {
-        order.fill_policy_override.unwrap_or(ctx.execution_policy_core)
+        order
+            .fill_policy_override
+            .unwrap_or(ctx.execution_policy_core)
     }
 
     fn is_same_cycle_close_policy(policy: ExecutionPolicyCore) -> bool {
@@ -199,7 +186,11 @@ impl SimulatedExecutionClient {
             && matches!(policy.temporal, TemporalPolicy::SameCycle)
     }
 
-    fn is_same_cycle_close_order(&self, order: &Order, ctx: &crate::context::EngineContext) -> bool {
+    fn is_same_cycle_close_order(
+        &self,
+        order: &Order,
+        ctx: &crate::context::EngineContext,
+    ) -> bool {
         Self::is_same_cycle_close_policy(Self::effective_policy(order, ctx))
     }
 
@@ -238,11 +229,7 @@ impl SimulatedExecutionClient {
             && self.has_cross_symbol_reduce_pending(event, ctx)
     }
 
-    fn should_finalize_order(
-        &self,
-        order: &Order,
-        ctx: &crate::context::EngineContext,
-    ) -> bool {
+    fn should_finalize_order(&self, order: &Order, ctx: &crate::context::EngineContext) -> bool {
         order.created_at == ctx.current_time
             && Self::is_order_active(order)
             && self.is_same_cycle_close_order(order, ctx)
@@ -321,7 +308,8 @@ impl SimulatedExecutionClient {
                 let Some(order_snapshot) = self.orders.get(order_id).cloned() else {
                     continue;
                 };
-                if !Self::is_order_active(&order_snapshot) || !order_filter(&order_snapshot, event) {
+                if !Self::is_order_active(&order_snapshot) || !order_filter(&order_snapshot, event)
+                {
                     continue;
                 }
 
@@ -370,8 +358,10 @@ impl SimulatedExecutionClient {
                         let report_opt = matcher.match_order(order, &match_ctx);
                         if let Some(mut report) = report_opt {
                             let mut replacement_report: Option<Event> = None;
-                            if let Event::ExecutionReport(ref mut report_order, Some(ref mut trade)) =
-                                report
+                            if let Event::ExecutionReport(
+                                ref mut report_order,
+                                Some(ref mut trade),
+                            ) = report
                             {
                                 let mut prices_for_margin = ctx.last_prices.clone();
                                 prices_for_margin.insert(trade.symbol.clone(), trade.price);
@@ -401,10 +391,8 @@ impl SimulatedExecutionClient {
                                     current_pos,
                                     trade.quantity,
                                 );
-                                margin_projection.adjust_position(
-                                    &trade.symbol,
-                                    next_pos - current_pos,
-                                );
+                                margin_projection
+                                    .adjust_position(&trade.symbol, next_pos - current_pos);
                                 let next_used_margin = margin_projection
                                     .calculate_used_margin_with_stock_ratio(
                                         &prices_for_margin,
@@ -418,14 +406,12 @@ impl SimulatedExecutionClient {
                                 if total_required > current_free_margin {
                                     if report_order.allow_quantity_auto_resize {
                                         let lot_size = instrument.lot_size();
-                                        let safety_factor = Decimal::from_f64(0.9999)
-                                            .unwrap_or(Decimal::ONE);
+                                        let safety_factor =
+                                            Decimal::from_f64(0.9999).unwrap_or(Decimal::ONE);
                                         let mut new_qty = if total_required > Decimal::ZERO
                                             && current_free_margin > Decimal::ZERO
                                         {
-                                            (trade.quantity
-                                                * current_free_margin
-                                                * safety_factor
+                                            (trade.quantity * current_free_margin * safety_factor
                                                 / total_required)
                                                 .floor()
                                         } else {
@@ -743,7 +729,11 @@ impl ExecutionClient for SimulatedExecutionClient {
         ordered_events.sort_by_key(|event| {
             let symbol = Self::event_symbol(event).unwrap_or_default().to_string();
             (
-                if reduce_symbols.contains(&symbol) { 0_u8 } else { 1_u8 },
+                if reduce_symbols.contains(&symbol) {
+                    0_u8
+                } else {
+                    1_u8
+                },
                 symbol,
             )
         });
@@ -771,7 +761,8 @@ fn calculate_free_margin(
     trade_tracker: &crate::analysis::TradeTracker,
     risk_config: &crate::risk::RiskConfig,
 ) -> Decimal {
-    let metrics = calculate_account_metrics(portfolio, prices, instruments, trade_tracker, risk_config);
+    let metrics =
+        calculate_account_metrics(portfolio, prices, instruments, trade_tracker, risk_config);
     metrics.equity - metrics.used_margin
 }
 
@@ -1265,7 +1256,13 @@ mod tests {
         order.allow_quantity_auto_resize = true;
         sim.on_order(order);
 
-        let bar = create_test_bar("OPT_P", Decimal::from(4), Decimal::from(4), Decimal::from(4), Decimal::from(4));
+        let bar = create_test_bar(
+            "OPT_P",
+            Decimal::from(4),
+            Decimal::from(4),
+            Decimal::from(4),
+            Decimal::from(4),
+        );
         let event = Event::Bar(bar);
 
         let portfolio = crate::portfolio::Portfolio {
@@ -1423,10 +1420,12 @@ mod tests {
         assert_eq!(reports.len(), 1);
         assert!(reports[0].1.is_none());
         assert_eq!(reports[0].0.status, OrderStatus::Rejected);
-        assert!(reports[0]
-            .0
-            .reject_reason
-            .contains("Insufficient margin at execution"));
+        assert!(
+            reports[0]
+                .0
+                .reject_reason
+                .contains("Insufficient margin at execution")
+        );
     }
 
     #[test]
@@ -1467,10 +1466,7 @@ mod tests {
         );
         order.owner_strategy_id = Some("beta".to_string());
 
-        let rendered = SimulatedExecutionClient::expired_day_order_warning(
-            &order,
-            2_000_000_000,
-        );
+        let rendered = SimulatedExecutionClient::expired_day_order_warning(&order, 2_000_000_000);
 
         assert!(rendered.contains("Expired day order at session close"));
         assert!(rendered.contains("\"phase\":\"execution\""));
@@ -1505,9 +1501,11 @@ mod tests {
 
         let rendered = SimulatedExecutionClient::ignored_non_cancellable_cancel_warning(&order);
 
-        assert!(rendered.contains(
-            "Ignored cancel request because order is not cancellable in status Filled"
-        ));
+        assert!(
+            rendered.contains(
+                "Ignored cancel request because order is not cancellable in status Filled"
+            )
+        );
         assert!(rendered.contains("\"phase\":\"execution\""));
         assert!(rendered.contains("\"symbol\":\"AAPL\""));
         assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
