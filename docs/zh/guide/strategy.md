@@ -348,6 +348,52 @@ def on_bar(self, bar):
     self.log("资金不足", level=logging.WARNING)
 ```
 
+如果你已经通过 `akquant.configure_logging(...)` 或 `akquant.register_logger(...)` 配置了日志处理器，`self.log()` 还会自动附带结构化上下文，便于在 `live` profile 或文件日志中排障：
+
+* `phase`: 当前日志阶段，例如 `strategy`、`order`、`trade`
+* `strategy_id` / `slot`: 多策略场景下的策略身份
+* `symbol`: 当前标的
+* `event_time`: 策略事件时间
+* `order_id` / `client_order_id`: 在 `on_order` / `on_trade` / `on_reject` 内会自动补齐
+
+最简单的方式仍然是兼容接口：
+
+```python
+import akquant
+
+akquant.register_logger(level="INFO")
+```
+
+如果你想区分 research / optimize / live 场景，推荐使用结构化配置接口：
+
+```python
+import akquant
+
+akquant.configure_logging(
+    akquant.LogConfig(
+        profile="live",
+        level="INFO",
+        console=True,
+        filename="logs/strategy.log",
+        file_level="DEBUG",
+        file_json=True,
+        file_max_bytes=10_000_000,
+        file_backup_count=5,
+    )
+)
+```
+
+如果你要把日志送到日志平台或采集系统，也可以为控制台或文件单独开启 JSON 输出：
+
+* `console_json=True`: 控制台输出 JSON line
+* `file_json=True`: 文件输出 JSON line
+
+实践建议：
+
+* 人类阅读的调试信息优先用 `self.log()`
+* 需要统一消费 `order/trade/progress/risk` 事件流时，优先用 `run_backtest(..., on_event=...)`
+* 如果你在 `on_order`、`on_trade`、`on_reject` 里写 `self.log()`，通常不需要再手动拼接订单 id
+
 ### 3.2 便捷数据访问 (Data Access)
 
 为了减少代码冗余，`Strategy` 类提供了当前 Bar/Tick 数据的快捷访问属性：

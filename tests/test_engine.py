@@ -1,3 +1,5 @@
+import csv
+import json
 import logging
 import time
 import warnings
@@ -55,6 +57,18 @@ class NoopStrategy(akquant.Strategy):
     def on_bar(self, bar: akquant.Bar) -> None:
         """Handle bar events without generating orders."""
         return
+
+
+class FailingOnStopStrategy(akquant.Strategy):
+    """Strategy that raises during on_stop for logging assertions."""
+
+    def on_bar(self, bar: akquant.Bar) -> None:
+        """Keep the strategy inactive during bar processing."""
+        _ = bar
+
+    def on_stop(self) -> None:
+        """Raise a deterministic failure for log context checks."""
+        raise RuntimeError("boom")
 
 
 class WorkerLogStrategy(akquant.Strategy):
@@ -2315,6 +2329,72 @@ def test_run_backtest_strategy_slot_risk_from_config() -> None:
     assert not any("order quantity" in reason for reason in beta_reject_reasons)
 
 
+def test_run_backtest_unknown_risk_config_key_includes_structured_context(
+    caplog: Any,
+) -> None:
+    """Unknown risk config warnings should expose structured backtest context."""
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        _ = akquant.run_backtest(
+            data=_build_regression_bars("RISK_CONTEXT"),
+            strategy=SingleBuyStrategy,
+            symbols="RISK_CONTEXT",
+            initial_cash=100000.0,
+            commission_rate=0.0,
+            stamp_tax_rate=0.0,
+            transfer_fee_rate=0.0,
+            min_commission=0.0,
+            fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+            lot_size=1,
+            show_progress=False,
+            strategy_id="alpha",
+            risk_config={"unknown_key": 1},
+        )
+
+    warning_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.backtest"
+        and "Unknown risk config key" in record.getMessage()
+    )
+    assert warning_record.phase == "risk"
+    assert warning_record.strategy_id == "alpha"
+    assert warning_record.slot == "alpha"
+    assert warning_record.symbol is None
+
+
+def test_run_backtest_slot_on_stop_error_includes_structured_context(
+    caplog: Any,
+) -> None:
+    """Slot lifecycle errors should expose slot identity in log records."""
+    with caplog.at_level(logging.ERROR, logger="akquant"):
+        _ = akquant.run_backtest(
+            data=_build_regression_bars("STOP_SLOT"),
+            strategy=NoopStrategy,
+            symbols="STOP_SLOT",
+            initial_cash=100000.0,
+            commission_rate=0.0,
+            stamp_tax_rate=0.0,
+            transfer_fee_rate=0.0,
+            min_commission=0.0,
+            fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+            lot_size=1,
+            show_progress=False,
+            strategy_id="alpha",
+            strategies_by_slot={"beta": FailingOnStopStrategy},
+        )
+
+    error_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.backtest"
+        and "Error in slot on_stop" in record.getMessage()
+    )
+    assert error_record.phase == "strategy"
+    assert error_record.strategy_id == "beta"
+    assert error_record.slot == "beta"
+    assert error_record.symbol == "STOP_SLOT"
+
+
 def test_run_backtest_explicit_strategy_slot_risk_overrides_config() -> None:
     """Explicit strategy slot risk args should override config values."""
     probe = akquant.Engine()
@@ -4299,22 +4379,574 @@ def test_run_grid_search_strict_params_raises_on_constructor_mismatch() -> None:
         )
 
 
-def test_run_grid_search_parallel_warns_worker_log_visibility(
+def test_configure_logging_supports_mixed_console_and_file_levels(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Console/file handler levels should work together without losing records."""
+    log_file = tmp_path / "mixed_levels.log"
+    akquant.configure_logging(
+        akquant.LogConfig(
+            level="INFO",
+            console=True,
+            filename=str(log_file),
+            file_level="DEBUG",
+        )
+    )
+    logger = akquant.get_logger()
+
+    logger.debug("debug-file-only")
+    logger.info("info-both")
+
+    captured = capsys.readouterr()
+    file_text = log_file.read_text(encoding="utf-8")
+
+    assert logger.level == logging.DEBUG
+    assert "debug-file-only" not in captured.out
+    assert "info-both" in captured.out
+    assert "debug-file-only" in file_text
+    assert "info-both" in file_text
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_configure_logging_optimize_profile_renders_process_name(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Parallel grid search should print worker log visibility warning."""
-    data = _build_benchmark_data(n=20, symbol="OPT_LOG_VISIBILITY")
-    _ = akquant.run_grid_search(
-        strategy=NoopStrategy,
-        param_grid={"dummy": [1, 2]},
-        data=data,
-        symbol="OPT_LOG_VISIBILITY",
-        max_workers=2,
-        return_df=True,
-        show_progress=False,
-    )
+    """Optimize profile should include process name and logger name in output."""
+    akquant.configure_logging(akquant.LogConfig(profile="optimize", level="WARNING"))
+    akquant.get_logger("optimize").warning("optimize-profile-check")
+
     captured = capsys.readouterr()
-    assert "self.log() output may not be visible" in captured.out
+    assert "MainProcess" in captured.out
+    assert "akquant.optimize" in captured.out
+    assert "optimize-profile-check" in captured.out
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_configure_logging_supports_rotating_file_handler(tmp_path: Path) -> None:
+    """File rotation should preserve records across rollover files."""
+    log_file = tmp_path / "rotating.log"
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=False,
+            filename=str(log_file),
+            file_level="INFO",
+            file_max_bytes=120,
+            file_backup_count=1,
+        )
+    )
+    logger = akquant.get_logger("strategy")
+
+    logger.info("first-message-%s", "A" * 80)
+    logger.info("second-message-%s", "B" * 80)
+
+    rotated_file = log_file.with_name(f"{log_file.name}.1")
+    assert rotated_file.exists()
+
+    combined_text = rotated_file.read_text(encoding="utf-8") + log_file.read_text(
+        encoding="utf-8"
+    )
+    assert "first-message-" in combined_text
+    assert "second-message-" in combined_text
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_configure_logging_supports_json_file_output(tmp_path: Path) -> None:
+    """JSON file logging should emit structured JSON records."""
+    import akquant.log as aklog
+
+    log_file = tmp_path / "json.log"
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=False,
+            filename=str(log_file),
+            file_json=True,
+            file_level="INFO",
+        )
+    )
+    logger = akquant.get_logger("strategy")
+    logger.info(
+        "json-file-check",
+        extra=aklog.build_log_extra(
+            phase="trade",
+            strategy_id="alpha",
+            slot="alpha",
+            symbol="AAPL",
+            order_id="order-1",
+            client_order_id="coid-1",
+            event_time_str="2023-01-01 09:30:00",
+        ),
+    )
+
+    payload = json.loads(log_file.read_text(encoding="utf-8").strip())
+    assert payload["message"] == "json-file-check"
+    assert payload["logger"] == "akquant.strategy"
+    assert payload["phase"] == "trade"
+    assert payload["strategy_id"] == "alpha"
+    assert payload["symbol"] == "AAPL"
+    assert payload["order_id"] == "order-1"
+    assert payload["client_order_id"] == "coid-1"
+    assert payload["event_time_str"] == "2023-01-01 09:30:00"
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_configure_logging_supports_json_console_output(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """JSON console logging should emit structured JSON records."""
+    import akquant.log as aklog
+
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=True,
+            console_json=True,
+            level="INFO",
+        )
+    )
+    logger = akquant.get_logger("gateway.live")
+    logger.warning(
+        "json-console-check",
+        extra=aklog.build_log_extra(
+            phase="gateway",
+            strategy_id="beta",
+            slot="beta",
+            symbol="IF2406",
+            client_order_id="coid-json-console",
+        ),
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out.strip())
+    assert payload["message"] == "json-console-check"
+    assert payload["logger"] == "akquant.gateway.live"
+    assert payload["phase"] == "gateway"
+    assert payload["strategy_id"] == "beta"
+    assert payload["symbol"] == "IF2406"
+    assert payload["client_order_id"] == "coid-json-console"
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_rust_warnings_bridge_into_python_logging(caplog: Any) -> None:
+    """Rust log::warn! output should flow through the Python logging pipeline."""
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=False,
+            level="WARNING",
+        )
+    )
+
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        bars = akquant.from_arrays(
+            np.array([1], dtype=np.int64),
+            np.array([np.nan], dtype=np.float64),
+            np.array([1.0], dtype=np.float64),
+            np.array([1.0], dtype=np.float64),
+            np.array([1.0], dtype=np.float64),
+            np.array([1.0], dtype=np.float64),
+            "AAPL",
+            None,
+            None,
+        )
+
+    assert bars[0].open == 0.0
+    matching_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.data.batch"
+        and "Invalid open price NaN, defaulting to 0.0" in record.getMessage()
+    )
+    assert matching_record.phase == "data"
+    assert matching_record.symbol == "AAPL"
+    assert matching_record.event_time_str == "1970-01-01 00:00:00"
+    assert any(
+        record.name == "akquant.data.batch"
+        and "Invalid open price NaN, defaulting to 0.0" in record.getMessage()
+        for record in caplog.records
+    )
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_run_backtest_invalid_volume_limit_bridges_rust_warning(caplog: Any) -> None:
+    """Execution-layer Rust warnings should also enter the Python logging pipeline."""
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=False,
+            level="WARNING",
+        )
+    )
+
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        result = akquant.run_backtest(
+            strategy=NoopStrategy,
+            data=_build_regression_bars("VOL_LIMIT_WARN"),
+            symbols="VOL_LIMIT_WARN",
+            show_progress=False,
+            commission_rate=0.0,
+            stamp_tax_rate=0.0,
+            transfer_fee_rate=0.0,
+            min_commission=0.0,
+            volume_limit_pct=float("nan"),
+        )
+
+    assert result is not None
+    matching_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.execution.simulated"
+        and "Invalid volume limit NaN, defaulting to 0.0" in record.getMessage()
+    )
+    assert matching_record.phase == "execution"
+    assert matching_record.symbol is None
+    assert any(
+        record.name == "akquant.execution.simulated"
+        and "Invalid volume limit NaN, defaulting to 0.0" in record.getMessage()
+        for record in caplog.records
+    )
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_engine_csv_feed_bridges_rust_warning(caplog: Any, tmp_path: Path) -> None:
+    """CSV-backed Rust warnings should enter the Python logging pipeline."""
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=False,
+            level="WARNING",
+        )
+    )
+
+    csv_path = tmp_path / "bars.csv"
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["timestamp", "open", "high", "low", "close", "volume"])
+        writer.writerow([1, float("nan"), 10.0, 9.0, 9.5, 100.0])
+
+    feed = akquant.DataFeed.from_csv(str(csv_path), "AAPL")
+    engine = akquant.Engine()
+    engine.add_data(feed)
+
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        summary = engine.run(NoopStrategy(), False)
+
+    assert isinstance(summary, str)
+    matching_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.data.client"
+        and "Invalid open price NaN, defaulting to 0.0" in record.getMessage()
+    )
+    assert matching_record.phase == "data"
+    assert matching_record.symbol == "AAPL"
+    assert matching_record.event_time_str == "1970-01-01 00:00:01"
+    assert any(
+        record.name == "akquant.data.client"
+        and "Invalid open price NaN, defaulting to 0.0" in record.getMessage()
+        for record in caplog.records
+    )
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_rust_warning_json_output_includes_structured_context(tmp_path: Path) -> None:
+    """Rust warnings should populate structured JSON fields after context extraction."""
+    log_file = tmp_path / "rust-warning.json"
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=False,
+            filename=str(log_file),
+            file_json=True,
+            file_level="WARNING",
+        )
+    )
+
+    _ = akquant.from_arrays(
+        np.array([1], dtype=np.int64),
+        np.array([np.nan], dtype=np.float64),
+        np.array([1.0], dtype=np.float64),
+        np.array([1.0], dtype=np.float64),
+        np.array([1.0], dtype=np.float64),
+        np.array([1.0], dtype=np.float64),
+        "AAPL",
+        None,
+        None,
+    )
+
+    payload = json.loads(log_file.read_text(encoding="utf-8").strip())
+    assert payload["logger"] == "akquant.data.batch"
+    assert payload["message"] == "Invalid open price NaN, defaulting to 0.0"
+    assert payload["phase"] == "data"
+    assert payload["symbol"] == "AAPL"
+    assert payload["event_time_str"] == "1970-01-01 00:00:00"
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_rust_warning_live_profile_renders_structured_context(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Live profile should render Rust warning context in plain text output."""
+    akquant.configure_logging(
+        akquant.LogConfig(profile="live", console=True, level="WARNING")
+    )
+
+    _ = akquant.from_arrays(
+        np.array([1], dtype=np.int64),
+        np.array([np.nan], dtype=np.float64),
+        np.array([1.0], dtype=np.float64),
+        np.array([1.0], dtype=np.float64),
+        np.array([1.0], dtype=np.float64),
+        np.array([1.0], dtype=np.float64),
+        "AAPL",
+        None,
+        None,
+    )
+
+    captured = capsys.readouterr()
+    assert "akquant.data.batch" in captured.out
+    assert "Invalid open price NaN, defaulting to 0.0" in captured.out
+    assert "phase=data" in captured.out
+    assert "symbol=AAPL" in captured.out
+    assert "event_time_str=1970-01-01 00:00:00" in captured.out
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_get_logger_uses_null_handler_when_unconfigured() -> None:
+    """The root AKQuant logger should stay quiet until handlers are configured."""
+    import akquant.log as aklog
+
+    logger = logging.getLogger("akquant")
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
+    aklog.Logger._instance = None
+
+    configured_logger = aklog.get_logger()
+
+    assert configured_logger is logger
+    assert any(isinstance(handler, logging.NullHandler) for handler in logger.handlers)
+    assert not any(
+        isinstance(handler, logging.StreamHandler)
+        and not isinstance(handler, logging.FileHandler | logging.NullHandler)
+        for handler in logger.handlers
+    )
+
+
+def test_rust_context_parser_ignores_malformed_payload() -> None:
+    """Malformed Rust context payloads should not corrupt the rendered message."""
+    import akquant.log as aklog
+
+    message = 'broken-marker [akq_ctx={"phase":"data"'
+
+    stripped, payload = aklog._parse_rust_context_message(message)
+
+    assert stripped == message
+    assert payload is None
+
+
+def test_non_akquant_logger_keeps_literal_rust_context_marker() -> None:
+    """Only AKQuant loggers should decode the embedded Rust context payload."""
+    import akquant.log as aklog
+
+    record = logging.LogRecord(
+        name="thirdparty.lib",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=0,
+        msg='raw-message [akq_ctx={"phase":"data","symbol":"AAPL"}]',
+        args=(),
+        exc_info=None,
+    )
+
+    aklog._extract_rust_context(record)
+
+    assert (
+        record.getMessage() == 'raw-message [akq_ctx={"phase":"data","symbol":"AAPL"}]'
+    )
+    assert not hasattr(record, "phase")
+    assert not hasattr(record, "symbol")
+
+
+def test_rust_context_parser_extracts_execution_order_fields() -> None:
+    """AKQuant Rust payloads should restore execution/order business fields."""
+    import akquant.log as aklog
+
+    record = logging.LogRecord(
+        name="akquant.execution.simulated",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=0,
+        msg=(
+            "Rejected order due to insufficient margin during execution "
+            '[akq_ctx={"phase":"execution","symbol":"OPT_P","order_id":"ord-1",'
+            '"strategy_id":"alpha","slot":"alpha",'
+            '"event_time_str":"1970-01-01 00:00:01"}]'
+        ),
+        args=(),
+        exc_info=None,
+    )
+
+    aklog._extract_rust_context(record)
+    typed_record = cast(Any, record)
+
+    assert (
+        record.getMessage()
+        == "Rejected order due to insufficient margin during execution"
+    )
+    assert typed_record.phase == "execution"
+    assert typed_record.symbol == "OPT_P"
+    assert typed_record.order_id == "ord-1"
+    assert typed_record.strategy_id == "alpha"
+    assert typed_record.slot == "alpha"
+    assert typed_record.event_time_str == "1970-01-01 00:00:01"
+
+
+def test_rust_context_parser_extracts_expired_order_fields() -> None:
+    """Expired-order Rust payloads should restore execution/order business fields."""
+    import akquant.log as aklog
+
+    record = logging.LogRecord(
+        name="akquant.execution.simulated",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=0,
+        msg=(
+            "Expired day order at session close "
+            '[akq_ctx={"phase":"execution","symbol":"AAPL","order_id":"ord-exp",'
+            '"strategy_id":"beta","slot":"beta",'
+            '"event_time_str":"1970-01-01 00:00:02"}]'
+        ),
+        args=(),
+        exc_info=None,
+    )
+
+    aklog._extract_rust_context(record)
+    typed_record = cast(Any, record)
+
+    assert record.getMessage() == "Expired day order at session close"
+    assert typed_record.phase == "execution"
+    assert typed_record.symbol == "AAPL"
+    assert typed_record.order_id == "ord-exp"
+    assert typed_record.strategy_id == "beta"
+    assert typed_record.slot == "beta"
+    assert typed_record.event_time_str == "1970-01-01 00:00:02"
+
+
+def test_rust_context_parser_extracts_unknown_cancel_fields() -> None:
+    """Unknown-cancel Rust payloads should restore execution/order fields."""
+    import akquant.log as aklog
+
+    record = logging.LogRecord(
+        name="akquant.execution.simulated",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=0,
+        msg=(
+            "Ignored cancel request for unknown order "
+            '[akq_ctx={"phase":"execution","order_id":"ghost-order"}]'
+        ),
+        args=(),
+        exc_info=None,
+    )
+
+    aklog._extract_rust_context(record)
+    typed_record = cast(Any, record)
+
+    assert record.getMessage() == "Ignored cancel request for unknown order"
+    assert typed_record.phase == "execution"
+    assert typed_record.order_id == "ghost-order"
+    assert typed_record.symbol is None
+
+
+def test_rust_context_parser_extracts_non_cancellable_cancel_fields() -> None:
+    """Non-cancellable cancel Rust payloads should restore full order context."""
+    import akquant.log as aklog
+
+    record = logging.LogRecord(
+        name="akquant.execution.simulated",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=0,
+        msg=(
+            "Ignored cancel request because order is not cancellable in status Filled "
+            '[akq_ctx={"phase":"execution","symbol":"AAPL","order_id":"ord-cancel",'
+            '"strategy_id":"gamma","slot":"gamma",'
+            '"event_time_str":"1970-01-01 00:00:03"}]'
+        ),
+        args=(),
+        exc_info=None,
+    )
+
+    aklog._extract_rust_context(record)
+    typed_record = cast(Any, record)
+
+    assert (
+        record.getMessage()
+        == "Ignored cancel request because order is not cancellable in status Filled"
+    )
+    assert typed_record.phase == "execution"
+    assert typed_record.symbol == "AAPL"
+    assert typed_record.order_id == "ord-cancel"
+    assert typed_record.strategy_id == "gamma"
+    assert typed_record.slot == "gamma"
+    assert typed_record.event_time_str == "1970-01-01 00:00:03"
+
+
+def test_rust_context_parser_extracts_deferred_same_cycle_order_fields() -> None:
+    """Deferred same-cycle Rust payloads should restore full order context."""
+    import akquant.log as aklog
+
+    record = logging.LogRecord(
+        name="akquant.execution.simulated",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=0,
+        msg=(
+            "Deferred same-cycle order until cross-symbol reduce-first orders "
+            "finish in current slice "
+            '[akq_ctx={"phase":"execution","symbol":"MSFT","order_id":"ord-defer",'
+            '"strategy_id":"delta","slot":"delta",'
+            '"event_time_str":"1970-01-01 00:00:04"}]'
+        ),
+        args=(),
+        exc_info=None,
+    )
+
+    aklog._extract_rust_context(record)
+    typed_record = cast(Any, record)
+
+    assert (
+        record.getMessage()
+        == "Deferred same-cycle order until cross-symbol reduce-first orders "
+        "finish in current slice"
+    )
+    assert typed_record.phase == "execution"
+    assert typed_record.symbol == "MSFT"
+    assert typed_record.order_id == "ord-defer"
+    assert typed_record.strategy_id == "delta"
+    assert typed_record.slot == "delta"
+    assert typed_record.event_time_str == "1970-01-01 00:00:04"
+
+
+def test_run_grid_search_parallel_warns_worker_log_visibility(caplog: Any) -> None:
+    """Parallel grid search should log worker visibility warning once."""
+    data = _build_benchmark_data(n=20, symbol="OPT_LOG_VISIBILITY")
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        _ = akquant.run_grid_search(
+            strategy=NoopStrategy,
+            param_grid={"dummy": [1, 2]},
+            data=data,
+            symbol="OPT_LOG_VISIBILITY",
+            max_workers=2,
+            return_df=True,
+            show_progress=False,
+        )
+    assert "self.log() output may not be visible" in caplog.text
 
 
 def test_run_backtest_warns_on_suspicious_global_slippage(caplog: Any) -> None:
@@ -4333,6 +4965,7 @@ def test_run_backtest_warns_on_suspicious_global_slippage(caplog: Any) -> None:
 
     assert "Global slippage=0.2 uses percent semantics in AKQuant" in caplog.text
     assert "slippage={'type': 'fixed', 'value': 0.2}" in caplog.text
+    assert any(record.name == "akquant.backtest" for record in caplog.records)
 
 
 def test_run_backtest_does_not_warn_on_small_global_slippage(caplog: Any) -> None:
@@ -4352,45 +4985,77 @@ def test_run_backtest_does_not_warn_on_small_global_slippage(caplog: Any) -> Non
     assert "uses percent semantics in AKQuant" not in caplog.text
 
 
-def test_run_grid_search_parallel_forward_worker_logs_suppresses_visibility_warning(
+def test_run_backtest_live_profile_renders_risk_context(
     capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Live profile should render structured context for risk warnings."""
+    akquant.configure_logging(
+        akquant.LogConfig(profile="live", console=True, level="INFO")
+    )
+
+    _ = akquant.run_backtest(
+        data=_build_regression_bars("RISK_CONTEXT_LIVE"),
+        strategy=SingleBuyStrategy,
+        symbols="RISK_CONTEXT_LIVE",
+        initial_cash=100000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        lot_size=1,
+        show_progress=False,
+        strategy_id="alpha",
+        risk_config={"unknown_key": 1},
+    )
+
+    captured = capsys.readouterr()
+    assert "akquant.backtest" in captured.out
+    assert "Unknown risk config key: unknown_key" in captured.out
+    assert "phase=risk" in captured.out
+    assert "strategy_id=alpha" in captured.out
+    assert "slot=alpha" in captured.out
+
+
+def test_run_grid_search_parallel_forward_worker_logs_suppresses_visibility_warning(
+    caplog: Any,
 ) -> None:
     """Forwarded worker logs should suppress visibility warning text."""
     akquant.register_logger(console=True, level="INFO")
     data = _build_benchmark_data(n=20, symbol="OPT_LOG_VISIBILITY_FORWARD")
-    _ = akquant.run_grid_search(
-        strategy=NoopStrategy,
-        param_grid={"dummy": [1, 2]},
-        data=data,
-        symbol="OPT_LOG_VISIBILITY_FORWARD",
-        max_workers=2,
-        return_df=True,
-        show_progress=False,
-        forward_worker_logs=True,
-    )
-    captured = capsys.readouterr()
-    assert "self.log() output may not be visible" not in captured.out
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        _ = akquant.run_grid_search(
+            strategy=NoopStrategy,
+            param_grid={"dummy": [1, 2]},
+            data=data,
+            symbol="OPT_LOG_VISIBILITY_FORWARD",
+            max_workers=2,
+            return_df=True,
+            show_progress=False,
+            forward_worker_logs=True,
+        )
+    assert "self.log() output may not be visible" not in caplog.text
 
 
 def test_run_grid_search_parallel_forward_worker_logs_warns_no_handler(
-    capsys: pytest.CaptureFixture[str],
+    caplog: Any,
 ) -> None:
     """Forwarding should warn explicitly when main process has no active handler."""
     akquant.register_logger(console=False, level="INFO")
     data = _build_benchmark_data(n=20, symbol="OPT_LOG_NO_HANDLER")
-    _ = akquant.run_grid_search(
-        strategy=NoopStrategy,
-        param_grid={"dummy": [1, 2]},
-        data=data,
-        symbol="OPT_LOG_NO_HANDLER",
-        max_workers=2,
-        return_df=True,
-        show_progress=False,
-        forward_worker_logs=True,
-    )
-    captured = capsys.readouterr()
-    assert "forward_worker_logs=True but no active logger handler" in captured.out
-    assert "self.log() output may not be visible" not in captured.out
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        _ = akquant.run_grid_search(
+            strategy=NoopStrategy,
+            param_grid={"dummy": [1, 2]},
+            data=data,
+            symbol="OPT_LOG_NO_HANDLER",
+            max_workers=2,
+            return_df=True,
+            show_progress=False,
+            forward_worker_logs=True,
+        )
+    assert "forward_worker_logs=True but no active logger handler" in caplog.text
+    assert "self.log() output may not be visible" not in caplog.text
     akquant.register_logger(console=True, level="INFO")
 
 

@@ -6,6 +6,7 @@ use crate::event::Event;
 use crate::execution::matcher::{ExecutionMatcher, MatchContext};
 use crate::execution::slippage::{SlippageModel, ZeroSlippage};
 use crate::execution::{ExecutionClient, crypto, forex, futures, option, stock};
+use crate::log_context::{AkqLogContext, format_event_time_nanos, render_log_message};
 use crate::model::{
     AssetType, ExecutionPolicyCore, Order, OrderStatus, PriceBasis, TemporalPolicy,
     TimeInForce, TradingSession,
@@ -34,6 +35,77 @@ pub struct SimulatedExecutionClient {
 }
 
 impl SimulatedExecutionClient {
+    fn order_log_context(order: &Order, event_time: i64) -> AkqLogContext {
+        let mut context = AkqLogContext::new()
+            .phase("execution")
+            .symbol(order.symbol.clone())
+            .order_id(order.id.clone())
+            .event_time_str(format_event_time_nanos(event_time));
+        if let Some(strategy_id) = order
+            .owner_strategy_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            context = context
+                .strategy_id(strategy_id.to_string())
+                .slot(strategy_id.to_string());
+        }
+        context
+    }
+
+    fn insufficient_margin_warning(
+        order: &Order,
+        current_time: i64,
+        total_required: Decimal,
+        current_free_margin: Decimal,
+    ) -> String {
+        render_log_message(
+            format!(
+                "Rejected order due to insufficient margin during execution. Required: {total_required}, Available: {current_free_margin}"
+            ),
+            Self::order_log_context(order, current_time),
+        )
+    }
+
+    fn expired_day_order_warning(order: &Order, event_time: i64) -> String {
+        render_log_message(
+            "Expired day order at session close",
+            Self::order_log_context(order, event_time),
+        )
+    }
+
+    fn ignored_unknown_cancel_warning(order_id: &str) -> String {
+        render_log_message(
+            "Ignored cancel request for unknown order",
+            AkqLogContext::new()
+                .phase("execution")
+                .order_id(order_id.to_string()),
+        )
+    }
+
+    fn ignored_non_cancellable_cancel_warning(order: &Order) -> String {
+        let event_time = if order.updated_at != 0 {
+            order.updated_at
+        } else {
+            order.created_at
+        };
+        render_log_message(
+            format!(
+                "Ignored cancel request because order is not cancellable in status {:?}",
+                order.status
+            ),
+            Self::order_log_context(order, event_time),
+        )
+    }
+
+    fn deferred_same_cycle_order_warning(order: &Order, event_time: i64) -> String {
+        render_log_message(
+            "Deferred same-cycle order until cross-symbol reduce-first orders finish in current slice",
+            Self::order_log_context(order, event_time),
+        )
+    }
+
     fn rebuild_futures_matcher(&mut self) {
         self.matchers.insert(
             AssetType::Futures,
@@ -95,6 +167,14 @@ impl SimulatedExecutionClient {
         match event {
             Event::Bar(bar) => Some(bar.symbol.as_str()),
             Event::Tick(tick) => Some(tick.symbol.as_str()),
+            _ => None,
+        }
+    }
+
+    fn event_timestamp(event: &Event) -> Option<i64> {
+        match event {
+            Event::Bar(bar) => Some(bar.timestamp),
+            Event::Tick(tick) => Some(tick.timestamp),
             _ => None,
         }
     }
@@ -254,10 +334,18 @@ impl SimulatedExecutionClient {
                         .unwrap_or(false);
 
                 if defer_current {
-                    self.deferred_same_cycle_order_ids
+                    let event_time = Self::event_timestamp(event).unwrap_or(ctx.current_time);
+                    let first_defer = self
+                        .deferred_same_cycle_order_ids
                         .insert(order_snapshot.id.clone());
                     self.attempted_same_cycle_order_ids
                         .insert(order_snapshot.id.clone());
+                    if first_defer {
+                        log::warn!(
+                            "{}",
+                            Self::deferred_same_cycle_order_warning(&order_snapshot, event_time)
+                        );
+                    }
                     continue;
                 }
 
@@ -403,6 +491,15 @@ impl SimulatedExecutionClient {
                                         rejected_order.reject_reason = format!(
                                             "Risk: Insufficient margin at execution. Required: {total_required}, Available: {current_free_margin}"
                                         );
+                                        log::warn!(
+                                            "{}",
+                                            Self::insufficient_margin_warning(
+                                                &rejected_order,
+                                                ctx.current_time,
+                                                total_required,
+                                                current_free_margin,
+                                            )
+                                        );
                                         replacement_report =
                                             Some(Event::ExecutionReport(rejected_order, None));
                                     }
@@ -502,7 +599,13 @@ impl ExecutionClient for SimulatedExecutionClient {
 
     fn set_volume_limit(&mut self, limit: f64) {
         self.volume_limit_pct = Decimal::from_f64(limit).unwrap_or_else(|| {
-            log::warn!("Invalid volume limit {}, defaulting to 0.0", limit);
+            log::warn!(
+                "{}",
+                render_log_message(
+                    format!("Invalid volume limit {limit}, defaulting to 0.0"),
+                    AkqLogContext::new().phase("execution"),
+                )
+            );
             Decimal::ZERO
         });
     }
@@ -558,12 +661,20 @@ impl ExecutionClient for SimulatedExecutionClient {
     }
 
     fn on_cancel(&mut self, order_id: &str) {
-        if let Some(order) = self.orders.get_mut(order_id)
-            && (order.status == OrderStatus::Submitted
-                || order.status == OrderStatus::PartiallyFilled
-                || order.status == OrderStatus::New)
-        {
-            order.status = OrderStatus::Cancelled;
+        match self.orders.get_mut(order_id) {
+            Some(order)
+                if order.status == OrderStatus::Submitted
+                    || order.status == OrderStatus::PartiallyFilled
+                    || order.status == OrderStatus::New =>
+            {
+                order.status = OrderStatus::Cancelled;
+            }
+            Some(order) => {
+                log::warn!("{}", Self::ignored_non_cancellable_cancel_warning(order));
+            }
+            None => {
+                log::warn!("{}", Self::ignored_unknown_cancel_warning(order_id));
+            }
         }
     }
 
@@ -588,6 +699,7 @@ impl ExecutionClient for SimulatedExecutionClient {
                         && Self::is_order_active(order)
                         && order.time_in_force == TimeInForce::Day
                     {
+                        log::warn!("{}", Self::expired_day_order_warning(order, timestamp));
                         order.status = OrderStatus::Expired;
                         order.updated_at = timestamp;
                         reports.push(Event::ExecutionReport(order.clone(), None));
@@ -1315,5 +1427,117 @@ mod tests {
             .0
             .reject_reason
             .contains("Insufficient margin at execution"));
+    }
+
+    #[test]
+    fn test_insufficient_margin_warning_includes_order_context() {
+        let mut order = create_test_order(
+            "OPT_P",
+            crate::model::OrderSide::Sell,
+            crate::model::OrderType::Market,
+            Decimal::from(2),
+            None,
+        );
+        order.owner_strategy_id = Some("alpha".to_string());
+
+        let rendered = SimulatedExecutionClient::insufficient_margin_warning(
+            &order,
+            1_000_000_000,
+            Decimal::from(7000),
+            Decimal::from(6000),
+        );
+
+        assert!(rendered.contains("Rejected order due to insufficient margin during execution"));
+        assert!(rendered.contains("\"phase\":\"execution\""));
+        assert!(rendered.contains("\"symbol\":\"OPT_P\""));
+        assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
+        assert!(rendered.contains("\"strategy_id\":\"alpha\""));
+        assert!(rendered.contains("\"slot\":\"alpha\""));
+        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:01\""));
+    }
+
+    #[test]
+    fn test_expired_day_order_warning_includes_order_context() {
+        let mut order = create_test_order(
+            "AAPL",
+            crate::model::OrderSide::Buy,
+            crate::model::OrderType::Limit,
+            Decimal::from(100),
+            Some(Decimal::from(10)),
+        );
+        order.owner_strategy_id = Some("beta".to_string());
+
+        let rendered = SimulatedExecutionClient::expired_day_order_warning(
+            &order,
+            2_000_000_000,
+        );
+
+        assert!(rendered.contains("Expired day order at session close"));
+        assert!(rendered.contains("\"phase\":\"execution\""));
+        assert!(rendered.contains("\"symbol\":\"AAPL\""));
+        assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
+        assert!(rendered.contains("\"strategy_id\":\"beta\""));
+        assert!(rendered.contains("\"slot\":\"beta\""));
+        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:02\""));
+    }
+
+    #[test]
+    fn test_ignored_unknown_cancel_warning_includes_order_id() {
+        let rendered = SimulatedExecutionClient::ignored_unknown_cancel_warning("ghost-order");
+
+        assert!(rendered.contains("Ignored cancel request for unknown order"));
+        assert!(rendered.contains("\"phase\":\"execution\""));
+        assert!(rendered.contains("\"order_id\":\"ghost-order\""));
+    }
+
+    #[test]
+    fn test_ignored_non_cancellable_cancel_warning_includes_order_context() {
+        let mut order = create_test_order(
+            "AAPL",
+            crate::model::OrderSide::Buy,
+            crate::model::OrderType::Limit,
+            Decimal::from(100),
+            Some(Decimal::from(10)),
+        );
+        order.owner_strategy_id = Some("gamma".to_string());
+        order.status = OrderStatus::Filled;
+        order.updated_at = 3_000_000_000;
+
+        let rendered = SimulatedExecutionClient::ignored_non_cancellable_cancel_warning(&order);
+
+        assert!(rendered.contains(
+            "Ignored cancel request because order is not cancellable in status Filled"
+        ));
+        assert!(rendered.contains("\"phase\":\"execution\""));
+        assert!(rendered.contains("\"symbol\":\"AAPL\""));
+        assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
+        assert!(rendered.contains("\"strategy_id\":\"gamma\""));
+        assert!(rendered.contains("\"slot\":\"gamma\""));
+        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:03\""));
+    }
+
+    #[test]
+    fn test_deferred_same_cycle_order_warning_includes_order_context() {
+        let mut order = create_test_order(
+            "MSFT",
+            crate::model::OrderSide::Buy,
+            crate::model::OrderType::Limit,
+            Decimal::from(50),
+            Some(Decimal::from(20)),
+        );
+        order.owner_strategy_id = Some("delta".to_string());
+
+        let rendered =
+            SimulatedExecutionClient::deferred_same_cycle_order_warning(&order, 4_000_000_000);
+
+        assert!(rendered.contains(
+            "Deferred same-cycle order until cross-symbol reduce-first orders finish in current slice"
+        ));
+        assert!(rendered.contains("\"phase\":\"execution\""));
+        assert!(rendered.contains("\"symbol\":\"MSFT\""));
+        assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
+        assert!(rendered.contains("\"strategy_id\":\"delta\""));
+        assert!(rendered.contains("\"slot\":\"delta\""));
+        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:04\""));
     }
 }

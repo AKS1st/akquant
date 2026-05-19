@@ -1,5 +1,6 @@
 use crate::error::AkQuantError;
 use crate::event::Event;
+use crate::log_context::{AkqLogContext, format_event_time_nanos, render_log_message};
 use crate::model::Bar;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -133,6 +134,19 @@ impl CsvDataClient {
     }
 
     fn read_next(&mut self) -> Option<Event> {
+        fn warn_invalid_numeric(field_name: &str, value: f64, symbol: &str, timestamp_ns: i64) {
+            log::warn!(
+                "{}",
+                render_log_message(
+                    format!("Invalid {field_name} {value}, defaulting to 0.0"),
+                    AkqLogContext::new()
+                        .phase("data")
+                        .symbol(symbol)
+                        .event_time_str(format_event_time_nanos(timestamp_ns)),
+                )
+            );
+        }
+
         // Assume CSV columns: timestamp, open, high, low, close, volume
         // Or using serde with a struct.
         // Let's use string records and parse manually for flexibility or define a struct.
@@ -154,26 +168,52 @@ impl CsvDataClient {
             // Deserialize
             let row: CsvRow = record.deserialize(self.reader.headers().ok()).ok()?;
 
+            let normalized_timestamp = normalize_timestamp(row.timestamp);
             let bar = Bar {
-                timestamp: normalize_timestamp(row.timestamp),
+                timestamp: normalized_timestamp,
                 open: Decimal::from_f64(row.open).unwrap_or_else(|| {
-                    log::warn!("Invalid open price {}, defaulting to 0.0", row.open);
+                    warn_invalid_numeric(
+                        "open price",
+                        row.open,
+                        self.symbol.as_str(),
+                        normalized_timestamp,
+                    );
                     Decimal::ZERO
                 }),
                 high: Decimal::from_f64(row.high).unwrap_or_else(|| {
-                    log::warn!("Invalid high price {}, defaulting to 0.0", row.high);
+                    warn_invalid_numeric(
+                        "high price",
+                        row.high,
+                        self.symbol.as_str(),
+                        normalized_timestamp,
+                    );
                     Decimal::ZERO
                 }),
                 low: Decimal::from_f64(row.low).unwrap_or_else(|| {
-                    log::warn!("Invalid low price {}, defaulting to 0.0", row.low);
+                    warn_invalid_numeric(
+                        "low price",
+                        row.low,
+                        self.symbol.as_str(),
+                        normalized_timestamp,
+                    );
                     Decimal::ZERO
                 }),
                 close: Decimal::from_f64(row.close).unwrap_or_else(|| {
-                    log::warn!("Invalid close price {}, defaulting to 0.0", row.close);
+                    warn_invalid_numeric(
+                        "close price",
+                        row.close,
+                        self.symbol.as_str(),
+                        normalized_timestamp,
+                    );
                     Decimal::ZERO
                 }),
                 volume: Decimal::from_f64(row.volume).unwrap_or_else(|| {
-                    log::warn!("Invalid volume {}, defaulting to 0.0", row.volume);
+                    warn_invalid_numeric(
+                        "volume",
+                        row.volume,
+                        self.symbol.as_str(),
+                        normalized_timestamp,
+                    );
                     Decimal::ZERO
                 }),
                 symbol: self.symbol.clone(),

@@ -1,4 +1,5 @@
 use crate::event::Event;
+use crate::log_context::{AkqLogContext, format_event_time_nanos, render_log_message};
 use crate::model::{Bar, Tick};
 use chrono::Utc;
 use pyo3::exceptions::PyValueError;
@@ -12,6 +13,24 @@ use super::batch::from_arrays;
 use super::client::{
     CsvDataClient, DataClient, FeedAction, RealtimeDataClient, SimulatedDataClient,
 };
+
+fn clock_fallback_context(next_timer_ts: Option<i64>) -> AkqLogContext {
+    let mut context = AkqLogContext::new().phase("data");
+    if let Some(timer_ts) = next_timer_ts {
+        context = context.event_time_str(format_event_time_nanos(timer_ts));
+    }
+    context
+}
+
+fn warn_clock_fallback(next_timer_ts: Option<i64>) {
+    log::warn!(
+        "{}",
+        render_log_message(
+            "Failed to get current timestamp, defaulting to 0",
+            clock_fallback_context(next_timer_ts),
+        )
+    );
+}
 
 /// 数据源管理器.
 ///
@@ -206,7 +225,7 @@ impl DataFeed {
         // Calculate timeout
         let timeout = if let Some(timer_ts) = next_timer_timestamp {
             let now = Utc::now().timestamp_nanos_opt().unwrap_or_else(|| {
-                log::warn!("Failed to get current timestamp, defaulting to 0");
+                warn_clock_fallback(next_timer_timestamp);
                 0
             });
             if timer_ts > now {
@@ -254,7 +273,7 @@ impl DataFeed {
             // Live logic
             // Calculate timeout
             let now = Utc::now().timestamp_nanos_opt().unwrap_or_else(|| {
-                log::warn!("Failed to get current timestamp, defaulting to 0");
+                warn_clock_fallback(next_timer_ts);
                 0
             });
             let timeout = if let Some(tt) = next_timer_ts {
@@ -308,5 +327,29 @@ impl DataFeed {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clock_fallback_context_uses_next_timer_timestamp_as_event_time() {
+        let rendered = render_log_message(
+            "clock-fallback",
+            clock_fallback_context(Some(1_000_000_000)),
+        );
+
+        assert!(rendered.contains("\"phase\":\"data\""));
+        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:01\""));
+    }
+
+    #[test]
+    fn clock_fallback_context_omits_event_time_without_timer() {
+        let rendered = render_log_message("clock-fallback", clock_fallback_context(None));
+
+        assert!(rendered.contains("\"phase\":\"data\""));
+        assert!(!rendered.contains("event_time_str"));
     }
 }

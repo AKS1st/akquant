@@ -1,3 +1,4 @@
+use crate::log_context::{AkqLogContext, format_event_time_nanos, render_log_message};
 use crate::model::Bar;
 use numpy::PyReadonlyArray1;
 use pyo3::exceptions::PyValueError;
@@ -32,6 +33,19 @@ pub fn from_arrays(
     extra: Option<HashMap<String, Py<PyAny>>>,
     py: Python<'_>,
 ) -> PyResult<Vec<Bar>> {
+    fn warn_invalid_numeric(field_name: &str, value: f64, symbol: &str, timestamp_ns: i64) {
+        log::warn!(
+            "{}",
+            render_log_message(
+                format!("Invalid {field_name} {value}, defaulting to 0.0"),
+                AkqLogContext::new()
+                    .phase("data")
+                    .symbol(symbol)
+                    .event_time_str(format_event_time_nanos(timestamp_ns)),
+            )
+        );
+    }
+
     let timestamps: PyReadonlyArray1<i64> = timestamps.extract()?;
     let opens: PyReadonlyArray1<f64> = opens.extract()?;
     let highs: PyReadonlyArray1<f64> = highs.extract()?;
@@ -120,23 +134,23 @@ pub fn from_arrays(
         bars.push(Bar {
             timestamp: normalized_ts,
             open: Decimal::from_f64(opens[i]).unwrap_or_else(|| {
-                log::warn!("Invalid open price {}, defaulting to 0.0", opens[i]);
+                warn_invalid_numeric("open price", opens[i], sym.as_str(), normalized_ts);
                 Decimal::ZERO
             }),
             high: Decimal::from_f64(highs[i]).unwrap_or_else(|| {
-                log::warn!("Invalid high price {}, defaulting to 0.0", highs[i]);
+                warn_invalid_numeric("high price", highs[i], sym.as_str(), normalized_ts);
                 Decimal::ZERO
             }),
             low: Decimal::from_f64(lows[i]).unwrap_or_else(|| {
-                log::warn!("Invalid low price {}, defaulting to 0.0", lows[i]);
+                warn_invalid_numeric("low price", lows[i], sym.as_str(), normalized_ts);
                 Decimal::ZERO
             }),
             close: Decimal::from_f64(closes[i]).unwrap_or_else(|| {
-                log::warn!("Invalid close price {}, defaulting to 0.0", closes[i]);
+                warn_invalid_numeric("close price", closes[i], sym.as_str(), normalized_ts);
                 Decimal::ZERO
             }),
             volume: Decimal::from_f64(volumes[i]).unwrap_or_else(|| {
-                log::warn!("Invalid volume {}, defaulting to 0.0", volumes[i]);
+                warn_invalid_numeric("volume", volumes[i], sym.as_str(), normalized_ts);
                 Decimal::ZERO
             }),
             symbol: sym,

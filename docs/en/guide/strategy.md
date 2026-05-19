@@ -212,6 +212,52 @@ def on_bar(self, bar):
     self.log("Insufficient funds", level=logging.WARNING)
 ```
 
+When log handlers are configured through `akquant.configure_logging(...)` or `akquant.register_logger(...)`, `self.log()` also carries structured context that is useful in `live` profile output and file logs:
+
+* `phase`: current stage such as `strategy`, `order`, or `trade`
+* `strategy_id` / `slot`: strategy identity in multi-strategy runs
+* `symbol`: current instrument
+* `event_time`: strategy event time
+* `order_id` / `client_order_id`: auto-filled inside `on_order` / `on_trade` / `on_reject`
+
+The simplest option remains the compatibility helper:
+
+```python
+import akquant
+
+akquant.register_logger(level="INFO")
+```
+
+For clearer research / optimize / live separation, prefer the structured config API:
+
+```python
+import akquant
+
+akquant.configure_logging(
+    akquant.LogConfig(
+        profile="live",
+        level="INFO",
+        console=True,
+        filename="logs/strategy.log",
+        file_level="DEBUG",
+        file_json=True,
+        file_max_bytes=10_000_000,
+        file_backup_count=5,
+    )
+)
+```
+
+If you want to ship logs into a log pipeline or collector, you can enable JSON output per handler:
+
+* `console_json=True`: console emits JSON lines
+* `file_json=True`: file emits JSON lines
+
+Practical guidance:
+
+* Use `self.log()` for human-readable strategy debugging
+* Use `run_backtest(..., on_event=...)` when you need a machine-consumable `order/trade/progress/risk` event stream
+* Inside `on_order`, `on_trade`, and `on_reject`, you usually do not need to manually concatenate order ids into the message
+
 ### 3.2 Data Access (Syntactic Sugar)
 
 The `Strategy` class provides properties for quick access to current Bar/Tick data:

@@ -11,6 +11,7 @@ except metadata.PackageNotFoundError:
 __engine_rule_version__ = "1.0.0"  # Increment on behavior-changing updates
 
 from . import akquant as _akquant
+from . import log as _log
 from . import talib
 from .akquant import *  # noqa: F403
 from .akquant import ATR, EMA, MACD, RSI, SMA, BollingerBands
@@ -56,7 +57,6 @@ from .indicator_stream import (
     to_indicator_message,
     to_indicator_messages,
 )
-from .log import get_logger, register_logger
 from .optimize import OptimizationResult, run_grid_search, run_walk_forward
 from .params import (
     BoolParam,
@@ -85,6 +85,19 @@ from .utils import (
     prepare_dataframe,
 )
 
+if typing.TYPE_CHECKING:
+    from .log import LogConfig as LogConfig  # type: ignore[assignment]
+    from .log import configure_logging as configure_logging  # type: ignore[assignment]
+    from .log import get_logger as get_logger
+    from .log import register_logger as register_logger
+    from .log import set_log_level as set_log_level
+else:
+    globals()["LogConfig"] = _log.LogConfig
+    globals()["configure_logging"] = _log.configure_logging
+    globals()["get_logger"] = _log.get_logger
+    globals()["register_logger"] = _log.register_logger
+    globals()["set_log_level"] = _log.set_log_level
+
 __doc__ = _akquant.__doc__
 if hasattr(_akquant, "__all__"):  # noqa: F405
     __all__ = [name for name in _akquant.__all__ if name != "ExecutionMode"] + [  # noqa: F405
@@ -108,8 +121,11 @@ if hasattr(_akquant, "__all__"):  # noqa: F405
         "ParquetFeedAdapter",
         "ResampledFeedAdapter",
         "ReplayFeedAdapter",
+        "LogConfig",
+        "configure_logging",
         "get_logger",
         "register_logger",
+        "set_log_level",
         "strategy_config",
         "ChinaFuturesConfig",
         "ChinaFuturesFeeConfig",
@@ -187,8 +203,11 @@ else:
         "ParquetFeedAdapter",
         "ResampledFeedAdapter",
         "ReplayFeedAdapter",
+        "LogConfig",
+        "configure_logging",
         "get_logger",
         "register_logger",
+        "set_log_level",
         "strategy_config",
         "ChinaOptionsConfig",
         "ChinaOptionsFeeConfig",

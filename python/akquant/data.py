@@ -8,7 +8,7 @@ import pandas as pd
 from .akquant import Bar
 from .utils import load_bar_from_df
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("akquant.data")
 
 
 class ParquetDataCatalog:

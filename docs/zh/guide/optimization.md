@@ -201,6 +201,32 @@ if __name__ == "__main__":
 *   `forward_worker_logs=True` 且主进程存在有效 logger handler：启用日志回传，不再显示“不可见”提示。
 *   `forward_worker_logs=True` 但主进程无有效 logger handler：会提示“请求了日志回传但主进程无可用 handler”。
 
+推荐在运行优化前显式配置一次日志，尤其是你希望查看主进程聚合后的 worker 日志时：
+
+```python
+import akquant
+
+akquant.configure_logging(
+    akquant.LogConfig(
+        profile="optimize",
+        level="INFO",
+        console=True,
+        filename="logs/optimize.log",
+        file_level="DEBUG",
+        file_json=True,
+        file_max_bytes=50_000_000,
+        file_backup_count=3,
+    )
+)
+```
+
+说明：
+
+*   `profile="optimize"` 会在默认格式中带上进程名，便于区分不同 worker。
+*   `forward_worker_logs=True` 只负责“把子进程日志送回主进程”，不负责自动创建 handler。
+*   如果你只想快速打开控制台日志，也可以继续使用 `akquant.register_logger(level="INFO")`。
+*   如果你希望文件日志更方便被日志平台消费，可额外打开 `file_json=True`。
+
 ### 持久化与断点续传 (Persistence & Resume)
 
 对于参数组合极多（如 > 10,000 组）的场景，单机运行可能需要数小时甚至数天。如果中途断电或程序崩溃，重新运行将非常耗时。AKQuant 支持将优化结果实时写入 SQLite 数据库，并支持断点续传。

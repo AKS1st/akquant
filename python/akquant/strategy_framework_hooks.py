@@ -234,6 +234,14 @@ def call_user_callback(
 ) -> Any:
     """调用用户回调，并在异常时转发到 on_error."""
     callback = getattr(strategy, callback_name)
+    previous_callback = getattr(strategy, "_framework_current_callback", None)
+    previous_order = getattr(strategy, "_framework_current_order", None)
+    previous_trade = getattr(strategy, "_framework_current_trade", None)
+    strategy._framework_current_callback = callback_name
+    strategy._framework_current_order = (
+        payload if callback_name in {"on_order", "on_reject"} else None
+    )
+    strategy._framework_current_trade = payload if callback_name == "on_trade" else None
     try:
         return callback(*args)
     except Exception as exc:
@@ -248,6 +256,10 @@ def call_user_callback(
             if not _should_reraise_on_error(strategy):
                 return None
         raise
+    finally:
+        strategy._framework_current_callback = previous_callback
+        strategy._framework_current_order = previous_order
+        strategy._framework_current_trade = previous_trade
 
 
 def dispatch_time_hooks(strategy: Any) -> None:

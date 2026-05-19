@@ -138,6 +138,30 @@ def test_check_cash_false_can_disable_margin_rejection_for_buy() -> None:
     assert engine.risk_manager.config.check_cash is False
 
 
+def test_apply_risk_config_logs_structured_context_for_invalid_sector_rule(
+    caplog: Any,
+) -> None:
+    """Risk config warnings should include structured phase context."""
+    from akquant.akquant import Engine
+    from akquant.risk import apply_risk_config
+
+    engine = Engine()
+
+    with caplog.at_level("WARNING", logger="akquant"):
+        apply_risk_config(engine, RiskConfig(sector_concentration=0.2))
+
+    warning_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.risk"
+        and "sector_concentration must be a tuple" in record.getMessage()
+    )
+    assert warning_record.phase == "risk"
+    assert warning_record.strategy_id is None
+    assert warning_record.slot is None
+    assert warning_record.symbol is None
+
+
 def test_short_option_margin_is_checked_and_account_margin_updates() -> None:
     """Short option opening orders should trigger margin checks and account margin."""
 

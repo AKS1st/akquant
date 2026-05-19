@@ -1,12 +1,18 @@
+import logging
 from typing import TYPE_CHECKING, Optional
 
 from .config import RiskConfig as PyRiskConfig
-from .log import get_logger
+from .log import build_log_extra
 
 if TYPE_CHECKING:
     from .akquant import Engine
 
-logger = get_logger()
+logger = logging.getLogger("akquant.risk")
+
+
+def _build_risk_log_extra() -> dict[str, Optional[str]]:
+    """Build structured context for risk configuration logs."""
+    return build_log_extra(phase="risk")
 
 
 def apply_risk_config(engine: "Engine", config: Optional[PyRiskConfig]) -> None:
@@ -94,7 +100,8 @@ def apply_risk_config(engine: "Engine", config: Optional[PyRiskConfig]) -> None:
             rm.add_max_position_percent_rule(config.max_position_pct)
         else:
             logger.warning(
-                "RiskManager does not support add_max_position_percent_rule."
+                "RiskManager does not support add_max_position_percent_rule.",
+                extra=_build_risk_log_extra(),
             )
 
     if config.sector_concentration is not None:
@@ -109,30 +116,41 @@ def apply_risk_config(engine: "Engine", config: Optional[PyRiskConfig]) -> None:
             else:
                 logger.warning(
                     "sector_concentration must be a tuple (limit, sector_map). "
-                    "Rule ignored."
+                    "Rule ignored.",
+                    extra=_build_risk_log_extra(),
                 )
         else:
             logger.warning(
-                "RiskManager does not support add_sector_concentration_rule."
+                "RiskManager does not support add_sector_concentration_rule.",
+                extra=_build_risk_log_extra(),
             )
 
     if config.max_account_drawdown is not None:
         if hasattr(rm, "add_max_drawdown_rule"):
             rm.add_max_drawdown_rule(config.max_account_drawdown)
         else:
-            logger.warning("RiskManager does not support add_max_drawdown_rule.")
+            logger.warning(
+                "RiskManager does not support add_max_drawdown_rule.",
+                extra=_build_risk_log_extra(),
+            )
 
     if config.max_daily_loss is not None:
         if hasattr(rm, "add_max_daily_loss_rule"):
             rm.add_max_daily_loss_rule(config.max_daily_loss)
         else:
-            logger.warning("RiskManager does not support add_max_daily_loss_rule.")
+            logger.warning(
+                "RiskManager does not support add_max_daily_loss_rule.",
+                extra=_build_risk_log_extra(),
+            )
 
     if config.stop_loss_threshold is not None:
         if hasattr(rm, "add_stop_loss_rule"):
             rm.add_stop_loss_rule(config.stop_loss_threshold)
         else:
-            logger.warning("RiskManager does not support add_stop_loss_rule.")
+            logger.warning(
+                "RiskManager does not support add_stop_loss_rule.",
+                extra=_build_risk_log_extra(),
+            )
 
     # Update the engine's risk manager with the new rules
     # This is critical if engine.risk_manager returns a copy/clone

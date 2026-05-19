@@ -12,7 +12,9 @@ import pytest
 from akquant import (
     BacktestConfig,
     InstrumentConfig,
+    LogConfig,
     StrategyConfig,
+    configure_logging,
     register_logger,
     register_strategy_loader,
     run_backtest,
@@ -62,6 +64,18 @@ class MyStrategy(Strategy):
         self.log(f"Tick {self.symbol} Price: {self.close}")
 
 
+class OrderLoggingStrategy(Strategy):
+    """Strategy used to verify order/trade log context extraction."""
+
+    def on_order(self, order: Any) -> None:
+        """Emit a log from the order callback."""
+        self.log(f"order:{order.id}")
+
+    def on_trade(self, trade: Any) -> None:
+        """Emit a log from the trade callback."""
+        self.log(f"trade:{trade.order_id}")
+
+
 def test_strategy_logging(caplog: Any) -> None:
     """Test logging."""
     strategy = MyStrategy()
@@ -87,6 +101,144 @@ def test_strategy_logging(caplog: Any) -> None:
 
     assert "Bar AAPL Close: 102.0" in caplog.text
     assert "[" in caplog.text and "]" in caplog.text
+    assert any(record.name == "akquant.strategy" for record in caplog.records)
+
+
+def test_strategy_logging_includes_structured_context(caplog: Any) -> None:
+    """Strategy logs should carry structured metadata for later formatting/export."""
+    strategy = MyStrategy()
+    cast(Any, strategy)._owner_strategy_id = "alpha"
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.get_position.return_value = 0.0
+
+    ts = pd.Timestamp("2023-01-01 09:30:00", tz="Asia/Shanghai").value
+    bar = Bar(
+        timestamp=ts,
+        open=100.0,
+        high=105.0,
+        low=95.0,
+        close=102.0,
+        volume=1000.0,
+        symbol="AAPL",
+    )
+
+    with caplog.at_level(logging.INFO, logger="akquant"):
+        strategy._on_bar_event(bar, ctx)
+
+    strategy_record = next(
+        record for record in caplog.records if record.name == "akquant.strategy"
+    )
+    assert strategy_record.strategy_id == "alpha"
+    assert strategy_record.slot == "alpha"
+    assert strategy_record.symbol == "AAPL"
+    assert strategy_record.phase == "strategy"
+    assert strategy_record.event_time_str == "2023-01-01 09:30:00"
+    assert str(strategy_record.event_time) == "2023-01-01 09:30:00+08:00"
+
+
+def test_strategy_logging_live_profile_renders_context(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Live profile should render structured context fields in human-readable logs."""
+    configure_logging(LogConfig(profile="live", console=True, level="INFO"))
+    strategy = MyStrategy()
+    cast(Any, strategy)._owner_strategy_id = "alpha"
+    ctx = MagicMock(spec=StrategyContext)
+    ctx.get_position.return_value = 0.0
+
+    ts = pd.Timestamp("2023-01-01 09:30:00", tz="Asia/Shanghai").value
+    bar = Bar(
+        timestamp=ts,
+        open=100.0,
+        high=105.0,
+        low=95.0,
+        close=102.0,
+        volume=1000.0,
+        symbol="AAPL",
+    )
+    strategy._on_bar_event(bar, ctx)
+
+    captured = capsys.readouterr()
+    assert "akquant.strategy" in captured.out
+    assert "strategy_id=alpha" in captured.out
+    assert "symbol=AAPL" in captured.out
+    assert "event_time_str=2023-01-01 09:30:00" in captured.out
+
+
+def test_strategy_logging_includes_order_context_during_callbacks(caplog: Any) -> None:
+    """Order/trade callbacks should populate structured order logging fields."""
+    strategy = OrderLoggingStrategy()
+    cast(Any, strategy)._owner_strategy_id = "alpha"
+    ctx = _build_ctx_with_order_and_trade(
+        order_id="order-1",
+        client_order_id="coid-1",
+        symbol="AAPL",
+    )
+
+    ts = pd.Timestamp("2023-01-01 09:30:00", tz="Asia/Shanghai").value
+    bar = Bar(
+        timestamp=ts,
+        open=100.0,
+        high=105.0,
+        low=95.0,
+        close=102.0,
+        volume=1000.0,
+        symbol="AAPL",
+    )
+
+    with caplog.at_level(logging.INFO, logger="akquant"):
+        strategy._on_bar_event(bar, ctx)
+
+    order_record = next(
+        record for record in caplog.records if "order:order-1" in record.getMessage()
+    )
+    trade_record = next(
+        record for record in caplog.records if "trade:order-1" in record.getMessage()
+    )
+    assert order_record.phase == "order"
+    assert order_record.strategy_id == "alpha"
+    assert order_record.slot == "alpha"
+    assert order_record.symbol == "AAPL"
+    assert order_record.order_id == "order-1"
+    assert order_record.client_order_id == "coid-1"
+    assert trade_record.phase == "trade"
+    assert trade_record.strategy_id == "alpha"
+    assert trade_record.slot == "alpha"
+    assert trade_record.symbol == "AAPL"
+    assert trade_record.order_id == "order-1"
+    assert trade_record.client_order_id == "coid-1"
+
+
+def test_strategy_logging_live_profile_renders_order_context(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Live profile should render order-related structured fields from callbacks."""
+    configure_logging(LogConfig(profile="live", console=True, level="INFO"))
+    strategy = OrderLoggingStrategy()
+    cast(Any, strategy)._owner_strategy_id = "alpha"
+    ctx = _build_ctx_with_order_and_trade(
+        order_id="order-live-1",
+        client_order_id="coid-live-1",
+        symbol="AAPL",
+    )
+
+    ts = pd.Timestamp("2023-01-01 09:30:00", tz="Asia/Shanghai").value
+    bar = Bar(
+        timestamp=ts,
+        open=100.0,
+        high=105.0,
+        low=95.0,
+        close=102.0,
+        volume=1000.0,
+        symbol="AAPL",
+    )
+    strategy._on_bar_event(bar, ctx)
+
+    captured = capsys.readouterr()
+    assert "order_id=order-live-1" in captured.out
+    assert "client_order_id=coid-live-1" in captured.out
+    assert "phase=order" in captured.out
+    assert "phase=trade" in captured.out
 
 
 def test_strategy_properties() -> None:
@@ -629,6 +781,57 @@ def test_run_backtest_on_reject_fires_once_per_order_id() -> None:
     assert len(rejected_df) == 1
 
 
+class RejectLoggingBacktestStrategy(Strategy):
+    """Strategy used to verify reject callback logging context."""
+
+    def on_bar(self, bar: Bar) -> None:
+        """Submit one oversized order to trigger a reject callback."""
+        if self._bar_count == 1:
+            self.buy(symbol=bar.symbol, quantity=10000)
+
+    def on_reject(self, order: Any) -> None:
+        """Emit a strategy log from the reject callback."""
+        self.log(f"reject:{order.id}")
+
+
+def test_run_backtest_reject_logging_includes_order_context(caplog: Any) -> None:
+    """Reject callback logs should include structured order metadata."""
+    bars = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2023-02-01", periods=6, freq="D"),
+            "open": [100.0, 100.2, 100.3, 100.4, 100.5, 100.6],
+            "high": [100.5, 100.7, 100.8, 100.9, 101.0, 101.1],
+            "low": [99.5, 99.7, 99.8, 99.9, 100.0, 100.1],
+            "close": [100.0, 100.1, 100.2, 100.3, 100.4, 100.5],
+            "volume": [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
+            "symbol": ["STOCK", "STOCK", "STOCK", "STOCK", "STOCK", "STOCK"],
+        }
+    )
+    config = BacktestConfig(
+        strategy_config=StrategyConfig(
+            risk=RiskConfig(safety_margin=0.0001, max_order_value=5000.0)
+        )
+    )
+
+    with caplog.at_level(logging.INFO, logger="akquant"):
+        _ = run_backtest(
+            data=bars,
+            strategy=RejectLoggingBacktestStrategy,
+            symbols=["STOCK"],
+            initial_cash=10000.0,
+            config=config,
+            show_progress=False,
+        )
+
+    reject_record = next(
+        record for record in caplog.records if "reject:" in record.getMessage()
+    )
+    assert reject_record.name == "akquant.strategy"
+    assert reject_record.phase == "order"
+    assert reject_record.symbol == "STOCK"
+    assert reject_record.order_id
+
+
 class SequenceStrategy(Strategy):
     """Strategy for callback sequence assertions."""
 
@@ -657,15 +860,32 @@ class SequenceStrategy(Strategy):
         self.events.append(f"on_trade:{trade.order_id}")
 
 
-def _build_ctx_with_order_and_trade(order_id: str = "o1") -> MagicMock:
+def _build_ctx_with_order_and_trade(
+    order_id: str = "o1",
+    *,
+    client_order_id: str = "coid-1",
+    symbol: str = "AAPL",
+) -> MagicMock:
     """Build a mocked strategy context with one active order and one trade."""
     ctx = MagicMock(spec=StrategyContext)
     ctx.get_position.return_value = 0.0
     ctx.canceled_order_ids = []
     ctx.active_orders = [
-        SimpleNamespace(id=order_id, status="Submitted", filled_quantity=0.0)
+        SimpleNamespace(
+            id=order_id,
+            status="Submitted",
+            filled_quantity=0.0,
+            symbol=symbol,
+            client_order_id=client_order_id,
+        )
     ]
-    ctx.recent_trades = [SimpleNamespace(order_id=order_id)]
+    ctx.recent_trades = [
+        SimpleNamespace(
+            order_id=order_id,
+            symbol=symbol,
+            client_order_id=client_order_id,
+        )
+    ]
     return ctx
 
 
