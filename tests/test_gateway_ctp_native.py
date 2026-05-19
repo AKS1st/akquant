@@ -1,9 +1,10 @@
 import threading
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from akquant.gateway import ctp_native
-from akquant.gateway.ctp_native import CTPTraderGateway
+from akquant.gateway.ctp_native import CTPMarketGateway, CTPTraderGateway
 
 
 def _build_native_gateway(monkeypatch: pytest.MonkeyPatch) -> CTPTraderGateway:
@@ -216,3 +217,62 @@ def test_ctp_native_query_trades_today_returns_trade_payloads(
     assert trade["quantity"] == 2.0
     assert trade["price"] == 520.0
     assert trade["position_effect"] == "close_today"
+
+
+def test_ctp_native_trader_logs_connection_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Native trader gateway should log connect and auth lifecycle events."""
+    gateway = _build_native_gateway(monkeypatch)
+    monkeypatch.setattr(
+        ctp_native.tdapi,
+        "CThostFtdcReqAuthenticateField",
+        lambda: SimpleNamespace(),
+        raising=False,
+    )
+    gateway.api = SimpleNamespace(ReqAuthenticate=lambda request, req_id: 0)
+
+    with caplog.at_level("INFO", logger="akquant.gateway.ctp_native"):
+        gateway.OnFrontConnected()
+
+    connected_record = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "CTP trader front connected: tcp://test"
+    )
+    typed_connected = connected_record
+    assert cast(Any, typed_connected).phase == "gateway"
+
+    auth_record = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "Requesting CTP trader authentication (req_id=1)"
+    )
+    typed_auth = auth_record
+    assert cast(Any, typed_auth).phase == "gateway"
+
+
+def test_ctp_native_market_logs_subscribe_failures_with_symbol(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Native market gateway should log subscribe failures with symbol context."""
+    gateway = CTPMarketGateway.__new__(CTPMarketGateway)
+
+    with caplog.at_level("ERROR", logger="akquant.gateway.ctp_native"):
+        gateway.OnRspSubMarketData(
+            SimpleNamespace(InstrumentID="au2606"),
+            SimpleNamespace(ErrorID=7, ErrorMsg="subscribe failed"),
+            1,
+            True,
+        )
+
+    record = next(
+        record
+        for record in caplog.records
+        if record.getMessage()
+        == "CTP market subscribe failed for [au2606]: subscribe failed"
+    )
+    typed_record = cast(Any, record)
+    assert typed_record.phase == "gateway"
+    assert typed_record.symbol == "au2606"

@@ -4611,6 +4611,298 @@ def test_run_backtest_invalid_volume_limit_bridges_rust_warning(caplog: Any) -> 
     akquant.register_logger(console=False, level="INFO")
 
 
+def test_run_backtest_lot_size_rejection_bridges_rust_warning(caplog: Any) -> None:
+    """Common execution rejects should bridge structured Rust warnings."""
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=False,
+            level="WARNING",
+        )
+    )
+
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        result = akquant.run_backtest(
+            strategy=SingleBuyStrategy,
+            data=_build_regression_bars("LOT_WARN"),
+            symbols="LOT_WARN",
+            show_progress=False,
+            fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+            lot_size=100,
+        )
+
+    assert result is not None
+    matching_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.execution.common"
+        and "Rejected order because Quantity 10 is not a multiple of lot size 100"
+        in record.getMessage()
+    )
+    assert matching_record.phase == "execution"
+    assert matching_record.symbol == "LOT_WARN"
+    assert matching_record.event_time_str == "2023-01-02 15:00:00"
+    assert getattr(matching_record, "order_id", None)
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_run_backtest_futures_validation_rejection_bridges_rust_warning(
+    caplog: Any,
+) -> None:
+    """Futures validation rejects should bridge structured Rust warnings."""
+
+    class FractionalFuturesBuyStrategy(akquant.Strategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self._submitted = False
+
+        def on_bar(self, bar: akquant.Bar) -> None:
+            if self._submitted:
+                return
+            self.buy(symbol=bar.symbol, quantity=1.5)
+            self._submitted = True
+
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=False,
+            level="WARNING",
+        )
+    )
+
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        result = akquant.run_backtest(
+            strategy=FractionalFuturesBuyStrategy,
+            data=_build_regression_bars("RB2310"),
+            symbols="RB2310",
+            show_progress=False,
+            fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+            config=akquant.BacktestConfig(
+                strategy_config=akquant.StrategyConfig(initial_cash=1_000_000.0),
+                instruments_config=[
+                    akquant.InstrumentConfig(
+                        symbol="RB2310",
+                        asset_type="FUTURES",
+                        multiplier=10.0,
+                        margin_ratio=0.1,
+                        tick_size=0.2,
+                    )
+                ],
+                china_futures=akquant.ChinaFuturesConfig(
+                    enforce_lot_size=True,
+                    enforce_tick_size=True,
+                    enforce_sessions=False,
+                ),
+            ),
+        )
+
+    assert result is not None
+    matching_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.execution.futures"
+        and (
+            "Rejected futures order because Quantity 1.5 is not a multiple of lot "
+            "size 1"
+        )
+        in record.getMessage()
+    )
+    assert matching_record.phase == "execution"
+    assert matching_record.symbol == "RB2310"
+    assert matching_record.event_time_str == "2023-01-02 15:00:00"
+    assert getattr(matching_record, "order_id", None)
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_run_backtest_ioc_cancel_bridges_rust_warning(caplog: Any) -> None:
+    """IOC/FOK auto-cancel should bridge structured Rust warnings."""
+
+    class IOCNoFillStrategy(akquant.Strategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self._submitted = False
+
+        def on_bar(self, bar: akquant.Bar) -> None:
+            if self._submitted:
+                return
+            self.buy(
+                symbol=bar.symbol,
+                quantity=10,
+                price=1.0,
+                time_in_force=akquant.TimeInForce.IOC,
+            )
+            self._submitted = True
+
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=False,
+            level="WARNING",
+        )
+    )
+
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        result = akquant.run_backtest(
+            strategy=IOCNoFillStrategy,
+            data=_build_regression_bars("IOC_WARN"),
+            symbols="IOC_WARN",
+            show_progress=False,
+            fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        )
+
+    assert result is not None
+    matching_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.execution.common"
+        and "Cancelled IOC order because it was not filled on current event"
+        in record.getMessage()
+    )
+    assert matching_record.phase == "execution"
+    assert matching_record.symbol == "IOC_WARN"
+    assert matching_record.event_time_str == "2023-01-02 15:00:00"
+    assert getattr(matching_record, "order_id", None)
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_engine_tick_ioc_cancel_bridges_rust_warning(caplog: Any) -> None:
+    """Tick-path IOC/FOK auto-cancel should bridge structured Rust warnings."""
+
+    class TickIOCNoFillStrategy(akquant.Strategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self._submitted = False
+
+        def on_tick(self, tick: akquant.Tick) -> None:
+            if self._submitted:
+                return
+            self.buy(
+                symbol=tick.symbol,
+                quantity=10,
+                price=99.0,
+                time_in_force=akquant.TimeInForce.IOC,
+            )
+            self._submitted = True
+
+    symbol = "TICK_IOC_WARN"
+    engine = akquant.Engine()
+    engine.use_simple_market(0.0)
+    engine.set_force_session_continuous(True)
+    cast(Any, engine).set_fill_policy("close", 0, "same_cycle")
+    engine.set_cash(100000.0)
+    engine.set_stock_fee_rules(0.0, 0.0, 0.0, 0.0)
+    engine.add_instrument(
+        akquant.Instrument(
+            symbol=symbol,
+            asset_type=akquant.AssetType.Stock,
+            multiplier=1.0,
+            margin_ratio=1.0,
+            tick_size=0.01,
+            lot_size=1.0,
+        )
+    )
+    feed = akquant.DataFeed()
+    feed.add_tick(
+        akquant.Tick(
+            _ns(datetime(2024, 1, 3, 15, 0, tzinfo=timezone.utc)),
+            100.0,
+            1.0,
+            symbol,
+        )
+    )
+    feed.sort()
+    engine.add_data(feed)
+
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=False,
+            level="WARNING",
+        )
+    )
+
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        summary = engine.run(TickIOCNoFillStrategy(), False)
+
+    assert isinstance(summary, str)
+    matching_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.execution.common"
+        and "Cancelled IOC order because it was not filled on current event"
+        in record.getMessage()
+    )
+    assert matching_record.phase == "execution"
+    assert matching_record.symbol == symbol
+    assert matching_record.event_time_str == "2024-01-03 15:00:00"
+    assert getattr(matching_record, "order_id", None)
+
+    akquant.register_logger(console=False, level="INFO")
+
+
+def test_run_backtest_stop_limit_deferred_bridges_rust_warning(caplog: Any) -> None:
+    """Triggered stop-limit deferrals should bridge structured Rust warnings."""
+
+    class StopLimitDeferredStrategy(akquant.Strategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self._submitted = False
+
+        def on_bar(self, bar: akquant.Bar) -> None:
+            if self._submitted:
+                return
+            self.buy(
+                symbol=bar.symbol,
+                quantity=10,
+                price=9.5,
+                trigger_price=10.0,
+            )
+            self._submitted = True
+
+    ts = _ns(datetime(2024, 1, 2, 15, 0, tzinfo=timezone.utc))
+    bars = [
+        akquant.Bar(
+            ts,
+            9.0,
+            11.0,
+            9.0,
+            9.8,
+            1000.0,
+            "STOP_LIMIT_WARN",
+        )
+    ]
+
+    akquant.configure_logging(
+        akquant.LogConfig(
+            console=False,
+            level="WARNING",
+        )
+    )
+
+    with caplog.at_level(logging.WARNING, logger="akquant"):
+        result = akquant.run_backtest(
+            strategy=StopLimitDeferredStrategy,
+            data=bars,
+            symbols="STOP_LIMIT_WARN",
+            show_progress=False,
+            fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        )
+
+    assert result is not None
+    matching_record = next(
+        record
+        for record in caplog.records
+        if record.name == "akquant.execution.common"
+        and "Deferred triggered stop-limit order because trigger price 10"
+        in record.getMessage()
+    )
+    assert matching_record.phase == "execution"
+    assert matching_record.symbol == "STOP_LIMIT_WARN"
+    assert matching_record.event_time_str == "2024-01-02 15:00:00"
+    assert getattr(matching_record, "order_id", None)
+
+    akquant.register_logger(console=False, level="INFO")
+
+
 def test_engine_csv_feed_bridges_rust_warning(caplog: Any, tmp_path: Path) -> None:
     """CSV-backed Rust warnings should enter the Python logging pipeline."""
     akquant.configure_logging(
@@ -4933,6 +5225,75 @@ def test_rust_context_parser_extracts_deferred_same_cycle_order_fields() -> None
     assert typed_record.event_time_str == "1970-01-01 00:00:04"
 
 
+def test_rust_context_parser_extracts_ioc_cancel_fields() -> None:
+    """IOC cancel Rust payloads should restore full order context."""
+    import akquant.log as aklog
+
+    record = logging.LogRecord(
+        name="akquant.execution.common",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=0,
+        msg=(
+            "Cancelled IOC order because it was not filled on current event "
+            '[akq_ctx={"phase":"execution","symbol":"IOC_WARN","order_id":"ord-ioc",'
+            '"strategy_id":"epsilon","slot":"epsilon",'
+            '"event_time_str":"1970-01-01 00:00:05"}]'
+        ),
+        args=(),
+        exc_info=None,
+    )
+
+    aklog._extract_rust_context(record)
+    typed_record = cast(Any, record)
+
+    assert (
+        record.getMessage()
+        == "Cancelled IOC order because it was not filled on current event"
+    )
+    assert typed_record.phase == "execution"
+    assert typed_record.symbol == "IOC_WARN"
+    assert typed_record.order_id == "ord-ioc"
+    assert typed_record.strategy_id == "epsilon"
+    assert typed_record.slot == "epsilon"
+    assert typed_record.event_time_str == "1970-01-01 00:00:05"
+
+
+def test_rust_context_parser_extracts_stop_limit_deferred_fields() -> None:
+    """Stop-limit deferral Rust payloads should restore full order context."""
+    import akquant.log as aklog
+
+    record = logging.LogRecord(
+        name="akquant.execution.common",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=0,
+        msg=(
+            "Deferred triggered stop-limit order because trigger price 10 breached "
+            'limit price 9.5 during in-bar activation [akq_ctx={"phase":"execution",'
+            '"symbol":"STOP_LIMIT_WARN","order_id":"ord-stop","strategy_id":"zeta",'
+            '"slot":"zeta","event_time_str":"1970-01-01 00:00:06"}]'
+        ),
+        args=(),
+        exc_info=None,
+    )
+
+    aklog._extract_rust_context(record)
+    typed_record = cast(Any, record)
+
+    assert (
+        record.getMessage()
+        == "Deferred triggered stop-limit order because trigger price 10 breached "
+        "limit price 9.5 during in-bar activation"
+    )
+    assert typed_record.phase == "execution"
+    assert typed_record.symbol == "STOP_LIMIT_WARN"
+    assert typed_record.order_id == "ord-stop"
+    assert typed_record.strategy_id == "zeta"
+    assert typed_record.slot == "zeta"
+    assert typed_record.event_time_str == "1970-01-01 00:00:06"
+
+
 def test_run_grid_search_parallel_warns_worker_log_visibility(caplog: Any) -> None:
     """Parallel grid search should log worker visibility warning once."""
     data = _build_benchmark_data(n=20, symbol="OPT_LOG_VISIBILITY")
@@ -4947,6 +5308,28 @@ def test_run_grid_search_parallel_warns_worker_log_visibility(caplog: Any) -> No
             show_progress=False,
         )
     assert "self.log() output may not be visible" in caplog.text
+
+
+def test_run_grid_search_logs_dynamic_warmup_failures(caplog: Any) -> None:
+    """Dynamic warmup calculation failures should flow through akquant.optimize."""
+    data = _build_benchmark_data(n=20, symbol="OPT_WARMUP_WARN")
+
+    def _broken_warmup(_: dict[str, Any]) -> int:
+        raise RuntimeError("warmup failed")
+
+    with caplog.at_level(logging.WARNING, logger="akquant.optimize"):
+        _ = akquant.run_grid_search(
+            strategy=NoopStrategy,
+            param_grid={},
+            data=data,
+            symbol="OPT_WARMUP_WARN",
+            max_workers=1,
+            return_df=True,
+            warmup_calc=_broken_warmup,
+            show_progress=False,
+        )
+
+    assert "Failed to calculate dynamic warmup period: warmup failed" in caplog.text
 
 
 def test_run_backtest_warns_on_suspicious_global_slippage(caplog: Any) -> None:

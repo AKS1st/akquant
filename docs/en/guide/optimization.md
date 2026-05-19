@@ -226,6 +226,7 @@ Notes:
 *   `forward_worker_logs=True` only forwards worker logs back to the main process; it does not create handlers automatically.
 *   If you only want quick console logging, `akquant.register_logger(level="INFO")` remains valid.
 *   If you want file logs to be easier for external log pipelines to consume, enable `file_json=True`.
+*   Once aggregation is enabled, Rust execution-path warnings are also forwarded back to the main process. That includes insufficient-margin rejects, session-close expiry, unknown cancel requests, and `same-cycle` deferrals, all of which are easier to filter through structured fields such as `phase=execution`, `order_id`, and `strategy_id`.
 
 ### Persistence & Resume
 

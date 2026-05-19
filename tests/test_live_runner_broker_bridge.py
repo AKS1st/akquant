@@ -1456,3 +1456,63 @@ def test_live_runner_logs_broker_event_observer_failures(caplog: Any) -> None:
     assert record.symbol == "000001.SZ"
     assert record.order_id == "b-obs-2"
     assert record.client_order_id == "coid-obs-2"
+
+
+def test_live_runner_logs_invalid_duration_format(caplog: Any) -> None:
+    """Invalid live duration should be logged instead of printed."""
+    runner = LiveRunner.__new__(LiveRunner)
+    runner.strategy_id = "alpha"
+
+    with caplog.at_level("WARNING", logger="akquant.gateway.live"):
+        runner._apply_time_limit(cast(Any, SimpleNamespace()), "not-a-duration")
+
+    record = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "Ignored invalid live duration format: not-a-duration"
+    )
+    assert record.phase == "live"
+    assert record.strategy_id == "alpha"
+    assert record.slot == "alpha"
+
+
+def test_live_runner_logs_summary_with_structured_context(caplog: Any) -> None:
+    """Live summary should be emitted through the gateway logger."""
+    runner = LiveRunner.__new__(LiveRunner)
+    runner.strategy_id = "beta"
+    runner.engine = cast(
+        Any,
+        SimpleNamespace(
+            get_results=lambda: SimpleNamespace(
+                metrics=SimpleNamespace(
+                    total_return_pct=0.12,
+                    annualized_return=0.08,
+                    max_drawdown_pct=-0.04,
+                    sharpe_ratio=1.23,
+                    win_rate=0.67,
+                ),
+                trades=[object(), object()],
+                snapshots=[
+                    (
+                        0,
+                        [
+                            SimpleNamespace(symbol="IF2406", quantity=2.0),
+                            SimpleNamespace(symbol="rb2406", quantity=0.0),
+                        ],
+                    )
+                ],
+            )
+        ),
+    )
+
+    with caplog.at_level("INFO", logger="akquant.gateway.live"):
+        runner._print_summary()
+
+    record = next(
+        record for record in caplog.records if "TRADING SUMMARY" in record.getMessage()
+    )
+    assert record.phase == "live"
+    assert record.strategy_id == "beta"
+    assert record.slot == "beta"
+    assert "Current Positions:" in record.getMessage()
+    assert "IF2406: 2.0" in record.getMessage()

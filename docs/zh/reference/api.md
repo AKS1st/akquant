@@ -750,6 +750,8 @@ akquant.configure_logging(
 *   `profile` 只填充未显式指定的字段，显式参数优先级更高。
 *   `profile="optimize"` 默认文本格式会带 `processName`，便于区分 worker。
 *   `profile="live"` 适合打开结构化上下文或 JSON 输出。
+*   Rust 侧运行路径中的 `akquant.*` warning 也会桥接进入 Python `logging`，并尽量恢复为统一的结构化字段。
+*   例如执行链路中的保证金不足拒单、收盘过期、取消未知订单、同一切片 `same-cycle` 延后等 warning，会携带 `phase="execution"`，并在可用时附带 `symbol`、`order_id`、`strategy_id`、`slot`、`event_time_str`。
 
 #### `akquant.register_logger`
 
@@ -788,6 +790,7 @@ def set_log_level(level: Union[str, int]) -> None
 *   `self.log(...)` 面向人类阅读的策略调试日志。
 *   `run_backtest(..., on_event=...)` 面向机器消费的统一事件流，更适合实时 UI、告警、审计落盘。
 *   在 `on_order` / `on_trade` / `on_reject` 中使用 `self.log(...)` 时，日志会自动携带 `order_id` / `client_order_id` 等结构化字段。
+*   Rust 执行层与数据层产生的 warning 不需要用户手动接管；只要已经配置了 `akquant` logger handler，它们就会进入同一套文本或 JSON 输出链路。
 
 ## 2. 策略开发 (Strategy)
 

@@ -72,8 +72,13 @@ impl StatisticsManager {
         trade_tracker: &crate::analysis::TradeTracker,
         risk_config: &RiskConfig,
     ) {
-        let snapshots =
-            Self::create_snapshot(portfolio, instruments, last_prices, trade_tracker, risk_config);
+        let snapshots = Self::create_snapshot(
+            portfolio,
+            instruments,
+            last_prices,
+            trade_tracker,
+            risk_config,
+        );
         Self::upsert_timestamped_value(&mut self.snapshots, timestamp, snapshots);
     }
 
@@ -89,9 +94,14 @@ impl StatisticsManager {
         trade_tracker: &crate::analysis::TradeTracker,
         risk_config: &RiskConfig,
     ) -> Vec<PositionSnapshot> {
-        let account_equity =
-            calculate_account_metrics(portfolio, last_prices, instruments, trade_tracker, risk_config)
-                .equity;
+        let account_equity = calculate_account_metrics(
+            portfolio,
+            last_prices,
+            instruments,
+            trade_tracker,
+            risk_config,
+        )
+        .equity;
         let account_equity_f64 = account_equity.to_f64().unwrap_or(0.0);
 
         let mut current_snapshots = Vec::new();

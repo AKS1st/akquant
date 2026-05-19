@@ -461,9 +461,14 @@ impl OrderManager {
             let symbol_history = history_guard.get_history(&trade.symbol);
 
             // Calculate Portfolio Value for % metrics
-            let portfolio_value =
-                calculate_account_metrics(portfolio, last_prices, instruments, &self.trade_tracker, risk_config)
-                    .equity;
+            let portfolio_value = calculate_account_metrics(
+                portfolio,
+                last_prices,
+                instruments,
+                &self.trade_tracker,
+                risk_config,
+            )
+            .equity;
 
             self.trade_tracker
                 .process_trade(&trade, order_tag, symbol_history, portfolio_value);

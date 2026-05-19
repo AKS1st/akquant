@@ -10,6 +10,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from ..akquant import Bar, BarAggregator, DataFeed
+from ..log import build_log_extra, get_logger
 
 try:
     from openctp_ctp import thostmduserapi as mdapi  # type: ignore
@@ -36,6 +37,9 @@ except ImportError:
 
     mdapi = MockMdApi  # type: ignore
     tdapi = MockTdApi  # type: ignore
+
+
+logger = get_logger("gateway.ctp_native")
 
 
 class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
@@ -104,9 +108,16 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
         self._trade_query_results: list[dict[str, Any]] = []
         self._trade_query_error = ""
 
+    def _log_extra(self, *, symbol: str | None = None) -> dict[str, Any]:
+        return build_log_extra(phase="gateway", symbol=symbol)
+
     def start(self) -> None:
         """Start the CTP Trader API in a blocking way (should be run in a thread)."""
-        print(f"[CTP-Trade] Connecting to {self.front_url}...")
+        logger.info(
+            "Connecting native CTP trader gateway to %s",
+            self.front_url,
+            extra=self._log_extra(),
+        )
         try:
             self.api = tdapi.CThostFtdcTraderApi.CreateFtdcTraderApi()
             self.api.RegisterFront(self.front_url)
@@ -114,10 +125,16 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
             self.api.SubscribePrivateTopic(tdapi.THOST_TERT_QUICK)
             self.api.SubscribePublicTopic(tdapi.THOST_TERT_QUICK)
             self.api.Init()
-            print("[CTP-Trade] API Initialized, joining thread...")
+            logger.info(
+                "Native CTP trader API initialized; joining event loop",
+                extra=self._log_extra(),
+            )
             self.api.Join()
-        except Exception as e:
-            print(f"[CTP-Trade] ERROR: Failed to start CTP Trader API: {e}")
+        except Exception:
+            logger.exception(
+                "Failed to start native CTP trader gateway",
+                extra=self._log_extra(),
+            )
 
     def set_order_handler(self, callback: Callable[[dict[str, Any]], None]) -> None:
         """Set native order event handler."""
@@ -332,8 +349,10 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
 
     def OnFrontConnected(self) -> None:
         """Handle front connection event."""
-        print(
-            f"[CTP-Trade] OnFrontConnected: Successfully connected to {self.front_url}"
+        logger.info(
+            "CTP trader front connected: %s",
+            self.front_url,
+            extra=self._log_extra(),
         )
         self.connected = True
 
@@ -343,7 +362,11 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
         req.UserID = self.user_id
         req.AppID = self.app_id
         req.AuthCode = self.auth_code
-        print(f"[CTP-Trade] Requesting Authentication (ReqID={self.req_id})...")
+        logger.info(
+            "Requesting CTP trader authentication (req_id=%s)",
+            self.req_id,
+            extra=self._log_extra(),
+        )
         if self.api:
             self.api.ReqAuthenticate(req, self.req_id)
 
@@ -356,12 +379,17 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
     ) -> None:
         """Handle authentication response."""
         if pRspInfo is not None and pRspInfo.ErrorID != 0:
-            print(
-                f"[CTP-Trade] Authentication failed. ErrorID={pRspInfo.ErrorID}, "
-                f"Msg={pRspInfo.ErrorMsg}"
+            logger.error(
+                "CTP trader authentication failed: error_id=%s msg=%s",
+                pRspInfo.ErrorID,
+                pRspInfo.ErrorMsg,
+                extra=self._log_extra(),
             )
         else:
-            print("[CTP-Trade] Authentication succeed.")
+            logger.info(
+                "CTP trader authentication succeeded",
+                extra=self._log_extra(),
+            )
 
         self.authenticated = True
 
@@ -370,7 +398,11 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
         req.BrokerID = self.broker_id
         req.UserID = self.user_id
         req.Password = self.password
-        print(f"[CTP-Trade] Requesting User Login (ReqID={self.req_id})...")
+        logger.info(
+            "Requesting CTP trader user login (req_id=%s)",
+            self.req_id,
+            extra=self._log_extra(),
+        )
         if self.api:
             self.api.ReqUserLogin(req, self.req_id)
 
@@ -379,15 +411,20 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
     ) -> None:
         """Handle login response."""
         if pRspInfo is not None and pRspInfo.ErrorID != 0:
-            print(
-                f"[CTP-Trade] Login failed. ErrorID={pRspInfo.ErrorID}, "
-                f"Msg={pRspInfo.ErrorMsg}"
+            logger.error(
+                "CTP trader login failed: error_id=%s msg=%s",
+                pRspInfo.ErrorID,
+                pRspInfo.ErrorMsg,
+                extra=self._log_extra(),
             )
             return
 
-        print(
-            f"[CTP-Trade] Login succeed. TradingDay: {pRspUserLogin.TradingDay}, "
-            f"BrokerID: {pRspUserLogin.BrokerID}, UserID: {pRspUserLogin.UserID}"
+        logger.info(
+            "CTP trader login succeeded: trading_day=%s broker_id=%s user_id=%s",
+            pRspUserLogin.TradingDay,
+            pRspUserLogin.BrokerID,
+            pRspUserLogin.UserID,
+            extra=self._log_extra(),
         )
         self.login_status = True
         self.front_id = int(getattr(pRspUserLogin, "FrontID", 0) or 0)
@@ -400,7 +437,10 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
         req = tdapi.CThostFtdcSettlementInfoConfirmField()
         req.BrokerID = self.broker_id
         req.InvestorID = self.user_id
-        print("[CTP-Trade] Confirming Settlement Info...")
+        logger.info(
+            "Confirming CTP settlement info",
+            extra=self._log_extra(),
+        )
         if self.api:
             self.api.ReqSettlementInfoConfirm(req, self.req_id)
 
@@ -413,15 +453,26 @@ class CTPTraderGateway(tdapi.CThostFtdcTraderSpi):  # type: ignore
     ) -> None:
         """Handle settlement info confirmation response."""
         if pRspInfo is not None and pRspInfo.ErrorID != 0:
-            print(f"[CTP-Trade] Settlement Confirm failed: {pRspInfo.ErrorMsg}")
+            logger.error(
+                "CTP settlement confirmation failed: %s",
+                pRspInfo.ErrorMsg,
+                extra=self._log_extra(),
+            )
             self.ready_to_trade = False
         else:
-            print("[CTP-Trade] Settlement Info Confirmed.")
+            logger.info(
+                "CTP settlement info confirmed",
+                extra=self._log_extra(),
+            )
             self.ready_to_trade = True
 
     def OnFrontDisconnected(self, nReason: int) -> None:
         """Handle front disconnection event."""
-        print(f"[CTP-Trade] OnFrontDisconnected. [nReason={nReason}]")
+        logger.warning(
+            "CTP trader front disconnected: reason=%s",
+            nReason,
+            extra=self._log_extra(),
+        )
         self.connected = False
         self.login_status = False
         self.ready_to_trade = False
@@ -886,33 +937,58 @@ class CTPMarketGateway(mdapi.CThostFtdcMdSpi):  # type: ignore
         else:
             self.aggregator = None
 
+    def _log_extra(self, *, symbol: str | None = None) -> dict[str, Any]:
+        return build_log_extra(phase="gateway", symbol=symbol)
+
     def start(self) -> None:
         """Start the CTP Market API in a blocking way (should be run in a thread)."""
-        print(f"[CTP] Connecting to {self.front_url}...")
+        logger.info(
+            "Connecting native CTP market gateway to %s",
+            self.front_url,
+            extra=self._log_extra(),
+        )
         try:
             self.api = mdapi.CThostFtdcMdApi.CreateFtdcMdApi()
             self.api.RegisterFront(self.front_url)
             self.api.RegisterSpi(self)
             self.api.Init()
-            print("[CTP] API Initialized, joining thread...")
+            logger.info(
+                "Native CTP market API initialized; joining event loop",
+                extra=self._log_extra(),
+            )
             self.api.Join()
-        except Exception as e:
-            print(f"[CTP] ERROR: Failed to start CTP API: {e}")
+        except Exception:
+            logger.exception(
+                "Failed to start native CTP market gateway",
+                extra=self._log_extra(),
+            )
 
     def OnFrontConnected(self) -> None:
         """Handle front connection event."""
-        print(f"[CTP] OnFrontConnected: Successfully connected to {self.front_url}")
+        logger.info(
+            "CTP market front connected: %s",
+            self.front_url,
+            extra=self._log_extra(),
+        )
         self.connected = True
 
         req = mdapi.CThostFtdcReqUserLoginField()
         self.req_id += 1
-        print(f"[CTP] Requesting User Login (ReqID={self.req_id})...")
+        logger.info(
+            "Requesting CTP market user login (req_id=%s)",
+            self.req_id,
+            extra=self._log_extra(),
+        )
         if self.api:
             self.api.ReqUserLogin(req, self.req_id)
 
     def OnFrontDisconnected(self, nReason: int) -> None:
         """Handle front disconnection event."""
-        print(f"[CTP] OnFrontDisconnected. [nReason={nReason}]")
+        logger.warning(
+            "CTP market front disconnected: reason=%s",
+            nReason,
+            extra=self._log_extra(),
+        )
         self.connected = False
 
     def OnRspUserLogin(
@@ -920,27 +996,43 @@ class CTPMarketGateway(mdapi.CThostFtdcMdSpi):  # type: ignore
     ) -> None:
         """Handle login response."""
         if pRspInfo is not None and pRspInfo.ErrorID != 0:
-            print(
-                f"[CTP] Login failed. ErrorID={pRspInfo.ErrorID}, "
-                f"Msg={pRspInfo.ErrorMsg}"
+            logger.error(
+                "CTP market login failed: error_id=%s msg=%s",
+                pRspInfo.ErrorID,
+                pRspInfo.ErrorMsg,
+                extra=self._log_extra(),
             )
             return
 
-        print(
-            f"[CTP] Login succeed. TradingDay: {pRspUserLogin.TradingDay}, "
-            f"BrokerID: {pRspUserLogin.BrokerID}, UserID: {pRspUserLogin.UserID}"
+        logger.info(
+            "CTP market login succeeded: trading_day=%s broker_id=%s user_id=%s",
+            pRspUserLogin.TradingDay,
+            pRspUserLogin.BrokerID,
+            pRspUserLogin.UserID,
+            extra=self._log_extra(),
         )
 
-        print(f"[CTP] Subscribing to {self.symbols}...")
+        logger.info(
+            "Subscribing CTP market data for symbols=%s",
+            self.symbols,
+            extra=self._log_extra(),
+        )
         self.req_id += 1
         if self.api:
             ret = self.api.SubscribeMarketData(
                 [s.encode("utf-8") for s in self.symbols], len(self.symbols)
             )
             if ret == 0:
-                print("[CTP] Subscribe request sent successfully.")
+                logger.info(
+                    "CTP market subscribe request sent successfully",
+                    extra=self._log_extra(),
+                )
             else:
-                print(f"[CTP] Subscribe request failed with code {ret}")
+                logger.error(
+                    "CTP market subscribe request failed: code=%s",
+                    ret,
+                    extra=self._log_extra(),
+                )
 
     def OnRspSubMarketData(
         self,
@@ -950,13 +1042,20 @@ class CTPMarketGateway(mdapi.CThostFtdcMdSpi):  # type: ignore
         bIsLast: bool,
     ) -> None:
         """Handle subscribe response."""
+        symbol = str(getattr(pSpecificInstrument, "InstrumentID", "")).strip() or None
         if pRspInfo is not None and pRspInfo.ErrorID != 0:
-            print(
-                f"[CTP] Subscribe failed for [{pSpecificInstrument.InstrumentID}]: "
-                f"{pRspInfo.ErrorMsg}"
+            logger.error(
+                "CTP market subscribe failed for [%s]: %s",
+                getattr(pSpecificInstrument, "InstrumentID", ""),
+                pRspInfo.ErrorMsg,
+                extra=self._log_extra(symbol=symbol),
             )
             return
-        print(f"[CTP] Subscribe succeed for [{pSpecificInstrument.InstrumentID}]")
+        logger.info(
+            "CTP market subscribe succeeded for [%s]",
+            getattr(pSpecificInstrument, "InstrumentID", ""),
+            extra=self._log_extra(symbol=symbol),
+        )
 
     def OnRtnDepthMarketData(self, pDepthMarketData: Any) -> None:
         """Process market data tick."""

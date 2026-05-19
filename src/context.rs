@@ -692,7 +692,11 @@ impl StrategyContext {
     ///
     /// :param order_id: 订单 ID
     fn cancel_order(&mut self, order_id: String) {
-        if !self.canceled_order_ids.iter().any(|existing| existing == &order_id) {
+        if !self
+            .canceled_order_ids
+            .iter()
+            .any(|existing| existing == &order_id)
+        {
             self.canceled_order_ids.push(order_id.clone());
         }
         if let Ok(mut canceled) = self.canceled_order_ids_arc.write() {

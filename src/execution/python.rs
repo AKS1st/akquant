@@ -1,5 +1,6 @@
 use crate::event::Event;
 use crate::execution::matcher::{ExecutionMatcher, MatchContext};
+use crate::log_context::{execution_order_context_from_event, render_log_message};
 use crate::model::{Order, Trade};
 use pyo3::IntoPyObjectExt;
 use pyo3::prelude::*;
@@ -17,6 +18,29 @@ impl PyExecutionMatcher {
     pub fn new(obj: Py<PyAny>) -> Self {
         Self { inner: obj }
     }
+
+    fn invalid_result_warning(order: &Order, event: &Event) -> String {
+        render_log_message(
+            "Ignored custom Python matcher result because it is not a Trade",
+            execution_order_context_from_event(order, event),
+        )
+    }
+
+    fn exception_warning(order: &Order, event: &Event, error_message: &str) -> String {
+        render_log_message(
+            format!("Custom Python matcher raised an exception: {error_message}"),
+            execution_order_context_from_event(order, event),
+        )
+    }
+
+    fn order_writeback_warning(order: &Order, event: &Event, error_message: &str) -> String {
+        render_log_message(
+            format!(
+                "Ignored Python matcher order state updates because updated Order could not be extracted: {error_message}"
+            ),
+            execution_order_context_from_event(order, event),
+        )
+    }
 }
 
 impl ExecutionMatcher for PyExecutionMatcher {
@@ -33,7 +57,7 @@ impl ExecutionMatcher for PyExecutionMatcher {
             let py_event = match event {
                 Event::Bar(b) => b.clone().into_py_any(py).ok()?,
                 Event::Tick(t) => t.clone().into_py_any(py).ok()?,
-                _ => return None, // Only support matching on Bar/Tick
+                _ => return None,
             };
 
             let py_instrument = instrument.clone().into_py_any(py).ok()?;
@@ -54,22 +78,29 @@ impl ExecutionMatcher for PyExecutionMatcher {
                     // 4. If result is a Trade, extract it
                     if let Ok(trade) = result.extract::<Trade>(py) {
                         // 5. Sync back modified Order state from Python object
-                        if let Ok(updated_order) = py_order.extract::<Order>(py) {
-                            *order = updated_order;
-                        } else {
-                            // Log warning? Failed to extract updated order
-                            // eprintln!("PyExecutionMatcher: Failed to extract updated Order from Python");
+                        match py_order.extract::<Order>(py) {
+                            Ok(updated_order) => {
+                                *order = updated_order;
+                            }
+                            Err(error) => {
+                                let error_message = error.to_string();
+                                log::warn!(
+                                    "{}",
+                                    Self::order_writeback_warning(order, event, &error_message)
+                                );
+                            }
                         }
 
                         // 6. Return ExecutionReport
                         Some(Event::ExecutionReport(order.clone(), Some(trade)))
                     } else {
-                        // eprintln!("PyExecutionMatcher: Python match method returned something that is not a Trade or None");
+                        log::warn!("{}", Self::invalid_result_warning(order, event));
                         None
                     }
                 }
                 Err(e) => {
-                    e.print_and_set_sys_last_vars(py);
+                    let error_message = e.to_string();
+                    log::warn!("{}", Self::exception_warning(order, event, &error_message));
                     None
                 }
             }

@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from .akquant import Bar, StrategyContext, Tick
+from .log import build_log_extra, get_logger
 from .strategy_framework_hooks import (
     call_user_callback,
     dispatch_boundary_timer,
@@ -25,6 +26,8 @@ from .strategy_ml import (
 )
 from .strategy_order_events import check_expiry_events
 from .strategy_scheduler import flush_pending_schedules
+
+logger = get_logger("strategy.events")
 
 
 def _is_before_active_start(strategy: Any, timestamp: int) -> bool:
@@ -198,8 +201,24 @@ def on_timer_event(strategy: Any, payload: str, ctx: StrategyContext) -> None:
                         target += pd.Timedelta(days=1)
 
                     strategy.schedule(target, payload)
-                except Exception as e:
-                    print(f"Error processing daily timer: {e}")
+                except Exception as exc:
+                    owner_strategy_id = (
+                        str(getattr(strategy, "_owner_strategy_id", "_default")).strip()
+                        or "_default"
+                    )
+                    logger.warning(
+                        "Failed to reschedule live daily timer",
+                        exc_info=exc,
+                        extra=build_log_extra(
+                            phase="strategy",
+                            strategy_id=owner_strategy_id,
+                            slot=(
+                                owner_strategy_id
+                                if owner_strategy_id != "_default"
+                                else None
+                            ),
+                        ),
+                    )
             _flush_indicator_snapshots(strategy)
             return
 

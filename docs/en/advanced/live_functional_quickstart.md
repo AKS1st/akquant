@@ -85,6 +85,24 @@ runner.run(duration="30s", show_progress=False)
   - Cause: strict semantics requires `OnRtnOrder(Cancelled)` to finalize terminal state.
   - Fix: verify trader callback path and broker order-return logs, not only request send success.
 
+It is recommended to enable logging explicitly before troubleshooting live/paper runs:
+
+```python
+import akquant
+
+akquant.configure_logging(
+    akquant.LogConfig(
+        profile="live",
+        level="INFO",
+        console=True,
+        file_json=True,
+        filename="logs/live_runner.log",
+    )
+)
+```
+
+This places strategy-side `on_order` / `on_trade` logs and gateway/execution warnings into the same pipeline. It makes rejection, unknown-cancel, and strict-semantics state transition issues easier to trace by fields such as `symbol`, `order_id`, `client_order_id`, and `strategy_id`.
+
 ## 5. Suggested rollout
 
 - Step 1: validate callback flow in paper mode.

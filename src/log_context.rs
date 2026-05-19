@@ -1,3 +1,5 @@
+use crate::event::Event;
+use crate::model::Order;
 use chrono::{TimeZone, Utc};
 use serde::Serialize;
 
@@ -62,6 +64,59 @@ impl AkqLogContext {
         self.order_id = Some(value.into());
         self
     }
+}
+
+#[must_use]
+pub fn execution_order_context(order: &Order, event_time: i64) -> AkqLogContext {
+    let mut context = AkqLogContext::new()
+        .phase("execution")
+        .symbol(order.symbol.clone())
+        .order_id(order.id.clone())
+        .event_time_str(format_event_time_nanos(event_time));
+    if let Some(strategy_id) = order
+        .owner_strategy_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        context = context
+            .strategy_id(strategy_id.to_string())
+            .slot(strategy_id.to_string());
+    }
+    context
+}
+
+#[must_use]
+pub fn event_time_from_event(event: &Event) -> Option<i64> {
+    match event {
+        Event::Bar(bar) => Some(bar.timestamp),
+        Event::Tick(tick) => Some(tick.timestamp),
+        Event::Timer(timer) => Some(timer.timestamp),
+        _ => None,
+    }
+}
+
+#[must_use]
+pub fn execution_order_context_from_event(order: &Order, event: &Event) -> AkqLogContext {
+    event_time_from_event(event)
+        .map(|event_time| execution_order_context(order, event_time))
+        .unwrap_or_else(|| {
+            let mut context = AkqLogContext::new()
+                .phase("execution")
+                .symbol(order.symbol.clone())
+                .order_id(order.id.clone());
+            if let Some(strategy_id) = order
+                .owner_strategy_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                context = context
+                    .strategy_id(strategy_id.to_string())
+                    .slot(strategy_id.to_string());
+            }
+            context
+        })
 }
 
 #[must_use]

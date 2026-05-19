@@ -249,7 +249,10 @@ class LiveRunner:
         :param duration: Optional run duration string (e.g., "1m", "1h", "60s").
                          If set, strategy will stop after this duration.
         """
-        print("[LiveRunner] Configuring Engine...")
+        logger.info(
+            "Configuring live engine",
+            extra=self._runner_log_extra(phase="live"),
+        )
         self.engine.add_data(self.feed)
         self.engine.set_cash(cash)
 
@@ -275,7 +278,11 @@ class LiveRunner:
         )
         self._broker_capabilities = bundle.trader_capabilities
 
-        print(f"[LiveRunner] Starting {self.broker} market gateway...")
+        logger.info(
+            "Starting %s market gateway",
+            self.broker,
+            extra=self._runner_log_extra(phase="gateway"),
+        )
         self._start_gateway_thread(bundle.market_gateway.start, f"{self.broker}-market")
 
         if self.trading_mode == "broker_live":
@@ -283,7 +290,11 @@ class LiveRunner:
                 raise ValueError(
                     "trading_mode='broker_live' requires a trader gateway configuration"
                 )
-            print(f"[LiveRunner] Starting {self.broker} trader gateway...")
+            logger.info(
+                "Starting %s trader gateway",
+                self.broker,
+                extra=self._runner_log_extra(phase="gateway"),
+            )
             self._start_gateway_thread(
                 bundle.trader_gateway.start, f"{self.broker}-trader"
             )
@@ -310,19 +321,30 @@ class LiveRunner:
 
         # Apply duration limit if specified
         if duration:
-            print(f"[LiveRunner] Auto-stop enabled: {duration}")
+            logger.info(
+                "Live auto-stop enabled: %s",
+                duration,
+                extra=self._runner_log_extra(phase="live"),
+            )
             self._apply_time_limit(strategy_instance, duration)
 
-        print("[LiveRunner] Running Strategy (Press Ctrl+C to stop)...")
+        logger.info(
+            "Running live strategy loop",
+            extra=self._runner_log_extra(phase="live"),
+        )
         try:
             self.engine.run(strategy_instance, show_progress=show_progress)
         except KeyboardInterrupt:
-            print("\n[LiveRunner] Stopping by User (or Duration Limit)...")
-        except Exception as e:
-            print(f"\n[LiveRunner] Stopping due to Error: {e}")
-            import traceback
-
-            traceback.print_exc()
+            logger.info(
+                "Stopping live runner by user interrupt or duration limit",
+                extra=self._runner_log_extra(phase="live"),
+            )
+        except Exception as exc:
+            logger.exception(
+                "Stopping live runner due to error: %s",
+                exc,
+                extra=self._runner_log_extra(phase="live"),
+            )
         finally:
             self._stop_broker_dispatcher()
             self._print_summary()
@@ -633,6 +655,16 @@ class LiveRunner:
     def _start_gateway_thread(self, target: Any, name: str) -> None:
         thread = threading.Thread(target=target, name=name, daemon=True)
         thread.start()
+
+    def _runner_log_extra(self, *, phase: str) -> dict[str, Any]:
+        strategy_id = (
+            str(getattr(self, "strategy_id", "_default")).strip() or "_default"
+        )
+        return build_log_extra(
+            phase=phase,
+            strategy_id=strategy_id,
+            slot=strategy_id if strategy_id != "_default" else None,
+        )
 
     def _init_broker_bridge_state(self) -> None:
         if not hasattr(self, "on_broker_event"):
@@ -1365,9 +1397,10 @@ class LiveRunner:
             elif unit == "h":
                 duration_sec = val * 3600
         else:
-            print(
-                f"[LiveRunner] Warning: Invalid duration format '{duration_str}', "
-                "ignoring."
+            logger.warning(
+                "Ignored invalid live duration format: %s",
+                duration_str,
+                extra=self._runner_log_extra(phase="live"),
             )
             return
 
@@ -1398,9 +1431,6 @@ class LiveRunner:
     def _print_summary(self) -> None:
         try:
             results = self.engine.get_results()
-            print("\n" + "=" * 50)
-            print("TRADING SUMMARY (Manual Stop)")
-            print("=" * 50)
             total_return_display = format_metric_value(
                 "total_return_pct", results.metrics.total_return_pct
             )
@@ -1411,24 +1441,39 @@ class LiveRunner:
                 "max_drawdown_pct", results.metrics.max_drawdown_pct
             )
             win_rate_display = format_metric_value("win_rate", results.metrics.win_rate)
-            print(f"Total Return: {total_return_display}")
-            print(f"Annualized Return: {annualized_return_display}")
-            print(f"Max Drawdown: {max_drawdown_display}")
-            print(f"Sharpe Ratio: {results.metrics.sharpe_ratio:.4f}")
-            print(f"Win Rate: {win_rate_display}")
-            print(f"Total Trades: {len(results.trades)}")
-            print("=" * 50)
+            summary_lines = [
+                "=" * 50,
+                "TRADING SUMMARY (Manual Stop)",
+                "=" * 50,
+                f"Total Return: {total_return_display}",
+                f"Annualized Return: {annualized_return_display}",
+                f"Max Drawdown: {max_drawdown_display}",
+                f"Sharpe Ratio: {results.metrics.sharpe_ratio:.4f}",
+                f"Win Rate: {win_rate_display}",
+                f"Total Trades: {len(results.trades)}",
+                "=" * 50,
+            ]
 
             # Print Current Positions if available
             if results.snapshots:
                 last_snapshots = results.snapshots[-1][1]
-                print("\nCurrent Positions:")
+                summary_lines.extend(["", "Current Positions:"])
                 has_pos = False
                 for s in last_snapshots:
                     if abs(s.quantity) > 0:
-                        print(f"  {s.symbol}: {s.quantity}")
+                        summary_lines.append(f"  {s.symbol}: {s.quantity}")
                         has_pos = True
                 if not has_pos:
-                    print("  (None)")
-        except Exception as e:
-            print(f"Error generating summary: {e}")
+                    summary_lines.append("  (None)")
+
+            logger.info(
+                "%s",
+                "\n".join(summary_lines),
+                extra=self._runner_log_extra(phase="live"),
+            )
+        except Exception:
+            logger.warning(
+                "Failed to generate live trading summary",
+                exc_info=True,
+                extra=self._runner_log_extra(phase="live"),
+            )

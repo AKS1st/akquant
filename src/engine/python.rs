@@ -106,9 +106,7 @@ impl Engine {
         level: &str,
         payload: HashMap<String, String>,
     ) {
-        super::core::Engine::emit_stream_event_owned(
-            self, py, event_type, symbol, level, payload,
-        );
+        super::core::Engine::emit_stream_event_owned(self, py, event_type, symbol, level, payload);
     }
 
     fn add_timer(&mut self, timestamp: i64, payload: String) {
@@ -639,7 +637,9 @@ impl Engine {
 
         self.state.portfolio = snapshot.portfolio;
         self.state.order_manager = snapshot.order_manager;
-        let history_buffer = snapshot.history_state.map(crate::history::HistoryBuffer::from);
+        let history_buffer = snapshot
+            .history_state
+            .map(crate::history::HistoryBuffer::from);
         if let Some(buffer) = history_buffer {
             self.history_buffer = Arc::new(RwLock::new(buffer));
         }
@@ -1120,14 +1120,7 @@ impl Engine {
         if let Err(e) = pipeline.run(self, py, strategy) {
             let mut payload: HashMap<String, String> = HashMap::new();
             payload.insert("message".to_string(), e.to_string());
-            super::core::Engine::emit_stream_event_owned(
-                self,
-                py,
-                "error",
-                None,
-                "error",
-                payload,
-            );
+            super::core::Engine::emit_stream_event_owned(self, py, "error", None, "error", payload);
             self.finish_stream_run(py, "failed", Some(&e.to_string()));
             // Clean up pb if error
             self.progress_bar = None;

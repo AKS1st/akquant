@@ -143,6 +143,31 @@ OMS 是实盘交易的核心，负责维护订单的全生命周期状态。
 *   **日志 (Logging)**：详细记录每一笔 Tick、Signal 和 Order。
 *   **消息推送**：集成钉钉/飞书/邮件机器人，实时推送成交和异常信息。
 
+推荐在实盘或准实盘启动前显式打开日志，而不是依赖默认输出：
+
+```python
+import akquant
+
+akquant.configure_logging(
+    akquant.LogConfig(
+        profile="live",
+        level="INFO",
+        console=True,
+        filename="logs/live.log",
+        file_level="DEBUG",
+        file_json=True,
+        file_max_bytes=50_000_000,
+        file_backup_count=5,
+    )
+)
+```
+
+这样做有几个直接收益：
+
+*   `on_order` / `on_trade` / `on_reject` 中的策略日志会自动携带 `order_id`、`client_order_id`、`strategy_id`、`symbol` 等结构化字段。
+*   网关与执行链路中的 warning 也会进入同一套日志管线；例如拒单、未知撤单、收盘过期、严格语义下终态尚未确认等问题，都更容易统一排查。
+*   如果打开 `file_json=True`，后续接入日志平台、告警系统或审计落盘会更顺手。
+
 ### 15.5.3 代码示例：启动实盘
 
 ```python

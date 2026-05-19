@@ -258,8 +258,14 @@ mod tests {
         assert_eq!(restored.default_capacity, 4);
         let history = restored.get_history("TEST").expect("history for TEST");
         assert_eq!(history.capacity, 4);
-        assert_eq!(history.timestamps.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3]);
-        assert_eq!(history.closes.iter().copied().collect::<Vec<_>>(), vec![10.0, 11.0, 12.0]);
+        assert_eq!(
+            history.timestamps.iter().copied().collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+        assert_eq!(
+            history.closes.iter().copied().collect::<Vec<_>>(),
+            vec![10.0, 11.0, 12.0]
+        );
         let extras = history.extras.get("factor").expect("factor extra history");
         assert_eq!(extras.len(), 3);
         assert_eq!(extras[0], 1.0);
@@ -279,8 +285,14 @@ mod tests {
         assert_eq!(buffer.default_capacity, 2);
         let history = buffer.get_history("TEST").expect("history for TEST");
         assert_eq!(history.capacity, 2);
-        assert_eq!(history.timestamps.iter().copied().collect::<Vec<_>>(), vec![3, 4]);
-        assert_eq!(history.closes.iter().copied().collect::<Vec<_>>(), vec![12.0, 13.0]);
+        assert_eq!(
+            history.timestamps.iter().copied().collect::<Vec<_>>(),
+            vec![3, 4]
+        );
+        assert_eq!(
+            history.closes.iter().copied().collect::<Vec<_>>(),
+            vec![12.0, 13.0]
+        );
         let extras = history.extras.get("factor").expect("factor extra history");
         assert_eq!(extras.iter().copied().collect::<Vec<_>>(), vec![12.0, 13.0]);
     }

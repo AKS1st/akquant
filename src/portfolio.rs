@@ -275,8 +275,11 @@ impl Portfolio {
         stock_margin_ratio_override: Option<Decimal>,
     ) -> Decimal {
         let equity = self.calculate_equity(prices, instruments);
-        let used_margin =
-            self.calculate_used_margin_with_stock_ratio(prices, instruments, stock_margin_ratio_override);
+        let used_margin = self.calculate_used_margin_with_stock_ratio(
+            prices,
+            instruments,
+            stock_margin_ratio_override,
+        );
         equity - used_margin
     }
 }

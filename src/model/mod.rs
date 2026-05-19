@@ -12,6 +12,6 @@ pub use order::*;
 pub use timer::*;
 pub use types::{
     AssetType, ExecutionMode, ExecutionPolicyCore, OptionMarginModel, OptionType, OrderRole,
-    OrderSide, OrderStatus, OrderType, PositionEffect, PriceBasis, SettlementType,
-    TemporalPolicy, TimeInForce, TradingSession,
+    OrderSide, OrderStatus, OrderType, PositionEffect, PriceBasis, SettlementType, TemporalPolicy,
+    TimeInForce, TradingSession,
 };

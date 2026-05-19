@@ -10,7 +10,9 @@ fn checked_add_or_cap(lhs: Decimal, rhs: Decimal) -> Decimal {
 }
 
 fn checked_sub_or_zero(lhs: Decimal, rhs: Decimal) -> Decimal {
-    lhs.checked_sub(rhs).unwrap_or(Decimal::ZERO).max(Decimal::ZERO)
+    lhs.checked_sub(rhs)
+        .unwrap_or(Decimal::ZERO)
+        .max(Decimal::ZERO)
 }
 
 fn legacy_option_margin(
@@ -45,10 +47,8 @@ fn calculate_single_leg_margin_per_unit(
         OptionType::Call => checked_sub_or_zero(strike_price, underlying_price),
         OptionType::Put => checked_sub_or_zero(underlying_price, strike_price),
     };
-    let exposure_component = checked_sub_or_zero(
-        checked_mul_or_cap(underlying_price, exposure_ratio),
-        otm,
-    );
+    let exposure_component =
+        checked_sub_or_zero(checked_mul_or_cap(underlying_price, exposure_ratio), otm);
     let floor_base = match option_type {
         OptionType::Call => underlying_price,
         OptionType::Put => strike_price,
