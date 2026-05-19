@@ -639,6 +639,101 @@ result = run_backtest(
 *   **UI-Driven Parameter Input**: Declare `PARAM_MODEL` in strategy classes (`akquant.ParamModel`) and use `get_strategy_param_schema` / `validate_strategy_params` for frontend-backend parameter consistency.
 *   **Parameter Tuning**: When using `run_grid_search`, modify the Config object or pass override parameters as needed.
 
+### Logging API
+
+AKQuant stays quiet by default when imported as a library; until explicitly configured, the `akquant` root logger only carries a `NullHandler`.
+
+#### `akquant.LogConfig`
+
+Advanced logging config object used by `configure_logging(...)`.
+
+Core fields:
+
+*   `level`: global fallback level.
+*   `console`: whether to enable the console handler.
+*   `console_level` / `file_level`: per-handler level overrides.
+*   `console_format` / `file_format`: text formatter overrides.
+*   `console_show_context` / `file_show_context`: whether human-readable output should append structured context.
+*   `console_json` / `file_json`: whether the corresponding handler should emit JSON lines.
+*   `filename`: target log file path.
+*   `file_mode`: file open mode, default `a`.
+*   `file_max_bytes` / `file_backup_count`: size-based rotation threshold and retention count.
+*   `profile`: preset profile, one of `research`, `optimize`, or `live`.
+*   `reset_handlers`: whether to reset AKQuant-managed handlers.
+*   `propagate`: whether records should propagate to parent loggers.
+
+#### `akquant.configure_logging`
+
+```python
+def configure_logging(config: LogConfig) -> logging.Logger
+```
+
+Initializes or reconfigures the `akquant` logging system through a structured config.
+
+Recommended example:
+
+```python
+import akquant
+
+akquant.configure_logging(
+    akquant.LogConfig(
+        profile="live",
+        level="INFO",
+        console=True,
+        console_json=False,
+        filename="logs/live.log",
+        file_level="DEBUG",
+        file_json=True,
+        file_max_bytes=10_000_000,
+        file_backup_count=5,
+    )
+)
+```
+
+Behavior notes:
+
+*   `profile` only fills unspecified fields; explicit config values always win.
+*   `profile="optimize"` uses a process-aware default text format so worker output is easier to distinguish.
+*   `profile="live"` is the natural place to enable structured context and/or JSON output.
+
+#### `akquant.register_logger`
+
+```python
+def register_logger(
+    filename: Optional[str] = None,
+    console: bool = True,
+    level: str = "INFO",
+) -> None
+```
+
+Compatibility helper for quickly enabling logging without exposing advanced fields. Internally this maps to `configure_logging(LogConfig(...))`.
+
+#### `akquant.get_logger`
+
+```python
+def get_logger(name: Optional[str] = None) -> logging.Logger
+```
+
+Fetches a logger under the `akquant` namespace:
+
+*   `get_logger()` -> `akquant`
+*   `get_logger("strategy")` -> `akquant.strategy`
+*   `get_logger("gateway.live")` -> `akquant.gateway.live`
+
+#### `akquant.set_log_level`
+
+```python
+def set_log_level(level: Union[str, int]) -> None
+```
+
+Updates the current `akquant` root logger level.
+
+#### Boundary Guidance
+
+*   `self.log(...)` is the primary human-readable strategy logging path.
+*   `run_backtest(..., on_event=...)` is the machine-consumable event stream and is better suited for realtime UI, alerting, and audit sinks.
+*   Inside `on_order` / `on_trade` / `on_reject`, `self.log(...)` automatically carries structured fields such as `order_id` and `client_order_id`.
+
 ### `akquant.RiskConfig`
 
 Configuration for risk management.
@@ -834,6 +929,30 @@ The main entry point for the backtesting engine (usually used implicitly via `ru
 *   `use_simple_market()`: Enable simple market.
 *   `use_china_market()`: Enable China market.
 *   `set_stock_fee_rules(commission, stamp_tax, transfer_fee, min_commission)`: Set fee rules.
+
+### `akquant.DataFeed`
+
+`DataFeed` is the engine-facing event source abstraction. Use it when you want explicit control over how data enters the engine.
+
+**Constructors & factories:**
+
+*   `DataFeed()`: Create an empty historical feed.
+*   `DataFeed.from_csv(path, symbol)`: Create a feed directly from a CSV file; useful when you want Rust-side row iteration to drive the event stream.
+*   `DataFeed.create_live()`: Create a live feed suitable for gateway / market data push scenarios.
+
+**Input methods:**
+
+*   `add_bar(bar)`: Append one `Bar` to the feed.
+*   `add_bars(bars)`: Append a batch of `Bar` objects.
+*   `add_tick(tick)`: Append one `Tick` to a live feed.
+*   `add_arrays(timestamps, opens, highs, lows, closes, volumes, symbol)`: Build bars from arrays and inject them into the feed efficiently.
+*   `sort()`: Sort the current historical feed by event time.
+
+**When to use it:**
+
+*   For normal backtests, prefer `run_backtest(data=...)` with a `DataFrame`, `List[Bar]`, or `DataFeedAdapter`.
+*   Use `DataFeed` when you want to reuse the same feed object, switch explicitly between historical and live modes, or wire data into `Engine.add_data(feed)` yourself.
+*   If `from_csv(...)` or `add_arrays(...)` encounters invalid floating-point values, Rust emits warnings that flow into AKQuant's Python `logging` pipeline, such as `akquant.data.client` and `akquant.data.batch`.
 
 ### `akquant.gateway` Custom Broker Registry
 

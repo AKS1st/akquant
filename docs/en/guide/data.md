@@ -144,6 +144,38 @@ Parameter semantics:
 *   `align="day"`: Partition by day without `session_windows`; `day_mode` supports `trading/calendar`.
 *   `align="global"`: Aggregate on the full timeline without day partitioning.
 
+### 2.5 Using `DataFeed` Directly
+
+If you want explicit control over how data enters the engine, you can work with `DataFeed` directly instead of normalizing everything into a `DataFrame` first:
+
+```python
+import akquant as aq
+
+feed = aq.DataFeed.from_csv("/data/000001.csv", "000001.SZ")
+
+result = aq.run_backtest(
+    data=feed,
+    strategy=MyStrategy,
+    symbols="000001.SZ",
+    show_progress=False,
+)
+```
+
+For live scenarios, create a writable live feed:
+
+```python
+import akquant as aq
+
+feed = aq.DataFeed.create_live()
+feed.add_tick(aq.Tick(...))
+```
+
+Notes:
+
+*   `DataFeed.from_csv(...)` is a good fit when you want AKQuant to read a CSV-backed event stream directly.
+*   `add_bar(...)`, `add_bars(...)`, and `add_arrays(...)` fit cases where you already have normalized market objects or arrays on the Python side.
+*   If CSV or array inputs contain invalid floating-point values, Rust emits warnings that are forwarded into AKQuant's Python `logging` pipeline instead of failing silently.
+
 ---
 
 ## 3. Multi-Symbol Data

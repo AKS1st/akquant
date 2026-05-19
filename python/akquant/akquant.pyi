@@ -2,12 +2,61 @@
 # ruff: noqa: E501, F401
 
 import datetime
+import logging
 import typing
 
 import numpy
 import numpy.typing
 
 import akquant
+
+class LogConfig:
+    level: typing.Union[str, int]
+    console: bool
+    console_level: typing.Optional[typing.Union[str, int]]
+    console_format: typing.Optional[str]
+    console_show_context: typing.Optional[bool]
+    console_json: typing.Optional[bool]
+    filename: typing.Optional[str]
+    file_level: typing.Optional[typing.Union[str, int]]
+    file_format: typing.Optional[str]
+    file_show_context: typing.Optional[bool]
+    file_json: typing.Optional[bool]
+    file_mode: str
+    file_max_bytes: typing.Optional[int]
+    file_backup_count: int
+    profile: typing.Optional[str]
+    reset_handlers: bool
+    propagate: bool
+    def __init__(
+        self,
+        level: typing.Union[str, int] = ...,
+        console: bool = ...,
+        console_level: typing.Optional[typing.Union[str, int]] = ...,
+        console_format: typing.Optional[str] = ...,
+        console_show_context: typing.Optional[bool] = ...,
+        console_json: typing.Optional[bool] = ...,
+        filename: typing.Optional[str] = ...,
+        file_level: typing.Optional[typing.Union[str, int]] = ...,
+        file_format: typing.Optional[str] = ...,
+        file_show_context: typing.Optional[bool] = ...,
+        file_json: typing.Optional[bool] = ...,
+        file_mode: str = ...,
+        file_max_bytes: typing.Optional[int] = ...,
+        file_backup_count: int = ...,
+        profile: typing.Optional[str] = ...,
+        reset_handlers: bool = ...,
+        propagate: bool = ...,
+    ) -> None: ...
+
+def get_logger(name: typing.Optional[str] = ...) -> logging.Logger: ...
+def set_log_level(level: typing.Union[str, int]) -> None: ...
+def configure_logging(config: LogConfig) -> logging.Logger: ...
+def register_logger(
+    filename: typing.Optional[str] = ...,
+    console: bool = ...,
+    level: str = ...,
+) -> None: ...
 
 class AssetType:
     Stock: typing.ClassVar["AssetType"]
@@ -447,8 +496,14 @@ class DataFeed:
     支持 CSV 文件读取、数组批量加载和实时数据推送。
     """
 
+    @staticmethod
+    def from_csv(path: str, symbol: str) -> "DataFeed": ...
+    @staticmethod
+    def create_live() -> "DataFeed": ...
     def sort(self) -> None: ...
+    def add_bar(self, bar: Bar) -> None: ...
     def add_bars(self, bars: typing.Sequence[Bar]) -> None: ...
+    def add_tick(self, tick: Tick) -> None: ...
     def add_arrays(
         self,
         timestamps: numpy.ndarray,

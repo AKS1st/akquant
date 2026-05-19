@@ -76,7 +76,7 @@ def test_live_runner_broker_bridge_dispatches_events() -> None:
     assert strategy.reports == [{"id": "r1"}]
 
 
-def test_live_runner_broker_bridge_forwards_errors() -> None:
+def test_live_runner_broker_bridge_forwards_errors(caplog: Any) -> None:
     """Forward callback exceptions to strategy on_error."""
 
     class _DummyTraderGateway:
@@ -113,12 +113,23 @@ def test_live_runner_broker_bridge_forwards_errors() -> None:
     strategy = _DummyErrorStrategy()
     runner._bind_broker_callbacks(gateway, cast(Any, strategy))
 
-    gateway.emit_trade({"id": "t2"})
-    time.sleep(0.2)
-    runner._stop_broker_dispatcher()
+    with caplog.at_level("WARNING", logger="akquant.gateway.live"):
+        gateway.emit_trade(
+            {"id": "t2", "symbol": "IF2406", "client_order_id": "coid-t2"}
+        )
+        time.sleep(0.2)
+        runner._stop_broker_dispatcher()
 
     assert strategy.errors
     assert strategy.errors[0][0] == "on_trade"
+    record = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "Strategy broker callback failed"
+    )
+    assert record.phase == "gateway"
+    assert record.symbol == "IF2406"
+    assert record.client_order_id == "coid-t2"
 
 
 def test_live_runner_broker_bridge_deduplicates_events() -> None:
@@ -500,7 +511,7 @@ def test_live_runner_submitter_checks_idempotency_and_maps() -> None:
     assert runner._resolve_client_order_id("b-coid-1") == "coid-1"
 
 
-def test_live_runner_submitter_forwards_duplicate_error() -> None:
+def test_live_runner_submitter_forwards_duplicate_error(caplog: Any) -> None:
     """Raise and forward error when submitting duplicate active client order id."""
 
     class _DummyTraderGateway:
@@ -524,20 +535,30 @@ def test_live_runner_submitter_forwards_duplicate_error() -> None:
     runner._install_broker_order_submitter(cast(Any, gateway), cast(Any, strategy))
     strategy_any = cast(Any, strategy)
 
-    try:
-        strategy_any.submit_order(
-            symbol="000002.SZ",
-            side="Sell",
-            quantity=5.0,
-            client_order_id="coid-dup",
-        )
-    except RuntimeError as exc:
-        assert "duplicate active client_order_id" in str(exc)
-    else:
-        raise AssertionError("expected RuntimeError for duplicate client_order_id")
+    with caplog.at_level("WARNING", logger="akquant.gateway.live"):
+        try:
+            strategy_any.submit_order(
+                symbol="000002.SZ",
+                side="Sell",
+                quantity=5.0,
+                client_order_id="coid-dup",
+            )
+        except RuntimeError as exc:
+            assert "duplicate active client_order_id" in str(exc)
+        else:
+            raise AssertionError("expected RuntimeError for duplicate client_order_id")
 
     assert strategy.errors
     assert strategy.errors[0][0] == "submit_order"
+    record = next(
+        record
+        for record in caplog.records
+        if record.getMessage()
+        == "Rejected live submit_order because client_order_id is already active"
+    )
+    assert record.phase == "gateway"
+    assert record.symbol == "000002.SZ"
+    assert record.client_order_id == "coid-dup"
 
 
 def test_live_runner_submit_order_supports_buy_and_sell_side() -> None:
@@ -1395,3 +1416,43 @@ def test_live_runner_emits_observable_broker_events_with_owner_strategy_id() -> 
     assert event["event_type"] == "order"
     assert event["owner_strategy_id"] == "beta"
     assert event["payload"]["client_order_id"] == "coid-obs-1"
+
+
+def test_live_runner_logs_broker_event_observer_failures(caplog: Any) -> None:
+    """Observer callback failures should be logged with broker context."""
+
+    def _observer(_: dict[str, Any]) -> None:
+        raise RuntimeError("observer failed")
+
+    class _DummyStrategy:
+        def on_order(self, order: Any) -> None:
+            return None
+
+    runner = LiveRunner.__new__(LiveRunner)
+    runner.broker = "miniqmt"
+    runner._init_broker_bridge_state()
+    runner.on_broker_event = _observer
+    runner._client_to_strategy_ids["coid-obs-2"] = "gamma"
+    strategy = _DummyStrategy()
+    payload = {
+        "client_order_id": "coid-obs-2",
+        "broker_order_id": "b-obs-2",
+        "symbol": "000001.SZ",
+        "status": "Submitted",
+    }
+
+    with caplog.at_level("WARNING", logger="akquant.gateway.live"):
+        runner._queue_broker_event("order", payload)
+        runner._drain_broker_events(cast(Any, strategy))
+
+    record = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "Broker event observer failed"
+    )
+    assert record.phase == "gateway"
+    assert record.strategy_id == "gamma"
+    assert record.slot == "gamma"
+    assert record.symbol == "000001.SZ"
+    assert record.order_id == "b-obs-2"
+    assert record.client_order_id == "coid-obs-2"

@@ -38,6 +38,7 @@ from .strategy import Strategy
 
 _WORKER_LOG_QUEUE: Any = None
 OptimizationData = Union[pd.DataFrame, Dict[str, pd.DataFrame]]
+logger = logging.getLogger("akquant.optimize")
 
 
 def _normalize_backtest_symbol_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -512,7 +513,7 @@ def _save_result_to_db(
             )
             conn.commit()
     except Exception as e:
-        print(f"Failed to save result to DB: {e}")
+        logger.warning("Failed to save result to DB at %s: %s", db_path, e)
 
 
 def run_grid_search(
@@ -581,9 +582,11 @@ def run_grid_search(
         param_combinations = [p for p in param_combinations if constraint(p)]
         filtered_count = len(param_combinations)
         if original_count != filtered_count:
-            print(
-                f"Constraint filtered {original_count - filtered_count} combinations "
-                f"({original_count} -> {filtered_count})"
+            logger.info(
+                "Constraint filtered %s combinations (%s -> %s)",
+                original_count - filtered_count,
+                original_count,
+                filtered_count,
             )
 
     # 1.6 断点续传 (如果有 db_path)
@@ -642,9 +645,9 @@ def run_grid_search(
                         continue
 
                 if existing_results:
-                    print(
-                        f"Found {len(existing_results)} existing results in DB. "
-                        "Resuming..."
+                    logger.info(
+                        "Found %s existing results in DB. Resuming...",
+                        len(existing_results),
                     )
 
                     # 过滤已完成的任务
@@ -662,21 +665,23 @@ def run_grid_search(
                             new_combinations.append(p)
 
                     param_combinations = new_combinations
-                    print(
-                        f"Skipped {skipped_count} completed tasks. "
-                        f"Remaining: {len(param_combinations)}"
+                    logger.info(
+                        "Skipped %s completed tasks. Remaining: %s",
+                        skipped_count,
+                        len(param_combinations),
                     )
 
         except Exception as e:
-            print(f"Warning: Failed to access SQLite DB at {db_path}: {e}")
+            logger.warning("Failed to access SQLite DB at %s: %s", db_path, e)
 
     total_combinations = len(param_combinations)
 
     # 3. 并行执行 (如果有剩余任务)
     new_results = []
     if total_combinations > 0:
-        print(
-            f"Running optimization for {total_combinations} parameter combinations..."
+        logger.info(
+            "Running optimization for %s parameter combinations...",
+            total_combinations,
         )
 
         # 2. 准备任务
@@ -717,10 +722,10 @@ def run_grid_search(
             pool_init_args: tuple[Any, ...] = ()
             worker_log_forwarding_active = False
             if forward_worker_logs:
-                logger = get_logger()
+                root_logger = get_logger()
                 active_handlers = [
                     handler
-                    for handler in logger.handlers
+                    for handler in root_logger.handlers
                     if not isinstance(handler, logging.NullHandler)
                 ]
                 if active_handlers:
@@ -733,15 +738,14 @@ def run_grid_search(
                     pool_init_args = (log_queue,)
                     worker_log_forwarding_active = True
                 else:
-                    print(
-                        "Warning: forward_worker_logs=True but no active logger "
-                        "handler found in main process."
+                    logger.warning(
+                        "forward_worker_logs=True but no active logger handler "
+                        "found in main process."
                     )
             if not worker_log_forwarding_active and not forward_worker_logs:
-                print(
-                    "Warning: max_workers>1 uses subprocess workers. "
-                    "Strategy self.log() output may not be visible in the main "
-                    "process console."
+                logger.warning(
+                    "max_workers>1 uses subprocess workers. Strategy self.log() "
+                    "output may not be visible in the main process console."
                 )
             try:
                 with multiprocessing.Pool(
@@ -759,7 +763,10 @@ def run_grid_search(
                             if db_path:
                                 _save_result_to_db(db_path, strategy.__name__, result)
                     except Exception as e:
-                        print(f"Error during optimization (Worker Crash/OOM?): {e}")
+                        logger.error(
+                            "Error during optimization (Worker Crash/OOM?): %s",
+                            e,
+                        )
                         pass
             finally:
                 if listener is not None:
@@ -768,7 +775,7 @@ def run_grid_search(
                     log_queue.close()
                     log_queue.join_thread()
     else:
-        print("All tasks completed. Returning existing results.")
+        logger.info("All tasks completed. Returning existing results.")
 
     # 合并结果
     results = existing_results + new_results
@@ -779,9 +786,11 @@ def run_grid_search(
         results = [r for r in results if result_filter(r.metrics)]
         filtered_count = len(results)
         if original_count != filtered_count:
-            print(
-                f"Result filter removed {original_count - filtered_count} combinations "
-                f"({original_count} -> {filtered_count})"
+            logger.info(
+                "Result filter removed %s combinations (%s -> %s)",
+                original_count - filtered_count,
+                original_count,
+                filtered_count,
             )
 
     # 5. 排序结果
@@ -878,9 +887,11 @@ def run_walk_forward(
             f"train ({train_period}) + test ({test_period})."
         )
 
-    print(
-        f"Starting Walk-Forward Optimization: Train={train_period}, "
-        f"Test={test_period}, Total Bars={total_len}"
+    logger.info(
+        "Starting Walk-Forward Optimization: Train=%s, Test=%s, Total Bars=%s",
+        train_period,
+        test_period,
+        total_len,
     )
 
     oos_results = []
@@ -908,9 +919,11 @@ def run_walk_forward(
             train_end_exclusive,
         )
 
-        print(
-            f"\n=== Window {i // test_period + 1}: "
-            f"Train [{train_start_time} - {train_end_time}] ==="
+        logger.info(
+            "=== Window %s: Train [%s - %s] ===",
+            i // test_period + 1,
+            train_start_time,
+            train_end_time,
         )
 
         # 2. 样本内优化 (Optimization)
@@ -931,8 +944,8 @@ def run_walk_forward(
         )
 
         if isinstance(opt_results, list) or opt_results.empty:
-            print(
-                "Warning: Optimization failed or returned no results. Skipping window."
+            logger.warning(
+                "Optimization failed or returned no results. Skipping window."
             )
             continue
 
@@ -947,7 +960,7 @@ def run_walk_forward(
         else:
             metric_str = f"{metric}={best_row.get(metric, 0):.4f}"
 
-        print(f"  Best Params: {best_params} ({metric_str})")
+        logger.info("Best Params: %s (%s)", best_params, metric_str)
 
         # 计算实际需要的预热期
         current_warmup = warmup_period
@@ -973,7 +986,12 @@ def run_walk_forward(
         backtest_kwargs["initial_cash"] = initial_cash
         backtest_kwargs["warmup_period"] = current_warmup
 
-        print(f"  Test [{oos_start_time} - {oos_end_time}] (Warmup: {current_warmup})")
+        logger.info(
+            "Test [%s - %s] (Warmup: %s)",
+            oos_start_time,
+            oos_end_time,
+            current_warmup,
+        )
 
         bt_result = run_backtest(
             strategy=strategy, data=test_data_with_warmup, **backtest_kwargs
@@ -983,7 +1001,7 @@ def run_walk_forward(
         equity_curve = bt_result.equity_curve
 
         if equity_curve.empty:
-            print("  Warning: Empty equity curve in OOS.")
+            logger.warning("Empty equity curve in OOS.")
             continue
 
         # 处理时区不匹配问题
@@ -1014,7 +1032,7 @@ def run_walk_forward(
         # 过滤时间段
         valid_equity = equity_curve[equity_curve.index >= oos_start_time]
         if valid_equity.empty:
-            print("  Warning: No equity data in valid OOS period.")
+            logger.warning("No equity data in valid OOS period.")
             continue
 
         # 拼接逻辑
@@ -1062,7 +1080,7 @@ def run_walk_forward(
         oos_results.append(segment_df)
 
     if not oos_results:
-        print("Walk-Forward Optimization produced no results.")
+        logger.warning("Walk-Forward Optimization produced no results.")
         return pd.DataFrame()
 
     # 6. 合并所有片段

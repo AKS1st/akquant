@@ -347,6 +347,9 @@ class Strategy:
     _framework_use_previous_account_snapshot: bool
     _framework_previous_account_details: Optional[Dict[str, float]]
     _framework_emit_previous_portfolio_snapshot: bool
+    _framework_current_callback: Optional[str]
+    _framework_current_order: Optional[Any]
+    _framework_current_trade: Optional[Any]
     _trading_day_bounds: Dict[str, Tuple[int, int]]
     _oco_groups: Dict[str, set[str]]
     _oco_order_to_group: Dict[str, str]
@@ -465,6 +468,7 @@ class Strategy:
         # lot_size 可以是 int (全局统一) 或 Dict[str, int] (按标的设置)
         # 默认 1，这是最通用的设置（适用于美股、加密货币等）。A股回测请务必设置为 100。
         instance.lot_size = 1
+        instance._owner_strategy_id = None
         instance._framework_last_session = None
         instance._framework_last_local_date = None
         instance._framework_before_trading_done_date = None
@@ -483,6 +487,9 @@ class Strategy:
         instance._framework_use_previous_account_snapshot = False
         instance._framework_previous_account_details = None
         instance._framework_emit_previous_portfolio_snapshot = False
+        instance._framework_current_callback = None
+        instance._framework_current_order = None
+        instance._framework_current_trade = None
         instance._trading_day_bounds = {}
         instance._oco_groups = {}
         instance._oco_order_to_group = {}
@@ -501,7 +508,7 @@ class Strategy:
 
     def __init__(self) -> None:
         """初始化."""
-        pass
+        self._owner_strategy_id: Optional[str] = None
 
     def __getstate__(self) -> Dict[str, Any]:
         """
@@ -534,6 +541,12 @@ class Strategy:
             del state["_framework_stop_flushed"]
         if "_framework_boundary_timers_registered" in state:
             del state["_framework_boundary_timers_registered"]
+        if "_framework_current_callback" in state:
+            del state["_framework_current_callback"]
+        if "_framework_current_order" in state:
+            del state["_framework_current_order"]
+        if "_framework_current_trade" in state:
+            del state["_framework_current_trade"]
         if "_indicator_recorder" in state:
             del state["_indicator_recorder"]
         incremental_indicators = state.get("_incremental_indicators")
@@ -572,6 +585,9 @@ class Strategy:
         self.ctx = None
         self.current_bar = None
         self.current_tick = None
+        self._framework_current_callback = None
+        self._framework_current_order = None
+        self._framework_current_trade = None
         self._is_restored = True  # 标记为已恢复状态
         self._start_initialized = False
         if not hasattr(self, "_seen_trade_keys"):

@@ -694,6 +694,101 @@ result = run_backtest(
 *   **页面化参数输入**: 在策略类中声明 `PARAM_MODEL`（`akquant.ParamModel`），并使用 `get_strategy_param_schema` / `validate_strategy_params` 完成前后端参数联动与校验。
 *   **参数调优**: 使用 `run_grid_search` 时，通常通过修改 Config 对象或传入 override 参数来实现。
 
+### 日志配置 API (Logging)
+
+AKQuant 作为库使用时默认保持静默；未显式配置前，`akquant` 根 logger 仅挂载 `NullHandler`。
+
+#### `akquant.LogConfig`
+
+高级日志配置对象，供 `configure_logging(...)` 使用。
+
+核心字段：
+
+*   `level`: 全局回退等级。
+*   `console`: 是否启用控制台 handler。
+*   `console_level` / `file_level`: handler 级别覆盖。
+*   `console_format` / `file_format`: 文本 formatter 覆盖。
+*   `console_show_context` / `file_show_context`: 文本模式下是否附带结构化上下文。
+*   `console_json` / `file_json`: 是否对对应 handler 启用 JSON line 输出。
+*   `filename`: 文件日志路径。
+*   `file_mode`: 文件模式，默认 `a`。
+*   `file_max_bytes` / `file_backup_count`: 启用按大小轮转时的阈值与保留份数。
+*   `profile`: 预设 profile，支持 `research`、`optimize`、`live`。
+*   `reset_handlers`: 是否重置 AKQuant 自己管理的 handler。
+*   `propagate`: 是否向上游 logger 传播。
+
+#### `akquant.configure_logging`
+
+```python
+def configure_logging(config: LogConfig) -> logging.Logger
+```
+
+使用结构化配置初始化或重配 `akquant` 日志系统。
+
+推荐示例：
+
+```python
+import akquant
+
+akquant.configure_logging(
+    akquant.LogConfig(
+        profile="live",
+        level="INFO",
+        console=True,
+        console_json=False,
+        filename="logs/live.log",
+        file_level="DEBUG",
+        file_json=True,
+        file_max_bytes=10_000_000,
+        file_backup_count=5,
+    )
+)
+```
+
+行为说明：
+
+*   `profile` 只填充未显式指定的字段，显式参数优先级更高。
+*   `profile="optimize"` 默认文本格式会带 `processName`，便于区分 worker。
+*   `profile="live"` 适合打开结构化上下文或 JSON 输出。
+
+#### `akquant.register_logger`
+
+```python
+def register_logger(
+    filename: Optional[str] = None,
+    console: bool = True,
+    level: str = "INFO",
+) -> None
+```
+
+兼容快捷接口，适合快速打开日志，不暴露高级字段。内部会转成 `configure_logging(LogConfig(...))`。
+
+#### `akquant.get_logger`
+
+```python
+def get_logger(name: Optional[str] = None) -> logging.Logger
+```
+
+获取 `akquant` 命名空间下的 logger：
+
+*   `get_logger()` -> `akquant`
+*   `get_logger("strategy")` -> `akquant.strategy`
+*   `get_logger("gateway.live")` -> `akquant.gateway.live`
+
+#### `akquant.set_log_level`
+
+```python
+def set_log_level(level: Union[str, int]) -> None
+```
+
+修改当前 `akquant` 根 logger 的 level。
+
+#### 使用边界
+
+*   `self.log(...)` 面向人类阅读的策略调试日志。
+*   `run_backtest(..., on_event=...)` 面向机器消费的统一事件流，更适合实时 UI、告警、审计落盘。
+*   在 `on_order` / `on_trade` / `on_reject` 中使用 `self.log(...)` 时，日志会自动携带 `order_id` / `client_order_id` 等结构化字段。
+
 ## 2. 策略开发 (Strategy)
 
 ### `akquant.Strategy`
@@ -889,6 +984,30 @@ runner = LiveRunner(
 
 *   期货费率接口统一使用复数命名 `set_futures_fee_rules*`。
 *   旧单数命名 `set_future_fee_rules*` 已移除，不再对外暴露。
+
+### `akquant.DataFeed`
+
+`DataFeed` 是引擎内部的事件数据源封装，适合在你希望显式控制“数据如何进入引擎”时直接使用。
+
+**构造与工厂方法:**
+
+*   `DataFeed()`: 创建一个空的历史数据源。
+*   `DataFeed.from_csv(path, symbol)`: 直接从 CSV 文件创建数据源；适合由 Rust 侧按行读取并驱动事件流。
+*   `DataFeed.create_live()`: 创建实时数据源，适合供 gateway / 行情推送场景写入事件。
+
+**写入方法:**
+
+*   `add_bar(bar)`: 向数据源追加单个 `Bar`。
+*   `add_bars(bars)`: 向数据源批量追加 `Bar` 列表。
+*   `add_tick(tick)`: 向实时数据源追加单个 `Tick`。
+*   `add_arrays(timestamps, opens, highs, lows, closes, volumes, symbol)`: 通过数组快速批量构建 `Bar` 并注入数据源。
+*   `sort()`: 对当前历史数据源按事件时间排序。
+
+**使用边界:**
+
+*   若你只是做普通回测，优先使用 `run_backtest(data=...)`，直接传 `DataFrame`、`List[Bar]` 或 `DataFeedAdapter` 即可。
+*   若你需要复用同一数据源对象、显式切换历史/实时模式，或直接接入 `Engine.add_data(feed)`，则使用 `DataFeed` 更合适。
+*   `from_csv(...)` / `add_arrays(...)` 中如果遇到非法浮点值，Rust 侧会记录 warning，并通过 AKQuant 的 Python `logging` 体系输出，例如 `akquant.data.client`、`akquant.data.batch`。
 
 ### `akquant.gateway` 自定义 Broker 注册
 

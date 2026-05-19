@@ -201,6 +201,32 @@ When `max_workers > 1`, warning behavior is tied to `forward_worker_logs`:
 *   `forward_worker_logs=True` with active main-process logger handlers: log forwarding is enabled and visibility warning is suppressed.
 *   `forward_worker_logs=True` without active main-process handlers: warns that forwarding was requested but no handler is available.
 
+It is recommended to configure logging explicitly before launching optimization, especially when you want aggregated worker logs in the main process:
+
+```python
+import akquant
+
+akquant.configure_logging(
+    akquant.LogConfig(
+        profile="optimize",
+        level="INFO",
+        console=True,
+        filename="logs/optimize.log",
+        file_level="DEBUG",
+        file_json=True,
+        file_max_bytes=50_000_000,
+        file_backup_count=3,
+    )
+)
+```
+
+Notes:
+
+*   `profile="optimize"` includes process identity in the default format, which helps distinguish worker output.
+*   `forward_worker_logs=True` only forwards worker logs back to the main process; it does not create handlers automatically.
+*   If you only want quick console logging, `akquant.register_logger(level="INFO")` remains valid.
+*   If you want file logs to be easier for external log pipelines to consume, enable `file_json=True`.
+
 ### Persistence & Resume
 
 For scenarios with extremely large parameter sets (e.g., > 10,000 combinations), running on a single machine might take days. AKQuant supports real-time result persistence to SQLite, enabling breakpoint resume.

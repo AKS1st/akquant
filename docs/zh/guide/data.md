@@ -144,6 +144,38 @@ result = aq.run_backtest(
 *   `align="day"`：按日分区，不接收 `session_windows`；`day_mode` 支持 `trading/calendar`。
 *   `align="global"`：按全局时间轴聚合，不按交易日切段。
 
+### 2.5 直接使用 `DataFeed`
+
+如果你希望显式控制“数据如何进入引擎”，可以直接使用 `DataFeed`，而不必先转成 `DataFrame`：
+
+```python
+import akquant as aq
+
+feed = aq.DataFeed.from_csv("/data/000001.csv", "000001.SZ")
+
+result = aq.run_backtest(
+    data=feed,
+    strategy=MyStrategy,
+    symbols="000001.SZ",
+    show_progress=False,
+)
+```
+
+实时场景则可以创建可写入的 live feed：
+
+```python
+import akquant as aq
+
+feed = aq.DataFeed.create_live()
+feed.add_tick(aq.Tick(...))
+```
+
+补充说明：
+
+*   `DataFeed.from_csv(...)` 适合让 AKQuant 直接从 CSV 事件流读取数据。
+*   `add_bar(...)` / `add_bars(...)` / `add_arrays(...)` 适合你已经在 Python 侧拿到标准化行情对象或数组。
+*   如果 CSV 或数组里出现非法浮点值，Rust 侧会发出 warning，并通过 AKQuant 的 Python `logging` 输出，而不是静默吞掉。
+
 ---
 
 ## 3. 多标的数据 (Multi-Symbol Data)

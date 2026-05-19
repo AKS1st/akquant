@@ -9,6 +9,7 @@ mod data;
 mod engine;
 mod error;
 mod event;
+mod log_context;
 pub mod event_manager;
 pub mod execution;
 pub mod history;
@@ -39,6 +40,7 @@ use risk::{RiskConfig, RiskManager};
 /// 使用 Rust 实现的 Python 模块
 #[pymodule]
 fn akquant(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    let _ = pyo3_log::init();
     m.add_class::<Bar>()?;
     m.add_function(wrap_pyfunction!(from_arrays, m)?)?;
     m.add_class::<Tick>()?;

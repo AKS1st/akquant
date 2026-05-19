@@ -6,7 +6,7 @@ import polars as pl
 from ..data import ParquetDataCatalog
 from .parser import ExpressionParser
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("akquant.factor")
 
 
 class FactorEngine:

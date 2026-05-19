@@ -1,4 +1,5 @@
 use crate::analysis::tracker::TradeTracker;
+use crate::log_context::{AkqLogContext, render_log_message};
 use crate::model::corporate_action::{CorporateAction, CorporateActionType};
 use crate::portfolio::Portfolio;
 use chrono::NaiveDate;
@@ -61,9 +62,18 @@ impl CorporateActionManager {
                         let ratio = action.value.abs();
                         let (min_ratio, max_ratio) = split_ratio_bounds();
                         if ratio <= Decimal::ZERO || ratio < min_ratio || ratio > max_ratio {
-                            eprintln!(
-                                "[{CORP_ACTION_ALERT_PREFIX}] skip split action for {} on {} due to abnormal ratio {}",
-                                action.symbol, action.date, action.value
+                            log::warn!(
+                                "{}",
+                                render_log_message(
+                                    format!(
+                                        "[{CORP_ACTION_ALERT_PREFIX}] skip split action for {} on {} due to abnormal ratio {}",
+                                        action.symbol, action.date, action.value
+                                    ),
+                                    AkqLogContext::new()
+                                        .phase("data")
+                                        .symbol(action.symbol.clone())
+                                        .event_time_str(action.date.to_string()),
+                                )
                             );
                             continue;
                         }

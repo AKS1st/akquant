@@ -10,9 +10,12 @@ from .gateway.models import (
     UnifiedOrderRequest,
     validate_execution_semantics,
 )
+from .log import build_log_extra, get_logger
 from .strategy import Strategy
 from .strategy_loader import resolve_strategy_input
 from .utils import format_metric_value
+
+logger = get_logger("gateway.live")
 
 
 class _StrategyCallbackFanout:
@@ -862,6 +865,20 @@ class LiveRunner:
             if self.can_submit_client_order(client_order_id):
                 continue
             exc = RuntimeError(f"duplicate active client_order_id: {client_order_id}")
+            owner_strategy_id = (
+                str(getattr(strategy, "_owner_strategy_id", "_default")).strip()
+                or "_default"
+            )
+            logger.warning(
+                "Rejected live submit_order because client_order_id is already active",
+                extra=build_log_extra(
+                    phase="gateway",
+                    strategy_id=owner_strategy_id,
+                    slot=owner_strategy_id if owner_strategy_id != "_default" else None,
+                    symbol=symbol,
+                    client_order_id=client_order_id,
+                ),
+            )
             self._notify_strategy_error(
                 strategy,
                 exc,
@@ -940,18 +957,35 @@ class LiveRunner:
         for event_name, payload in events:
             self._update_broker_state(event_name, payload)
             if self.on_broker_event is not None:
+                owner_strategy_id = self._resolve_owner_strategy_id(payload)
+                payload_dict = self._payload_to_dict(payload)
                 try:
                     self.on_broker_event(
                         {
                             "event_type": event_name,
-                            "owner_strategy_id": self._resolve_owner_strategy_id(
-                                payload
-                            ),
-                            "payload": self._payload_to_dict(payload),
+                            "owner_strategy_id": owner_strategy_id,
+                            "payload": payload_dict,
                         }
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning(
+                        "Broker event observer failed",
+                        exc_info=exc,
+                        extra=build_log_extra(
+                            phase="gateway",
+                            strategy_id=owner_strategy_id,
+                            slot=(
+                                owner_strategy_id
+                                if owner_strategy_id != "_default"
+                                else None
+                            ),
+                            symbol=str(payload_dict.get("symbol", "") or "").strip()
+                            or None,
+                            order_id=payload_dict.get("broker_order_id")
+                            or payload_dict.get("order_id"),
+                            client_order_id=payload_dict.get("client_order_id"),
+                        ),
+                    )
             if event_name == "order":
                 self._safe_strategy_callback(strategy, "on_order", payload)
             elif event_name == "trade":
@@ -1292,6 +1326,24 @@ class LiveRunner:
         try:
             callback(payload)
         except Exception as exc:
+            owner_strategy_id = (
+                str(getattr(strategy, "_owner_strategy_id", "_default")).strip()
+                or "_default"
+            )
+            payload_dict = self._payload_to_dict(payload)
+            logger.warning(
+                "Strategy broker callback failed",
+                exc_info=exc,
+                extra=build_log_extra(
+                    phase="gateway",
+                    strategy_id=owner_strategy_id,
+                    slot=owner_strategy_id if owner_strategy_id != "_default" else None,
+                    symbol=str(payload_dict.get("symbol", "") or "").strip() or None,
+                    order_id=payload_dict.get("broker_order_id")
+                    or payload_dict.get("order_id"),
+                    client_order_id=payload_dict.get("client_order_id"),
+                ),
+            )
             on_error = getattr(strategy, "on_error", None)
             if on_error is not None and callback_name != "on_error":
                 on_error(exc, callback_name, payload)

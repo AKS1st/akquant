@@ -1,3 +1,4 @@
+from numbers import Integral
 from typing import Any, Optional, cast
 
 import pandas as pd
@@ -19,9 +20,13 @@ def now(strategy: Any) -> Optional[pd.Timestamp]:
     ts = None
     ctx = getattr(strategy, "ctx", None)
     if ctx is not None:
-        current_time = int(getattr(ctx, "current_time", 0))
-        if current_time > 0:
-            ts = current_time
+        current_time_raw = getattr(ctx, "current_time", None)
+        if isinstance(current_time_raw, Integral) and not isinstance(
+            current_time_raw, bool
+        ):
+            current_time = int(current_time_raw)
+            if current_time > 0:
+                ts = current_time
 
     if ts is None and strategy.current_bar:
         ts = strategy.current_bar.timestamp

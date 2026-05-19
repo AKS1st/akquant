@@ -45,7 +45,7 @@ from ..config import (
 from ..data import ParquetDataCatalog
 from ..feed_adapter import DataFeedAdapter, FeedSlice
 from ..indicator_recording import IndicatorRecorder
-from ..log import get_logger, register_logger
+from ..log import build_log_extra, get_logger, has_configured_handler, register_logger
 from ..risk import apply_risk_config
 from ..strategy import (
     InstrumentAssetTypeName,
@@ -130,6 +130,50 @@ def make_fill_policy(
     if bar_offset is not None:
         policy["bar_offset"] = bar_offset
     return policy
+
+
+def _extract_strategy_log_context(
+    strategy: Any,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Extract stable strategy identity fields for structured logs."""
+    strategy_id = str(getattr(strategy, "_owner_strategy_id", "") or "").strip() or None
+    symbol = None
+    current_bar = getattr(strategy, "current_bar", None)
+    current_tick = getattr(strategy, "current_tick", None)
+    if current_bar is not None:
+        symbol = str(getattr(current_bar, "symbol", "") or "").strip() or None
+    elif current_tick is not None:
+        symbol = str(getattr(current_tick, "symbol", "") or "").strip() or None
+    return strategy_id, strategy_id, symbol
+
+
+def _build_backtest_log_extra(
+    *,
+    phase: str,
+    strategy: Optional[Any] = None,
+    strategy_id: Optional[str] = None,
+    slot: Optional[str] = None,
+    symbol: Optional[str] = None,
+) -> dict[str, Any]:
+    """Build structured logging context for backtest/runtime log records."""
+    if strategy is not None:
+        (
+            strategy_id_from_strategy,
+            slot_from_strategy,
+            symbol_from_strategy,
+        ) = _extract_strategy_log_context(strategy)
+        if strategy_id is None:
+            strategy_id = strategy_id_from_strategy
+        if slot is None:
+            slot = slot_from_strategy
+        if symbol is None:
+            symbol = symbol_from_strategy
+    return build_log_extra(
+        phase=phase,
+        strategy_id=strategy_id,
+        slot=slot,
+        symbol=symbol,
+    )
 
 
 def _prime_framework_pre_open_timers(
@@ -2356,13 +2400,10 @@ def run_backtest(
             history_depth = DEFAULT_HISTORY_DEPTH
 
     # 1. 确保日志已初始化
-    logger = get_logger()
-    has_effective_handler = any(
-        not isinstance(handler, logging.NullHandler) for handler in logger.handlers
-    )
-    if not has_effective_handler:
+    logger = get_logger("backtest")
+    if not has_configured_handler(logger.name):
         register_logger(console=True, level="INFO")
-        logger = get_logger()
+        logger = get_logger("backtest")
     normalized_analyzers = _coerce_analyzer_plugins(analyzer_plugins)
 
     # 1.2 检查 PyCharm 环境下的进度条可见性
@@ -3624,7 +3665,12 @@ def run_backtest(
                 else:
                     logger.warning(
                         "set_options_fee_rules_by_prefix is not available "
-                        "in current engine binary"
+                        "in current engine binary",
+                        extra=_build_backtest_log_extra(
+                            phase="risk",
+                            strategy_id=effective_strategy_id,
+                            slot=effective_strategy_id,
+                        ),
                     )
                     break
         if china_options_config.sessions:
@@ -3673,7 +3719,15 @@ def run_backtest(
                 if hasattr(current_risk_config, k):
                     setattr(current_risk_config, k, v)
                 else:
-                    logger.warning(f"Unknown risk config key: {k}")
+                    logger.warning(
+                        "Unknown risk config key: %s",
+                        k,
+                        extra=_build_backtest_log_extra(
+                            phase="risk",
+                            strategy_id=effective_strategy_id,
+                            slot=effective_strategy_id,
+                        ),
+                    )
 
     # 3. Apply if exists
     if current_risk_config:
@@ -4071,7 +4125,15 @@ def run_backtest(
     try:
         engine_summary = str(engine.run(strategy_instance, show_progress))
     except Exception as e:
-        logger.error(f"Backtest failed: {e}")
+        logger.error(
+            "Backtest failed: %s",
+            e,
+            extra=_build_backtest_log_extra(
+                phase="backtest",
+                strategy_id=effective_strategy_id,
+                slot=effective_strategy_id,
+            ),
+        )
         raise e
     finally:
         if stream_on_event is not None and hasattr(engine, "clear_stream_callback"):
@@ -4083,23 +4145,51 @@ def run_backtest(
             try:
                 strategy_instance._on_stop_internal()
             except Exception as e:
-                logger.error(f"Error in on_stop: {e}")
+                logger.error(
+                    "Error in on_stop: %s",
+                    e,
+                    extra=_build_backtest_log_extra(
+                        phase="strategy",
+                        strategy=strategy_instance,
+                    ),
+                )
         elif hasattr(strategy_instance, "on_stop"):
             try:
                 strategy_instance.on_stop()
             except Exception as e:
-                logger.error(f"Error in on_stop: {e}")
+                logger.error(
+                    "Error in on_stop: %s",
+                    e,
+                    extra=_build_backtest_log_extra(
+                        phase="strategy",
+                        strategy=strategy_instance,
+                    ),
+                )
         for slot_strategy in slot_strategy_instances.values():
             if hasattr(slot_strategy, "_on_stop_internal"):
                 try:
                     slot_strategy._on_stop_internal()
                 except Exception as e:
-                    logger.error(f"Error in slot on_stop: {e}")
+                    logger.error(
+                        "Error in slot on_stop: %s",
+                        e,
+                        extra=_build_backtest_log_extra(
+                            phase="strategy",
+                            strategy=slot_strategy,
+                        ),
+                    )
             elif hasattr(slot_strategy, "on_stop"):
                 try:
                     slot_strategy.on_stop()
                 except Exception as e:
-                    logger.error(f"Error in slot on_stop: {e}")
+                    logger.error(
+                        "Error in slot on_stop: %s",
+                        e,
+                        extra=_build_backtest_log_extra(
+                            phase="strategy",
+                            strategy=slot_strategy,
+                        ),
+                    )
 
     result = BacktestResult(
         engine.get_results(),
@@ -4186,13 +4276,10 @@ def run_warm_start(
 
     from ..checkpoint import warm_start
 
-    logger = get_logger()
-    has_effective_handler = any(
-        not isinstance(handler, logging.NullHandler) for handler in logger.handlers
-    )
-    if not has_effective_handler:
+    logger = get_logger("backtest")
+    if not has_configured_handler(logger.name):
         register_logger(console=True, level="INFO")
-        logger = get_logger()
+        logger = get_logger("backtest")
     strategy_config = config.strategy_config if config is not None else None
     (
         strategy_id,
@@ -5252,7 +5339,15 @@ def run_warm_start(
     try:
         engine_summary = str(engine.run(strategy_instance, show_progress))
     except Exception as e:
-        logger.error(f"Warm start backtest failed: {e}")
+        logger.error(
+            "Warm start backtest failed: %s",
+            e,
+            extra=_build_backtest_log_extra(
+                phase="backtest",
+                strategy_id=effective_strategy_id,
+                slot=effective_strategy_id,
+            ),
+        )
         raise e
     finally:
         if stream_on_event is not None and hasattr(engine, "clear_stream_callback"):
@@ -5264,23 +5359,51 @@ def run_warm_start(
             try:
                 strategy_instance._on_stop_internal()
             except Exception as e:
-                logger.error(f"Error in on_stop: {e}")
+                logger.error(
+                    "Error in on_stop: %s",
+                    e,
+                    extra=_build_backtest_log_extra(
+                        phase="strategy",
+                        strategy=strategy_instance,
+                    ),
+                )
         elif hasattr(strategy_instance, "on_stop"):
             try:
                 strategy_instance.on_stop()
             except Exception as e:
-                logger.error(f"Error in on_stop: {e}")
+                logger.error(
+                    "Error in on_stop: %s",
+                    e,
+                    extra=_build_backtest_log_extra(
+                        phase="strategy",
+                        strategy=strategy_instance,
+                    ),
+                )
         for slot_strategy in slot_strategy_instances.values():
             if hasattr(slot_strategy, "_on_stop_internal"):
                 try:
                     slot_strategy._on_stop_internal()
                 except Exception as e:
-                    logger.error(f"Error in slot on_stop: {e}")
+                    logger.error(
+                        "Error in slot on_stop: %s",
+                        e,
+                        extra=_build_backtest_log_extra(
+                            phase="strategy",
+                            strategy=slot_strategy,
+                        ),
+                    )
             elif hasattr(slot_strategy, "on_stop"):
                 try:
                     slot_strategy.on_stop()
                 except Exception as e:
-                    logger.error(f"Error in slot on_stop: {e}")
+                    logger.error(
+                        "Error in slot on_stop: %s",
+                        e,
+                        extra=_build_backtest_log_extra(
+                            phase="strategy",
+                            strategy=slot_strategy,
+                        ),
+                    )
 
     # 注意：这里的 initial_cash 可能不准确，因为它使用的是当前 cash
     # 但对于 BacktestResult 来说，重要的是 equity curve 的连续性
