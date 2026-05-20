@@ -1129,6 +1129,9 @@ impl Engine {
                 });
 
                 strategy.call_method1("_on_bar_event", args)?;
+                Python::attach(|py| {
+                    strategy.call_method1("_flush_pending_order_events", (py_ctx.clone_ref(py),))
+                })?;
 
                 // Extract orders and timers
                 let mut new_orders = Vec::new();
@@ -1168,6 +1171,9 @@ impl Engine {
                 });
 
                 strategy.call_method1("_on_tick_event", args)?;
+                Python::attach(|py| {
+                    strategy.call_method1("_flush_pending_order_events", (py_ctx.clone_ref(py),))
+                })?;
 
                 // Extract orders and timers
                 let mut new_orders = Vec::new();
@@ -1205,6 +1211,9 @@ impl Engine {
                 });
 
                 strategy.call_method1("_on_timer_event", args)?;
+                Python::attach(|py| {
+                    strategy.call_method1("_flush_pending_order_events", (py_ctx.clone_ref(py),))
+                })?;
 
                 // Extract orders and timers
                 let mut new_orders = Vec::new();
