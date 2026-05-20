@@ -19,6 +19,8 @@ mod tests {
         TimeInForce, TradingSession,
     };
     use crate::portfolio::Portfolio;
+    use chrono::{TimeZone, Utc};
+    use chrono_tz::Tz;
     use rust_decimal::Decimal;
     use rust_decimal::prelude::*;
     use std::collections::HashMap;
@@ -147,6 +149,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
         assert!(manager.check_internal(&order, &ctx_high).is_ok());
 
@@ -164,6 +168,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
         let err = manager
             .check_internal(&order, &ctx_low)
@@ -211,6 +217,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
         assert!(manager.check_internal(&order, &ctx_day1_start).is_ok());
 
@@ -228,6 +236,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
         let err = manager
             .check_internal(&order, &ctx_day1_drop)
@@ -249,8 +259,87 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
         assert!(manager.check_internal(&order, &ctx_day2_start).is_ok());
+    }
+
+    #[test]
+    fn test_max_daily_loss_rule_uses_local_timezone_day_boundary() {
+        let mut manager = RiskManager::default();
+        manager.add_max_daily_loss_rule(0.05);
+        manager.config.check_cash = false;
+
+        let mut positions = HashMap::new();
+        positions.insert("AAPL".to_string(), Decimal::from(100));
+
+        let portfolio = Portfolio {
+            cash: Decimal::from(0),
+            positions: Arc::new(positions.clone()),
+            available_positions: Arc::new(positions),
+        };
+        let mut instruments = HashMap::new();
+        instruments.insert(
+            "AAPL".to_string(),
+            create_test_instrument("AAPL", AssetType::Stock),
+        );
+        let order = create_test_order("AAPL", Decimal::from(10), Some(Decimal::from(100)));
+        let market_model =
+            crate::market::SimpleMarket::from_config(crate::market::SimpleMarketConfig::default());
+        let trade_tracker = crate::analysis::TradeTracker::new();
+        let shanghai: Tz = "Asia/Shanghai".parse().unwrap();
+        let local_ns = |year, month, day, hour, minute| {
+            shanghai
+                .with_ymd_and_hms(year, month, day, hour, minute, 0)
+                .single()
+                .unwrap()
+                .with_timezone(&Utc)
+                .timestamp_nanos_opt()
+                .unwrap()
+        };
+
+        let mut prices_day_start = HashMap::new();
+        prices_day_start.insert("AAPL".to_string(), Decimal::from(100));
+        let ctx_day_start = crate::context::EngineContext {
+            instruments: &instruments,
+            portfolio: &portfolio,
+            last_prices: &prices_day_start,
+            trade_tracker: &trade_tracker,
+            market_model: &market_model,
+            execution_policy_core: ExecutionPolicyCore::default(),
+            bar_index: 1,
+            current_time: local_ns(2024, 1, 2, 1, 0),
+            session: TradingSession::Continuous,
+            active_orders: &[],
+            risk_config: &manager.config,
+            timezone_name: Some("Asia/Shanghai"),
+            timezone_offset: 8 * 3600,
+        };
+        assert!(manager.check_internal(&order, &ctx_day_start).is_ok());
+
+        let mut prices_same_local_day_drop = HashMap::new();
+        prices_same_local_day_drop.insert("AAPL".to_string(), Decimal::from(94));
+        let ctx_same_local_day_drop = crate::context::EngineContext {
+            instruments: &instruments,
+            portfolio: &portfolio,
+            last_prices: &prices_same_local_day_drop,
+            trade_tracker: &trade_tracker,
+            market_model: &market_model,
+            execution_policy_core: ExecutionPolicyCore::default(),
+            bar_index: 2,
+            current_time: local_ns(2024, 1, 2, 23, 0),
+            session: TradingSession::Continuous,
+            active_orders: &[],
+            risk_config: &manager.config,
+            timezone_name: Some("Asia/Shanghai"),
+            timezone_offset: 8 * 3600,
+        };
+        let err = manager
+            .check_internal(&order, &ctx_same_local_day_drop)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Daily loss"));
     }
 
     #[test]
@@ -291,6 +380,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
         assert!(manager.check_internal(&order, &ctx_start).is_ok());
 
@@ -308,6 +399,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
         let err = manager
             .check_internal(&order, &ctx_drop)

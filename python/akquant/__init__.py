@@ -14,7 +14,7 @@ from . import akquant as _akquant
 from . import log as _log
 from . import talib
 from .akquant import *  # noqa: F403
-from .akquant import ATR, EMA, MACD, RSI, SMA, BollingerBands
+from .akquant import ATR, EMA, MACD, RSI, SMA, BollingerBands, Engine
 from .analyzer_plugin import AnalyzerManager, AnalyzerTemplate
 from .backtest import (  # type: ignore
     BacktestResult,
@@ -302,8 +302,9 @@ def _engine_set_timezone_name(self: Engine, tz_name: str) -> None:  # noqa: F405
     self.set_timezone(offset)
 
 
-# Patch Engine class
-Engine.set_timezone_name = _engine_set_timezone_name  # type: ignore # noqa: F405
+# Patch Engine class only when the native extension does not provide this API.
+if not hasattr(Engine, "set_timezone_name"):
+    Engine.set_timezone_name = _engine_set_timezone_name  # type: ignore
 
 
 def _engine_get_orders_dataframe(self: Engine) -> "pd.DataFrame":  # noqa: F405

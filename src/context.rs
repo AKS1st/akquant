@@ -34,6 +34,8 @@ pub struct EngineContext<'a> {
     pub session: TradingSession,
     pub active_orders: &'a [Order],
     pub risk_config: &'a RiskConfig,
+    pub timezone_name: Option<&'a str>,
+    pub timezone_offset: i32,
 }
 
 pub struct ContextInit {

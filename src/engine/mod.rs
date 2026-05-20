@@ -10,6 +10,7 @@ mod tests {
     use super::*;
     use crate::model::types::AssetType;
     use crate::model::{Instrument, PriceBasis, TemporalPolicy};
+    use chrono::NaiveTime;
     use rust_decimal::Decimal;
 
     #[test]
@@ -75,6 +76,25 @@ mod tests {
         let mut engine = Engine::new();
         engine.set_timezone(3600); // UTC+1
         assert_eq!(engine.timezone_offset, 3600);
+        assert!(engine.timezone_name.is_none());
+    }
+
+    #[test]
+    fn test_engine_timezone_name_respects_dst_by_timestamp() {
+        let mut engine = Engine::new();
+        engine.set_timezone_name("US/Eastern").unwrap();
+
+        let jan_ts = 1_705_329_000_000_000_000; // 2024-01-15T14:30:00Z
+        let jul_ts = 1_721_050_200_000_000_000; // 2024-07-15T13:30:00Z
+
+        assert_eq!(
+            engine.local_time_from_ns(jan_ts),
+            NaiveTime::from_hms_opt(9, 30, 0).unwrap()
+        );
+        assert_eq!(
+            engine.local_time_from_ns(jul_ts),
+            NaiveTime::from_hms_opt(9, 30, 0).unwrap()
+        );
     }
 
     #[test]

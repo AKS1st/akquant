@@ -71,8 +71,7 @@ impl CorporateActionManager {
                                     ),
                                     AkqLogContext::new()
                                         .phase("data")
-                                        .symbol(action.symbol.clone())
-                                        .event_time_str(action.date.to_string()),
+                                        .symbol(action.symbol.clone()),
                                 )
                             );
                             continue;

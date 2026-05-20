@@ -22,7 +22,7 @@ class AdjSignal(Strategy):
         try:
             # 从历史中取最近 2 根“前复权收盘价”序列（不包含当前 Bar，避免前视偏差）
             adj_val = bar.extra.get("adj_close", None)
-            self.log(f"{bar.timestamp_str}, {bar.close}, {adj_val}")
+            self.log(f"{bar.timestamp_iso}, {bar.close}, {adj_val}")
             x = self.get_history(2, bar.symbol, "adj_close")
         except Exception:
             # 如果数据字段不存在或不足，直接跳过

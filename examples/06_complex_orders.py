@@ -32,7 +32,7 @@ class BracketStrategy(Strategy):
         stop_price = bar.close * (1 - self.stop_loss_pct)
         take_profit_price = bar.close * (1 + self.take_profit_pct)
         print(
-            f"[{bar.timestamp_str}] 提交 Bracket 进场: {bar.symbol} @ {bar.close:.2f}, "
+            f"[{bar.timestamp_iso}] 提交 Bracket 进场: {bar.symbol} @ {bar.close:.2f}, "
             f"stop={stop_price:.2f}, take={take_profit_price:.2f}"
         )
         self.entry_order_id = self.place_bracket_order(

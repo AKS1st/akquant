@@ -606,7 +606,7 @@ mod tests {
         let tracker_long = TradeTracker::new();
 
         let mut portfolio_short_first = Portfolio {
-            cash: Decimal::from(2000),
+            cash: Decimal::from(-1000),
             positions: Arc::new(positions.clone()),
             available_positions: Arc::new(HashMap::new()),
         };
@@ -627,13 +627,14 @@ mod tests {
             &mut Vec::new(),
             &ctx_short_first,
         );
+        assert!(outcome_short_first.forced_liquidation);
         assert_eq!(
-            outcome_short_first.liquidated_symbols,
-            vec!["SHORT".to_string()]
+            outcome_short_first.liquidated_symbols.first(),
+            Some(&"SHORT".to_string())
         );
 
         let mut portfolio_long_first = Portfolio {
-            cash: Decimal::from(2000),
+            cash: Decimal::from(-1000),
             positions: Arc::new(positions),
             available_positions: Arc::new(HashMap::new()),
         };
@@ -654,9 +655,10 @@ mod tests {
             &mut Vec::new(),
             &ctx_long_first,
         );
+        assert!(outcome_long_first.forced_liquidation);
         assert_eq!(
-            outcome_long_first.liquidated_symbols,
-            vec!["LONG".to_string()]
+            outcome_long_first.liquidated_symbols.first(),
+            Some(&"LONG".to_string())
         );
     }
 }

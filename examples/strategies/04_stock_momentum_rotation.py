@@ -100,12 +100,12 @@ class MomentumRotationStrategy(Strategy):
             # 第二个是 symbol (可选)
             # 或者使用关键字参数
             self.order_target_percent(target_percent=0.95, symbol=best_symbol)
-            print(f"[{bar.timestamp_str}] BUY {best_symbol}: Momentum={best_mom:.2%}")
+            print(f"[{bar.timestamp_iso}] BUY {best_symbol}: Momentum={best_mom:.2%}")
 
         # 如果持有其他标的，换仓
         elif current_pos_symbol != best_symbol:
             print(
-                f"[{bar.timestamp_str}] ROTATE: "
+                f"[{bar.timestamp_iso}] ROTATE: "
                 f"Sell {current_pos_symbol} -> Buy {best_symbol}"
             )
             self.close_position(current_pos_symbol)

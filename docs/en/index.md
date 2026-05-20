@@ -224,6 +224,8 @@ For more examples, please refer to the `examples/` directory.
 
 *   Phase-5 migration FAQ (quickstart): [Phase-5 Migration FAQ](start/quickstart.md)
 *   Full compatibility notes (API reference): [Compatibility & Migration Notes](reference/api.md)
+*   Understand AKQuant time semantics (quant basics): [AKQuant Time and Timezones](guide/quant_basics.md)
+*   Timezone FAQ and data preparation advice (advanced): [Timezone Handling Guide](advanced/timezone.md)
 *   Multi-strategy checklist (advanced): [Multi-Strategy Guide](advanced/multi_strategy_guide.md)
 *   Dynamic strategy loading guide (advanced): [Runtime Config Guide](advanced/runtime_config.md)
 *   Dynamic strategy loading example (examples): [44_strategy_source_loader_demo.py](https://github.com/akfamily/akquant/blob/main/examples/44_strategy_source_loader_demo.py)

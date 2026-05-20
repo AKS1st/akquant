@@ -163,6 +163,8 @@ run_backtest(strategy=MyStrategy, data=df, symbols="600000")
 
 *   快速查看迁移 FAQ（快速开始）：[快速开始中的阶段 5 迁移 FAQ](start/quickstart.md)
 *   查看完整兼容说明（API 参考）：[API 兼容与迁移说明](reference/api.md)
+*   理解时间与时区语义（量化基础）：[AKQuant 的时间与时区](guide/quant_basics.md)
+*   查看时区 FAQ 与数据准备建议（进阶专题）：[时区处理指南](advanced/timezone.md)
 *   多策略清单（进阶专题）：[多策略指南](advanced/multi_strategy_guide.md)
 *   动态策略加载说明（进阶专题）：[运行时配置指南](advanced/runtime_config.md)
 *   动态策略加载示例（examples）：[44_strategy_source_loader_demo.py](https://github.com/akfamily/akquant/blob/main/examples/44_strategy_source_loader_demo.py)

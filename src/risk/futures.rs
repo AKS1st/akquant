@@ -184,6 +184,8 @@ mod tests {
             trade_tracker,
             current_time: 0,
             config,
+            timezone_name: None,
+            timezone_offset: 0,
         }
     }
 

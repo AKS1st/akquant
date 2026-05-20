@@ -108,12 +108,12 @@ class DualMAStrategy(Strategy):
         # 4. Trading Signal Judgment
         # Golden Cross: Short-term > Long-term, and currently empty position -> Buy
         if fast_ma > slow_ma and position == 0:
-            print(f"[{bar.timestamp_str}] Golden Cross Buy! Price: {bar.close:.2f}")
+            print(f"[{bar.timestamp_iso}] Golden Cross Buy! Price: {bar.close:.2f}")
             self.buy(symbol=bar.symbol, quantity=1000)
 
         # Death Cross: Short-term < Long-term, and currently holding position -> Sell
         elif fast_ma < slow_ma and position > 0:
-            print(f"[{bar.timestamp_str}] Death Cross Sell! Price: {bar.close:.2f}")
+            print(f"[{bar.timestamp_iso}] Death Cross Sell! Price: {bar.close:.2f}")
             self.sell(symbol=bar.symbol, quantity=position) # Sell all holdings
 
 # --------------------------

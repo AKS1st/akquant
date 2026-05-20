@@ -87,6 +87,8 @@ impl RiskManager {
             session: crate::model::TradingSession::Continuous,
             active_orders: &active_orders,
             risk_config: &self.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
 
         match self.check_internal(order, &ctx) {
@@ -279,6 +281,8 @@ impl RiskManager {
             trade_tracker: ctx.trade_tracker,
             current_time: ctx.current_time,
             config: &self.config,
+            timezone_name: ctx.timezone_name,
+            timezone_offset: ctx.timezone_offset,
         };
 
         // Check common rules

@@ -79,7 +79,7 @@ class DualMovingAverageStrategy(Strategy):
             # 注意：A股买入必须是 100 的倍数，框架会自动处理(向下取整)
             self.order_target_percent(symbol=symbol, target_percent=0.95)
             print(
-                f"[{bar.timestamp_str}] BUY SIGNAL: Short({short_ma:.2f}) > "
+                f"[{bar.timestamp_iso}] BUY SIGNAL: Short({short_ma:.2f}) > "
                 f"Long({long_ma:.2f}), Price={bar.close:.2f}"
             )
 
@@ -88,7 +88,7 @@ class DualMovingAverageStrategy(Strategy):
             # 清仓
             self.close_position(symbol=symbol)
             print(
-                f"[{bar.timestamp_str}] SELL SIGNAL: Short({short_ma:.2f}) < "
+                f"[{bar.timestamp_iso}] SELL SIGNAL: Short({short_ma:.2f}) < "
                 f"Long({long_ma:.2f}), Price={bar.close:.2f}"
             )
 

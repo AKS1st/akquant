@@ -163,7 +163,7 @@ def test_custom_matcher_exception_bridges_rust_warning(caplog: Any) -> None:
     assert matching_record.phase == "execution"
     assert matching_record.symbol == "TEST"
     assert getattr(matching_record, "order_id", None)
-    assert matching_record.event_time_str.startswith("2024-01-01")
+    assert matching_record.event_time_iso.startswith("2024-01-01")
 
     aq.register_logger(console=False, level="INFO")
 
@@ -193,6 +193,6 @@ def test_custom_matcher_invalid_result_bridges_rust_warning(caplog: Any) -> None
     assert matching_record.phase == "execution"
     assert matching_record.symbol == "TEST"
     assert getattr(matching_record, "order_id", None)
-    assert matching_record.event_time_str.startswith("2024-01-01")
+    assert matching_record.event_time_iso.startswith("2024-01-01")
 
     aq.register_logger(console=False, level="INFO")

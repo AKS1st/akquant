@@ -2,7 +2,7 @@ use super::market_data::extract_decimal;
 use super::types::{
     ExecutionPolicyCore, OrderRole, OrderSide, OrderStatus, OrderType, PositionEffect, TimeInForce,
 };
-use chrono::{FixedOffset, TimeZone, Utc};
+use chrono::{SecondsFormat, TimeZone, Utc};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::*;
@@ -53,15 +53,12 @@ fn validate_order_inputs(
     Ok(())
 }
 
-fn format_timestamp_str(timestamp: i64) -> String {
+fn format_timestamp_iso(timestamp: i64) -> String {
     let secs = timestamp.div_euclid(1_000_000_000);
     let nanos = timestamp.rem_euclid(1_000_000_000) as u32;
 
     if let Some(dt) = Utc.timestamp_opt(secs, nanos).single() {
-        let tz = FixedOffset::east_opt(8 * 3600).unwrap();
-        dt.with_timezone(&tz)
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string()
+        dt.to_rfc3339_opts(SecondsFormat::AutoSi, true)
     } else {
         timestamp.to_string()
     }
@@ -315,17 +312,17 @@ impl Order {
     }
 
     #[getter]
-    /// 获取创建时间字符串 (Asia/Shanghai).
-    /// :return: 格式化时间字符串 YYYY-MM-DD HH:MM:SS
-    fn created_at_str(&self) -> String {
-        format_timestamp_str(self.created_at)
+    /// 获取创建时间 ISO 8601 字符串 (UTC).
+    /// :return: 格式化时间字符串 YYYY-MM-DDTHH:MM:SS[.nnnnnnnnn]Z
+    fn created_at_iso(&self) -> String {
+        format_timestamp_iso(self.created_at)
     }
 
     #[getter]
-    /// 获取更新时间字符串 (Asia/Shanghai).
-    /// :return: 格式化时间字符串 YYYY-MM-DD HH:MM:SS
-    fn updated_at_str(&self) -> String {
-        format_timestamp_str(self.updated_at)
+    /// 获取更新时间 ISO 8601 字符串 (UTC).
+    /// :return: 格式化时间字符串 YYYY-MM-DDTHH:MM:SS[.nnnnnnnnn]Z
+    fn updated_at_iso(&self) -> String {
+        format_timestamp_iso(self.updated_at)
     }
 
     #[getter]
@@ -596,10 +593,10 @@ impl Trade {
     }
 
     #[getter]
-    /// 获取格式化的成交时间字符串 (Asia/Shanghai).
-    /// :return: 格式化时间字符串 YYYY-MM-DD HH:MM:SS
-    fn timestamp_str(&self) -> String {
-        format_timestamp_str(self.timestamp)
+    /// 获取格式化的成交时间 ISO 8601 字符串 (UTC).
+    /// :return: 格式化时间字符串 YYYY-MM-DDTHH:MM:SS[.nnnnnnnnn]Z
+    fn timestamp_iso(&self) -> String {
+        format_timestamp_iso(self.timestamp)
     }
 
     pub fn __repr__(&self) -> String {
@@ -717,13 +714,13 @@ mod tests {
     }
 
     #[test]
-    fn test_format_timestamp_str_uses_asia_shanghai() {
+    fn test_format_timestamp_iso_uses_utc() {
         let timestamp = 1_735_801_200_000_000_000_i64; // 2025-01-02 15:00:00+08:00
-        assert_eq!(format_timestamp_str(timestamp), "2025-01-02 15:00:00");
+        assert_eq!(format_timestamp_iso(timestamp), "2025-01-02T07:00:00Z");
     }
 
     #[test]
-    fn test_order_time_string_getters() {
+    fn test_order_time_iso_getters() {
         let mut order = Order::test_new(
             "o1",
             "AAPL",
@@ -735,12 +732,12 @@ mod tests {
         order.created_at = timestamp;
         order.updated_at = timestamp;
 
-        assert_eq!(order.created_at_str(), "2025-01-02 15:00:00");
-        assert_eq!(order.updated_at_str(), "2025-01-02 15:00:00");
+        assert_eq!(order.created_at_iso(), "2025-01-02T07:00:00Z");
+        assert_eq!(order.updated_at_iso(), "2025-01-02T07:00:00Z");
     }
 
     #[test]
-    fn test_trade_timestamp_string_getter() {
+    fn test_trade_timestamp_iso_getter() {
         let trade = Trade {
             id: "t1".to_string(),
             order_id: "o1".to_string(),
@@ -755,6 +752,6 @@ mod tests {
             owner_strategy_id: None,
         };
 
-        assert_eq!(trade.timestamp_str(), "2025-01-02 15:00:00");
+        assert_eq!(trade.timestamp_iso(), "2025-01-02T07:00:00Z");
     }
 }

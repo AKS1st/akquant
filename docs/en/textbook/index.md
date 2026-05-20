@@ -4,6 +4,17 @@
 
 Please refer to the [Chinese Version](../../zh/textbook/index.md) for the full content.
 
+## Before You Read
+
+To avoid confusion when you see local log timestamps alongside UTC fields such as `timestamp_iso`, read these two pages first:
+
+- Intro explanation: [AKQuant Time and Timezones](../guide/quant_basics.md)
+- Advanced FAQ: [Timezone Handling Guide](../advanced/timezone.md)
+
+Core rule:
+
+> **AKQuant stores factual event time in UTC and renders local time for humans.**
+
 ## English Chapter Skeleton
 
 You can still browse the full chapter structure in English and jump to the Chinese source chapter from each page:

@@ -393,7 +393,7 @@ akquant.configure_logging(
 * 人类阅读的调试信息优先用 `self.log()`
 * 需要统一消费 `order/trade/progress/risk` 事件流时，优先用 `run_backtest(..., on_event=...)`
 * 如果你在 `on_order`、`on_trade`、`on_reject` 里写 `self.log()`，通常不需要再手动拼接订单 id
-* 如果你启用了 `akquant` logger handler，Rust 执行链路里的 warning 也会进入同一套输出。例如保证金不足拒单、收盘过期、取消未知订单、同一切片内 `same-cycle` 延后等日志，会自动带上 `phase=execution`，并在可用时附带 `symbol`、`order_id`、`strategy_id`、`slot`、`event_time_str`
+* 如果你启用了 `akquant` logger handler，Rust 执行链路里的 warning 也会进入同一套输出。例如保证金不足拒单、收盘过期、取消未知订单、同一切片内 `same-cycle` 延后等日志，会自动带上 `phase=execution`，并在可用时附带 `symbol`、`order_id`、`strategy_id`、`slot`、`event_time_iso`；其中 `event_time_iso` 统一为 UTC ISO 8601
 
 ### 3.2 便捷数据访问 (Data Access)
 

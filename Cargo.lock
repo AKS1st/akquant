@@ -34,6 +34,7 @@ version = "0.2.36"
 dependencies = [
  "anyhow",
  "chrono",
+ "chrono-tz",
  "crossbeam-channel",
  "csv",
  "indicatif",

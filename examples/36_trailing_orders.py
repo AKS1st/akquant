@@ -25,7 +25,7 @@ class TrailingOrderStrategy(Strategy):
         ):
             self.entry_order_id = self.buy(bar.symbol, 100, tag="trail-entry")
             print(
-                f"[{bar.timestamp_str}] 提交进场单: {bar.symbol}, close={bar.close:.2f}"
+                f"[{bar.timestamp_iso}] 提交进场单: {bar.symbol}, close={bar.close:.2f}"
             )
 
     def on_trade(self, trade: Trade) -> None:

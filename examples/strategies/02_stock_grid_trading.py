@@ -64,7 +64,7 @@ class GridTradingStrategy(Strategy):
             self.buy(symbol=symbol, quantity=initial_lots * self.trade_lot)
             self.last_trade_price[symbol] = close
             print(
-                f"[{bar.timestamp_str}] Initial Position: "
+                f"[{bar.timestamp_iso}] Initial Position: "
                 f"Buy {initial_lots * self.trade_lot} at {close:.3f}"
             )
             return
@@ -81,7 +81,7 @@ class GridTradingStrategy(Strategy):
             self.buy(symbol=symbol, quantity=self.trade_lot)
             self.last_trade_price[symbol] = close
             print(
-                f"[{bar.timestamp_str}] Grid BUY: Price dropped {change_pct:.2%}, "
+                f"[{bar.timestamp_iso}] Grid BUY: Price dropped {change_pct:.2%}, "
                 f"Buy {self.trade_lot} at {close:.3f}"
             )
 
@@ -93,12 +93,12 @@ class GridTradingStrategy(Strategy):
                 self.sell(symbol=symbol, quantity=self.trade_lot)
                 self.last_trade_price[symbol] = close
                 print(
-                    f"[{bar.timestamp_str}] Grid SELL: Price rose {change_pct:.2%}, "
+                    f"[{bar.timestamp_iso}] Grid SELL: Price rose {change_pct:.2%}, "
                     f"Sell {self.trade_lot} at {close:.3f}"
                 )
             else:
                 print(
-                    f"[{bar.timestamp_str}] Grid Signal: Sell triggered but "
+                    f"[{bar.timestamp_iso}] Grid Signal: Sell triggered but "
                     f"insufficient position ({current_pos})"
                 )
 

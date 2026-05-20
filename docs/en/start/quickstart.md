@@ -17,6 +17,12 @@ This strategy is very simple:
 1. When Close > Open (Bullish) -> Buy
 2. When Close < Open (Bearish) -> Sell
 
+> Note:
+> If you later see fields such as `timestamp_iso` or `event_time_iso` ending with `Z` in logs, JSON output, or object properties, that is expected.
+> AKQuant stores the factual event time in UTC, while many human-facing outputs still render time in the local market timezone.
+> The one-line rule is: **AKQuant stores facts in UTC and renders local time for humans.**
+> For the full explanation, see [AKQuant Time and Timezones](../guide/quant_basics.md) and the [Timezone Handling Guide](../advanced/timezone.md).
+
 ```python
 import akshare as ak
 from akquant import Strategy, run_backtest
@@ -164,6 +170,27 @@ You can view detailed position metrics via `print(result.positions_df)`.
 134            -1.0  sh600000 2026-02-10 00:00:00+08:00
 [135 rows x 9 columns]
 ```
+
+### Why may these timestamps differ from `timestamp_iso`?
+
+In the examples above, outputs such as `result`, `positions_df`, `orders_df`, and `trades_df` often show local timestamps like `+08:00`. Those views are mainly designed for human reading.
+
+But if you explicitly print:
+
+```python
+print(bar.timestamp_iso)
+```
+
+you may see a UTC ISO 8601 string such as:
+
+```text
+2025-01-06T16:00:00Z
+```
+
+That does not mean the time is wrong. It is the same instant expressed in two ways:
+
+*   Local market display: better for reading logs and backtest outputs
+*   UTC structured field: better for ordering, cross-language transport, JSON logs, and multi-market consistency
 
 You can view detailed order metrics via `print(result.orders_df)`.
 

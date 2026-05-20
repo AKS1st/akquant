@@ -257,7 +257,7 @@ Practical guidance:
 * Use `self.log()` for human-readable strategy debugging
 * Use `run_backtest(..., on_event=...)` when you need a machine-consumable `order/trade/progress/risk` event stream
 * Inside `on_order`, `on_trade`, and `on_reject`, you usually do not need to manually concatenate order ids into the message
-* Once an `akquant` logger handler is enabled, Rust execution-path warnings also flow through the same pipeline. That includes insufficient-margin rejects, session-close expiry, unknown cancel requests, and same-slice `same-cycle` deferrals, typically with `phase=execution` plus fields such as `symbol`, `order_id`, `strategy_id`, `slot`, and `event_time_str` when available
+* Once an `akquant` logger handler is enabled, Rust execution-path warnings also flow through the same pipeline. That includes insufficient-margin rejects, session-close expiry, unknown cancel requests, and same-slice `same-cycle` deferrals, typically with `phase=execution` plus fields such as `symbol`, `order_id`, `strategy_id`, `slot`, and `event_time_iso` when available; `event_time_iso` is always emitted as UTC ISO 8601
 
 ### 3.2 Data Access (Syntactic Sugar)
 

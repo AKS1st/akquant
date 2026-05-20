@@ -7,8 +7,8 @@ This document guides you on how to correctly handle data timezones, backtest con
 ## 1. Core Principles
 
 1.  **Internal UTC**: All interactions between the engine's core (`Rust`) and the Python layer are based on UTC timestamps.
-2.  **Input Auto-Conversion**: For user-passed DataFrame data, AKQuant automatically converts it to UTC storage based on the configured `timezone`.
-3.  **Output Localization**: When backtest results and logs are displayed, they are converted back to the user-configured `timezone` (default is `Asia/Shanghai`).
+2.  **Input Normalization**: Timezone-aware input is converted to UTC storage. Tz-naive input does **not** follow the configured `timezone`; it still defaults to `Asia/Shanghai` during loading unless you localize it explicitly.
+3.  **Display-Layer Conversion**: Structured time fields stay in UTC by default; only strategy helpers or your own display code convert them into the configured `timezone`.
 
 ## 2. Data Preparation and Timezones
 
@@ -16,7 +16,10 @@ When preparing backtest data (DataFrame), you have two options:
 
 ### Method A: Use Naive Datetime - **Recommended**
 
-If your data is local time (e.g., Beijing Time) and has no timezone information (tz-naive), you only need to specify `timezone="Asia/Shanghai"` in the backtest configuration. AKQuant will automatically assume these data belong to that timezone and perform the conversion.
+If your data is local time (e.g., Beijing Time) and has no timezone information (tz-naive), AKQuant defaults it to `Asia/Shanghai` during loading.
+
+- If the data is already Beijing time / China market data, you can usually pass it directly.
+- If the data belongs to another timezone, you should localize it explicitly first; changing `run_backtest(timezone=...)` does **not** change how tz-naive input is interpreted.
 
 **Example: Constructing A-share 1-minute bar data**
 
@@ -71,16 +74,38 @@ ts_daily = pd.Timestamp("2023-01-01 15:00:00")  # Beijing Time 15:00
 
 Specify the default timezone for backtesting via the `timezone` parameter during `run_backtest` or `BacktestEngine` initialization.
 
+This parameter is mainly used for:
+
+1. `self.now`, `self.to_local_time(...)`, and `self.format_time(...)`
+2. Timer alignment and scheduling
+3. Daily performance aggregation such as `daily_returns`, volatility, Sharpe / Sortino / VaR / CVaR, which now follows the configured timezone's local calendar day
+4. It does **not** change the default interpretation of tz-naive input during loading; naive input still defaults to `Asia/Shanghai`
+
 ```python
 from akquant.backtest import run_backtest
 
 results = run_backtest(
     data=data_feed,
     strategy=MyStrategy,
-    timezone="Asia/Shanghai",  # Specify as Shanghai time
+    timezone="Asia/Shanghai",  # Default timezone for strategy-local time helpers
     # ...
 )
 ```
+
+### Structured Logging And ISO Fields
+
+After the time-semantics refactor, AKQuant uses:
+
+- `event_time`: UTC nanosecond timestamp
+- `event_time_iso`: UTC ISO 8601 string
+
+This means:
+
+- structured logs and JSON output no longer default to local-time strings
+- `bar.timestamp_iso`, `tick.timestamp_iso`, `trade.timestamp_iso`, `order.created_at_iso`, and `order.updated_at_iso` are all UTC ISO 8601 values
+- if you want human-readable strategy-local output, format it explicitly with `self.format_time(...)`
+
+If you print `timestamp_iso` directly, expect UTC output such as `2025-01-02T07:00:00Z`, not exchange-local or strategy-local wall-clock time.
 
 ## 4. Time Processing in Strategies
 

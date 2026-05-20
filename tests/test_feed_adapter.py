@@ -18,11 +18,10 @@ class InMemoryFeedAdapter(BasePandasFeedAdapter):
         frame = self.frame[
             self.frame["symbol"].astype(str) == str(request.symbol)
         ].copy()
-        if request.start_time is not None:
-            frame = frame[frame["timestamp"] >= request.start_time]
-        if request.end_time is not None:
-            frame = frame[frame["timestamp"] <= request.end_time]
-        return self.normalize(frame, str(request.symbol))
+        normalized = self.normalize(frame, str(request.symbol))
+        return self._clip_time_range(
+            normalized, request.start_time, request.end_time, request.timezone
+        )
 
 
 class OneShotBuyStrategy(akquant.Strategy):
@@ -143,6 +142,69 @@ def test_feed_replay_session_windows_split_midday() -> None:
 
     assert len(default_result) == 3
     assert len(split_result) == 2
+
+
+def test_feed_replay_session_windows_naive_data_defaults_to_shanghai() -> None:
+    """Naive replay input should follow Shanghai like `load_bar_from_df`."""
+    morning_times = pd.date_range("2024-01-01 11:10:00", periods=20, freq="min")
+    afternoon_times = pd.date_range("2024-01-01 13:00:00", periods=10, freq="min")
+    timestamps = list(morning_times) + list(afternoon_times)
+    frame = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "open": [10.0 + i * 0.1 for i in range(len(timestamps))],
+            "high": [10.2 + i * 0.1 for i in range(len(timestamps))],
+            "low": [9.8 + i * 0.1 for i in range(len(timestamps))],
+            "close": [10.1 + i * 0.1 for i in range(len(timestamps))],
+            "volume": [100.0] * len(timestamps),
+            "symbol": ["SH_NAIVE"] * len(timestamps),
+        }
+    )
+    adapter = InMemoryFeedAdapter(frame)
+
+    replayed = adapter.replay(
+        freq="15min",
+        align="session",
+        emit_partial=False,
+        session_windows=[("09:30", "11:30"), ("13:00", "15:00")],
+    )
+    result = replayed.load(
+        akquant.FeedSlice(symbol="SH_NAIVE", timezone="Asia/Shanghai")
+    )
+
+    assert len(result) == 2
+
+
+def test_feed_slice_time_range_respects_request_timezone_on_naive_input() -> None:
+    """Naive source timestamps should honor `FeedSlice` request timezone."""
+    frame = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                ["2024-01-02 20:00:00", "2024-01-02 21:00:00", "2024-01-02 22:00:00"]
+            ),
+            "open": [10.0, 11.0, 12.0],
+            "high": [10.5, 11.5, 12.5],
+            "low": [9.5, 10.5, 11.5],
+            "close": [10.2, 11.2, 12.2],
+            "volume": [100.0, 100.0, 100.0],
+            "symbol": ["UTC_BOUNDARY"] * 3,
+        }
+    )
+    adapter = InMemoryFeedAdapter(frame)
+
+    result = adapter.load(
+        akquant.FeedSlice(
+            symbol="UTC_BOUNDARY",
+            start_time=pd.Timestamp("2024-01-02 13:00:00", tz="UTC"),
+            timezone="UTC",
+        )
+    )
+
+    assert len(result) == 2
+    assert list(result.index) == [
+        pd.Timestamp("2024-01-02 21:00:00"),
+        pd.Timestamp("2024-01-02 22:00:00"),
+    ]
 
 
 def test_feed_replay_global_align_keeps_cross_session_bins() -> None:

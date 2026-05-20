@@ -58,13 +58,13 @@ class DualMovingAverageStrategy(Strategy):
         if prev_ma_short <= prev_ma_long and ma_short > ma_long:
             if position == 0:
                 self.buy(bar.symbol, 100)  # 买入100股
-                print(f"[{bar.timestamp_str}] 金叉买入 {bar.symbol} @ {bar.close:.2f}")
+                print(f"[{bar.timestamp_iso}] 金叉买入 {bar.symbol} @ {bar.close:.2f}")
 
         # 2. 死叉：短期均线下穿长期均线，且持有仓位 -> 卖出
         elif prev_ma_short >= prev_ma_long and ma_short < ma_long:
             if position > 0:
                 self.sell(bar.symbol, 100)  # 卖出100股
-                print(f"[{bar.timestamp_str}] 死叉卖出 {bar.symbol} @ {bar.close:.2f}")
+                print(f"[{bar.timestamp_iso}] 死叉卖出 {bar.symbol} @ {bar.close:.2f}")
 
 
 # ------------------------------

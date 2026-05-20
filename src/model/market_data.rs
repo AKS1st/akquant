@@ -1,4 +1,4 @@
-use chrono::{FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{NaiveDate, NaiveDateTime, SecondsFormat, TimeZone, Utc};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::*;
@@ -6,6 +6,17 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+fn format_timestamp_iso(timestamp: i64) -> String {
+    let secs = timestamp.div_euclid(1_000_000_000);
+    let nanos = timestamp.rem_euclid(1_000_000_000) as u32;
+
+    if let Some(dt) = Utc.timestamp_opt(secs, nanos).single() {
+        dt.to_rfc3339_opts(SecondsFormat::AutoSi, true)
+    } else {
+        timestamp.to_string()
+    }
+}
 
 #[gen_stub_pyclass]
 #[pyclass(from_py_object)]
@@ -133,22 +144,10 @@ impl Bar {
         Ok(())
     }
 
-    /// 获取格式化的时间字符串 (Asia/Shanghai).
-    /// 格式: YYYY-MM-DD HH:MM:SS
+    /// 获取格式化的时间 ISO 8601 字符串 (UTC).
     #[getter]
-    pub fn timestamp_str(&self) -> String {
-        let secs = self.timestamp.div_euclid(1_000_000_000);
-        let nanos = self.timestamp.rem_euclid(1_000_000_000) as u32;
-
-        if let Some(dt) = Utc.timestamp_opt(secs, nanos).single() {
-            // Default to Asia/Shanghai (UTC+8)
-            let tz = FixedOffset::east_opt(8 * 3600).unwrap();
-            dt.with_timezone(&tz)
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string()
-        } else {
-            self.timestamp.to_string()
-        }
+    pub fn timestamp_iso(&self) -> String {
+        format_timestamp_iso(self.timestamp)
     }
 
     pub fn __repr__(&self) -> String {
@@ -227,22 +226,10 @@ impl Tick {
         Ok(())
     }
 
-    /// 获取格式化的时间字符串 (Asia/Shanghai).
-    /// 格式: YYYY-MM-DD HH:MM:SS
+    /// 获取格式化的时间 ISO 8601 字符串 (UTC).
     #[getter]
-    pub fn timestamp_str(&self) -> String {
-        let secs = self.timestamp.div_euclid(1_000_000_000);
-        let nanos = self.timestamp.rem_euclid(1_000_000_000) as u32;
-
-        if let Some(dt) = Utc.timestamp_opt(secs, nanos).single() {
-            // Default to Asia/Shanghai (UTC+8)
-            let tz = FixedOffset::east_opt(8 * 3600).unwrap();
-            dt.with_timezone(&tz)
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string()
-        } else {
-            self.timestamp.to_string()
-        }
+    pub fn timestamp_iso(&self) -> String {
+        format_timestamp_iso(self.timestamp)
     }
 
     pub fn __repr__(&self) -> String {

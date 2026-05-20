@@ -1,14 +1,48 @@
 import hashlib
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import List, Optional, Union, cast
 
 import pandas as pd
 
 from .akquant import Bar
+from .feed_adapter import DEFAULT_INPUT_TIMEZONE
 from .utils import load_bar_from_df
 
 logger = logging.getLogger("akquant.data")
+
+
+def _parse_catalog_boundary_timestamp(
+    value: Union[str, pd.Timestamp],
+    timezone: Optional[str],
+) -> pd.Timestamp:
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        return cast(
+            pd.Timestamp, timestamp.tz_localize(timezone or DEFAULT_INPUT_TIMEZONE)
+        )
+    return timestamp
+
+
+def _filter_catalog_frame_by_time_range(
+    df: pd.DataFrame,
+    start_time: Optional[Union[str, pd.Timestamp]],
+    end_time: Optional[Union[str, pd.Timestamp]],
+    timezone: Optional[str],
+) -> pd.DataFrame:
+    if df.empty or not isinstance(df.index, pd.DatetimeIndex):
+        return df
+    compare_index = df.index
+    if compare_index.tz is None:
+        compare_index = compare_index.tz_localize(DEFAULT_INPUT_TIMEZONE)
+    mask = pd.Series(True, index=df.index)
+    if start_time is not None:
+        start_ts = _parse_catalog_boundary_timestamp(start_time, timezone)
+        mask &= compare_index >= start_ts
+    if end_time is not None:
+        end_ts = _parse_catalog_boundary_timestamp(end_time, timezone)
+        mask &= compare_index <= end_ts
+    return cast(pd.DataFrame, df.loc[mask.to_numpy()])
 
 
 class ParquetDataCatalog:
@@ -77,6 +111,7 @@ class ParquetDataCatalog:
         start_time: Optional[Union[str, pd.Timestamp]] = None,
         end_time: Optional[Union[str, pd.Timestamp]] = None,
         columns: Optional[List[str]] = None,
+        timezone: Optional[str] = None,
     ) -> pd.DataFrame:
         """
         Read DataFrame from Parquet catalog.
@@ -85,6 +120,7 @@ class ParquetDataCatalog:
         :param start_time: Filter start date/time.
         :param end_time: Filter end date/time.
         :param columns: Specific columns to read.
+        :param timezone: Timezone used to interpret naive start/end boundaries.
         :return: DataFrame.
         """
         symbol_path = self.root / symbol
@@ -93,29 +129,11 @@ class ParquetDataCatalog:
         if not file_path.exists():
             return pd.DataFrame()
 
-        # Read with projection (columns) and push-down filters
-        filters = []
-        if start_time:
-            filters.append(("index", ">=", pd.to_datetime(start_time)))
-        if end_time:
-            filters.append(("index", "<=", pd.to_datetime(end_time)))
-
-        # If filters is empty, pass None to read_parquet
-        kwargs: Dict[str, Any] = {"columns": columns}
-        if filters:
-            kwargs["filters"] = filters
-
         try:
-            df = pd.read_parquet(file_path, **kwargs)
-        except Exception:
-            # Fallback for engines that don't support filters or if index name mismatch
             df = pd.read_parquet(file_path, columns=columns)
-            if start_time:
-                df = df[df.index >= pd.to_datetime(start_time)]
-            if end_time:
-                df = df[df.index <= pd.to_datetime(end_time)]
-
-        return df
+        except Exception:
+            df = pd.read_parquet(file_path, columns=columns)
+        return _filter_catalog_frame_by_time_range(df, start_time, end_time, timezone)
 
     def list_symbols(self) -> List[str]:
         """List all symbols in the catalog."""

@@ -214,7 +214,7 @@ def run_warm_start(
 *   `slippage`: 全局滑点 (默认 0.0)。例如 0.0001 代表 1bp (0.01%) 的滑点，采用百分比模型。
 *   `volume_limit_pct`: 成交量限制比例 (默认 0.25)。限制单笔成交不超过该 Bar 总成交量的百分比。
 *   `warmup_period`: 策略预热期。指定需要预加载的历史数据长度（Bar 数量），用于计算指标。
-*   `start_time` / `end_time`: 回测开始/结束时间。
+*   `start_time` / `end_time`: 回测开始/结束时间。若传入 naive 时间字符串或 `Timestamp`，会按当前 `timezone` 解释，再转换为 UTC 参与过滤。
 *   `catalog_path`: 当 `data` 未显式传入时，可从该目录按 `ParquetDataCatalog` 规则加载数据。
 *   `config`: `BacktestConfig` 配置对象，用于集中管理配置。
 *   `lot_size`: 最小交易单位。如果是 `int`，应用于所有标的；如果是字典，按标的匹配。
@@ -751,7 +751,7 @@ akquant.configure_logging(
 *   `profile="optimize"` 默认文本格式会带 `processName`，便于区分 worker。
 *   `profile="live"` 适合打开结构化上下文或 JSON 输出。
 *   Rust 侧运行路径中的 `akquant.*` warning 也会桥接进入 Python `logging`，并尽量恢复为统一的结构化字段。
-*   例如执行链路中的保证金不足拒单、收盘过期、取消未知订单、同一切片 `same-cycle` 延后等 warning，会携带 `phase="execution"`，并在可用时附带 `symbol`、`order_id`、`strategy_id`、`slot`、`event_time_str`。
+*   例如执行链路中的保证金不足拒单、收盘过期、取消未知订单、同一切片 `same-cycle` 延后等 warning，会携带 `phase="execution"`，并在可用时附带 `symbol`、`order_id`、`strategy_id`、`slot`、`event_time_iso`。
 
 #### `akquant.register_logger`
 
@@ -916,7 +916,7 @@ K 线数据对象。
 *   `open`, `high`, `low`, `close`, `volume`: OHLCV 数据。
 *   `symbol`: 标的代码。
 *   `extra`: 扩展数据字典 (`Dict[str, float]`)。
-*   `timestamp_str`: 时间字符串。
+*   `timestamp_iso`: UTC ISO 8601 时间字符串。
 
 ### `akquant.Tick`
 
@@ -961,7 +961,8 @@ runner = LiveRunner(
 
 **配置方法:**
 
-*   `set_timezone(offset: int)`: 设置时区偏移。
+*   `set_timezone_name(timezone: str)`: 设置 IANA 时区名称，例如 `Asia/Shanghai`、`UTC`、`US/Eastern`。推荐优先使用此方法，以正确处理 DST 和历史时区规则。
+*   `set_timezone(offset: int)`: 设置固定时区偏移秒数。仅作为兼容接口保留，不包含 DST / 历史时区规则。
 *   `use_simulated_execution()` / `use_realtime_execution()`: 设置执行环境。
 *   `set_fill_policy(price_basis, bar_offset, temporal)`: 设置统一三轴执行策略（推荐）。
 *   `get_fill_policy()`: 获取当前三轴执行策略。

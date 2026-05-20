@@ -1,4 +1,5 @@
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Offset, Utc};
+use chrono_tz::Tz;
 use indicatif::{ProgressBar, ProgressStyle};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -517,6 +518,7 @@ impl Engine {
             force_session_continuous: false,
             risk_manager: RiskManager::new(),
             timezone_offset: 28800, // Default UTC+8
+            timezone_name: Some("Asia/Shanghai".to_string()),
             history_buffer: Arc::new(RwLock::new(HistoryBuffer::new(10000))), // Default large capacity for MAE/MFE
             initial_cash,
             active_start_time_ns: None,
@@ -710,6 +712,24 @@ impl Engine {
     /// :param offset: 偏移秒数 (例如 UTC+8 为 28800)
     pub fn set_timezone(&mut self, offset: i32) {
         self.timezone_offset = offset;
+        self.timezone_name = None;
+    }
+
+    /// 设置时区名称.
+    ///
+    /// :param timezone: IANA 时区名称 (例如 "Asia/Shanghai", "UTC", "US/Eastern")
+    pub fn set_timezone_name(&mut self, timezone: &str) -> PyResult<()> {
+        let tz_name = timezone.trim();
+        let tz: Tz = tz_name
+            .parse()
+            .map_err(|_| PyValueError::new_err(format!("Invalid timezone: {}", timezone)))?;
+        self.timezone_offset = Utc::now()
+            .with_timezone(&tz)
+            .offset()
+            .fix()
+            .local_minus_utc();
+        self.timezone_name = Some(tz_name.to_string());
+        Ok(())
     }
 
     /// 启用模拟执行 (回测模式)
@@ -1173,6 +1193,8 @@ impl Engine {
             &self.risk_manager.config,
             self.initial_cash,
             self.terminal_result_timestamp(),
+            self.timezone_name.clone(),
+            self.timezone_offset,
         )
     }
 }
