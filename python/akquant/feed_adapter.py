@@ -33,6 +33,7 @@ LabelKind = Literal["right", "left"]
 SessionWindow = tuple[str, str]
 AlignKind = Literal["session", "day", "global"]
 DayModeKind = Literal["trading", "calendar"]
+DEFAULT_INPUT_TIMEZONE = "Asia/Shanghai"
 
 
 class BasePandasFeedAdapter:
@@ -67,13 +68,21 @@ class BasePandasFeedAdapter:
         frame: pd.DataFrame,
         start_time: pd.Timestamp | None,
         end_time: pd.Timestamp | None,
+        timezone: str | None = None,
     ) -> pd.DataFrame:
         data = frame
-        if start_time is not None:
-            data = data[data.index >= start_time]
-        if end_time is not None:
-            data = data[data.index <= end_time]
-        return data
+        if data.empty or not isinstance(data.index, pd.DatetimeIndex):
+            return data
+        compare_index = _localize_input_index(data.index)
+        start_bound = _normalize_request_boundary(start_time, timezone)
+        end_bound = _normalize_request_boundary(end_time, timezone)
+        mask = pd.Series(True, index=data.index)
+        if start_bound is not None:
+            mask &= compare_index >= start_bound
+        if end_bound is not None:
+            mask &= compare_index <= end_bound
+        data = data.loc[mask.to_numpy()]
+        return cast(pd.DataFrame, data)
 
     def resample(
         self,
@@ -208,24 +217,42 @@ def _resample_ohlcv_frame(
     return cast(pd.DataFrame, resampled.dropna(how="all"))
 
 
+def _localize_input_index(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """Normalize input index to a timezone-aware series.
+
+    AKQuant treats naive market data as Asia/Shanghai by default, matching the
+    main DataFrame -> Bar conversion path in ``load_bar_from_df``.
+    """
+    if index.tz is None:
+        return index.tz_localize(DEFAULT_INPUT_TIMEZONE)
+    return index
+
+
+def _normalize_request_boundary(
+    boundary: pd.Timestamp | None,
+    timezone: str | None,
+) -> pd.Timestamp | None:
+    if boundary is None:
+        return None
+    if boundary.tzinfo is None:
+        return cast(
+            pd.Timestamp, boundary.tz_localize(timezone or DEFAULT_INPUT_TIMEZONE)
+        )
+    return boundary
+
+
 def _session_partition_keys(
     index: pd.DatetimeIndex,
     timezone: str | None,
 ) -> pd.DatetimeIndex:
-    if index.tz is None:
-        localized = index.tz_localize("UTC")
-    else:
-        localized = index
+    localized = _localize_input_index(index)
     if timezone:
         localized = localized.tz_convert(timezone)
     return localized.normalize()
 
 
 def _calendar_partition_keys(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    if index.tz is None:
-        localized = index.tz_localize("UTC")
-    else:
-        localized = index.tz_convert("UTC")
+    localized = _localize_input_index(index).tz_convert("UTC")
     return localized.normalize()
 
 
@@ -245,10 +272,7 @@ def _session_window_partition_keys(
     timezone: str | None,
     session_windows: list[SessionWindow],
 ) -> tuple[pd.DatetimeIndex, list[bool]]:
-    if index.tz is None:
-        localized = index.tz_localize("UTC")
-    else:
-        localized = index
+    localized = _localize_input_index(index)
     if timezone:
         localized = localized.tz_convert(timezone)
 
@@ -472,7 +496,9 @@ class CSVFeedAdapter(BasePandasFeedAdapter):
         path = Path(self.path_template.format(symbol=request.symbol))
         frame = pd.read_csv(path, **self.read_kwargs)
         data = self.normalize(frame, request.symbol)
-        return self._clip_time_range(data, request.start_time, request.end_time)
+        return self._clip_time_range(
+            data, request.start_time, request.end_time, request.timezone
+        )
 
 
 class ParquetFeedAdapter(BasePandasFeedAdapter):
@@ -494,4 +520,6 @@ class ParquetFeedAdapter(BasePandasFeedAdapter):
         path = Path(self.path_template.format(symbol=request.symbol))
         frame = pd.read_parquet(path, **self.read_kwargs)
         data = self.normalize(frame, request.symbol)
-        return self._clip_time_range(data, request.start_time, request.end_time)
+        return self._clip_time_range(
+            data, request.start_time, request.end_time, request.timezone
+        )

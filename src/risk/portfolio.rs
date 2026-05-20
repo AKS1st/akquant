@@ -119,6 +119,8 @@ mod tests {
             trade_tracker,
             current_time: 0,
             config,
+            timezone_name: None,
+            timezone_offset: 0,
         }
     }
 
@@ -445,7 +447,7 @@ impl RiskRule for MaxDrawdownRule {
 
 #[derive(Debug, Clone)]
 struct DailyLossState {
-    day_key: i64,
+    day_key: chrono::NaiveDate,
     start_equity: Decimal,
 }
 
@@ -477,7 +479,7 @@ impl RiskRule for MaxDailyLossRule {
             return Ok(());
         }
 
-        let day_key = ctx.current_time / 86_400_000_000_000;
+        let day_key = ctx.local_date();
         let mut state_guard = self.state.lock().unwrap();
         let state = state_guard.get_or_insert(DailyLossState {
             day_key,

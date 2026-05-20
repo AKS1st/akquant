@@ -1441,6 +1441,55 @@ def test_run_backtest_dataframe_multisymbol_preserves_bar_symbol() -> None:
     assert strategy.seen_symbols.count("IF2402.CFX") == 2
 
 
+def test_run_backtest_naive_dataframe_boundaries_follow_configured_timezone() -> None:
+    """Naive DataFrame windows should interpret start/end in configured timezone."""
+
+    class CaptureBarTimestampsStrategy(akquant.Strategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self.seen_timestamps: list[str] = []
+
+        def on_bar(self, bar: akquant.Bar) -> None:
+            self.seen_timestamps.append(str(bar.timestamp_iso))
+
+    frame = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                ["2024-01-02 20:00:00", "2024-01-02 21:00:00", "2024-01-02 22:00:00"]
+            ),
+            "symbol": ["BOUNDARY_DF"] * 3,
+            "open": [10.0, 11.0, 12.0],
+            "high": [10.5, 11.5, 12.5],
+            "low": [9.5, 10.5, 11.5],
+            "close": [10.2, 11.2, 12.2],
+            "volume": [1000.0, 1000.0, 1000.0],
+        }
+    ).set_index("timestamp")
+
+    result = akquant.run_backtest(
+        data=frame,
+        strategy=CaptureBarTimestampsStrategy,
+        symbols=["BOUNDARY_DF"],
+        start_time="2024-01-02 13:00:00",
+        end_time="2024-01-02 14:00:00",
+        timezone="UTC",
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        initial_cash=100000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        lot_size=1,
+        show_progress=False,
+    )
+
+    strategy = cast(CaptureBarTimestampsStrategy, result.strategy)
+    assert strategy.seen_timestamps == [
+        "2024-01-02T13:00:00Z",
+        "2024-01-02T14:00:00Z",
+    ]
+
+
 def test_run_backtest_dataframe_multisymbol_row_order_keeps_metrics_stable() -> None:
     """Metrics should not drift when same-timestamp symbol row order changes."""
 
@@ -1514,6 +1563,71 @@ def test_run_backtest_dataframe_multisymbol_row_order_keeps_metrics_stable() -> 
     assert float(result_ascending.equity_curve.iloc[-1]) == pytest.approx(
         float(result_descending.equity_curve.iloc[-1]), rel=1e-12
     )
+
+
+def test_run_backtest_list_boundaries_follow_configured_timezone() -> None:
+    """Naive boundary strings should filter list[Bar] inputs in configured timezone."""
+
+    class CaptureBarTimestampsStrategy(akquant.Strategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self.seen_timestamps: list[str] = []
+
+        def on_bar(self, bar: akquant.Bar) -> None:
+            self.seen_timestamps.append(str(bar.timestamp_iso))
+
+    bars = [
+        akquant.Bar(
+            timestamp=pd.Timestamp("2024-01-02 20:00:00", tz="Asia/Shanghai").value,
+            symbol="BOUNDARY_LIST",
+            open=10.0,
+            high=10.5,
+            low=9.5,
+            close=10.2,
+            volume=1000.0,
+        ),
+        akquant.Bar(
+            timestamp=pd.Timestamp("2024-01-02 21:00:00", tz="Asia/Shanghai").value,
+            symbol="BOUNDARY_LIST",
+            open=11.0,
+            high=11.5,
+            low=10.5,
+            close=11.2,
+            volume=1000.0,
+        ),
+        akquant.Bar(
+            timestamp=pd.Timestamp("2024-01-02 22:00:00", tz="Asia/Shanghai").value,
+            symbol="BOUNDARY_LIST",
+            open=12.0,
+            high=12.5,
+            low=11.5,
+            close=12.2,
+            volume=1000.0,
+        ),
+    ]
+
+    result = akquant.run_backtest(
+        data=bars,
+        strategy=CaptureBarTimestampsStrategy,
+        symbols=["BOUNDARY_LIST"],
+        start_time="2024-01-02 13:00:00",
+        end_time="2024-01-02 14:00:00",
+        timezone="UTC",
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        initial_cash=100000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        lot_size=1,
+        show_progress=False,
+    )
+
+    strategy = cast(CaptureBarTimestampsStrategy, result.strategy)
+    assert strategy.seen_timestamps == [
+        "2024-01-02T13:00:00Z",
+        "2024-01-02T14:00:00Z",
+    ]
 
 
 def test_engine_run_empty() -> None:
@@ -4476,7 +4590,7 @@ def test_configure_logging_supports_json_file_output(tmp_path: Path) -> None:
             symbol="AAPL",
             order_id="order-1",
             client_order_id="coid-1",
-            event_time_str="2023-01-01 09:30:00",
+            event_time_iso="2023-01-01T01:30:00Z",
         ),
     )
 
@@ -4488,7 +4602,7 @@ def test_configure_logging_supports_json_file_output(tmp_path: Path) -> None:
     assert payload["symbol"] == "AAPL"
     assert payload["order_id"] == "order-1"
     assert payload["client_order_id"] == "coid-1"
-    assert payload["event_time_str"] == "2023-01-01 09:30:00"
+    assert payload["event_time_iso"] == "2023-01-01T01:30:00Z"
 
     akquant.register_logger(console=False, level="INFO")
 
@@ -4561,7 +4675,7 @@ def test_rust_warnings_bridge_into_python_logging(caplog: Any) -> None:
     )
     assert matching_record.phase == "data"
     assert matching_record.symbol == "AAPL"
-    assert matching_record.event_time_str == "1970-01-01 00:00:00"
+    assert matching_record.event_time_iso == "1970-01-01T00:00:00.000000001Z"
     assert any(
         record.name == "akquant.data.batch"
         and "Invalid open price NaN, defaulting to 0.0" in record.getMessage()
@@ -4640,7 +4754,7 @@ def test_run_backtest_lot_size_rejection_bridges_rust_warning(caplog: Any) -> No
     )
     assert matching_record.phase == "execution"
     assert matching_record.symbol == "LOT_WARN"
-    assert matching_record.event_time_str == "2023-01-02 15:00:00"
+    assert matching_record.event_time_iso == "2023-01-02T15:00:00Z"
     assert getattr(matching_record, "order_id", None)
 
     akquant.register_logger(console=False, level="INFO")
@@ -4708,7 +4822,7 @@ def test_run_backtest_futures_validation_rejection_bridges_rust_warning(
     )
     assert matching_record.phase == "execution"
     assert matching_record.symbol == "RB2310"
-    assert matching_record.event_time_str == "2023-01-02 15:00:00"
+    assert matching_record.event_time_iso == "2023-01-02T15:00:00Z"
     assert getattr(matching_record, "order_id", None)
 
     akquant.register_logger(console=False, level="INFO")
@@ -4759,7 +4873,7 @@ def test_run_backtest_ioc_cancel_bridges_rust_warning(caplog: Any) -> None:
     )
     assert matching_record.phase == "execution"
     assert matching_record.symbol == "IOC_WARN"
-    assert matching_record.event_time_str == "2023-01-02 15:00:00"
+    assert matching_record.event_time_iso == "2023-01-02T15:00:00Z"
     assert getattr(matching_record, "order_id", None)
 
     akquant.register_logger(console=False, level="INFO")
@@ -4833,7 +4947,7 @@ def test_engine_tick_ioc_cancel_bridges_rust_warning(caplog: Any) -> None:
     )
     assert matching_record.phase == "execution"
     assert matching_record.symbol == symbol
-    assert matching_record.event_time_str == "2024-01-03 15:00:00"
+    assert matching_record.event_time_iso == "2024-01-03T15:00:00Z"
     assert getattr(matching_record, "order_id", None)
 
     akquant.register_logger(console=False, level="INFO")
@@ -4897,7 +5011,7 @@ def test_run_backtest_stop_limit_deferred_bridges_rust_warning(caplog: Any) -> N
     )
     assert matching_record.phase == "execution"
     assert matching_record.symbol == "STOP_LIMIT_WARN"
-    assert matching_record.event_time_str == "2024-01-02 15:00:00"
+    assert matching_record.event_time_iso == "2024-01-02T15:00:00Z"
     assert getattr(matching_record, "order_id", None)
 
     akquant.register_logger(console=False, level="INFO")
@@ -4934,7 +5048,7 @@ def test_engine_csv_feed_bridges_rust_warning(caplog: Any, tmp_path: Path) -> No
     )
     assert matching_record.phase == "data"
     assert matching_record.symbol == "AAPL"
-    assert matching_record.event_time_str == "1970-01-01 00:00:01"
+    assert matching_record.event_time_iso == "1970-01-01T00:00:01Z"
     assert any(
         record.name == "akquant.data.client"
         and "Invalid open price NaN, defaulting to 0.0" in record.getMessage()
@@ -4973,7 +5087,7 @@ def test_rust_warning_json_output_includes_structured_context(tmp_path: Path) ->
     assert payload["message"] == "Invalid open price NaN, defaulting to 0.0"
     assert payload["phase"] == "data"
     assert payload["symbol"] == "AAPL"
-    assert payload["event_time_str"] == "1970-01-01 00:00:00"
+    assert payload["event_time_iso"] == "1970-01-01T00:00:00.000000001Z"
 
     akquant.register_logger(console=False, level="INFO")
 
@@ -5003,7 +5117,7 @@ def test_rust_warning_live_profile_renders_structured_context(
     assert "Invalid open price NaN, defaulting to 0.0" in captured.out
     assert "phase=data" in captured.out
     assert "symbol=AAPL" in captured.out
-    assert "event_time_str=1970-01-01 00:00:00" in captured.out
+    assert "event_time_iso=1970-01-01T00:00:00.000000001Z" in captured.out
 
     akquant.register_logger(console=False, level="INFO")
 
@@ -5077,7 +5191,7 @@ def test_rust_context_parser_extracts_execution_order_fields() -> None:
             "Rejected order due to insufficient margin during execution "
             '[akq_ctx={"phase":"execution","symbol":"OPT_P","order_id":"ord-1",'
             '"strategy_id":"alpha","slot":"alpha",'
-            '"event_time_str":"1970-01-01 00:00:01"}]'
+            '"event_time_iso":"1970-01-01T00:00:01Z"}]'
         ),
         args=(),
         exc_info=None,
@@ -5095,7 +5209,7 @@ def test_rust_context_parser_extracts_execution_order_fields() -> None:
     assert typed_record.order_id == "ord-1"
     assert typed_record.strategy_id == "alpha"
     assert typed_record.slot == "alpha"
-    assert typed_record.event_time_str == "1970-01-01 00:00:01"
+    assert typed_record.event_time_iso == "1970-01-01T00:00:01Z"
 
 
 def test_rust_context_parser_extracts_expired_order_fields() -> None:
@@ -5111,7 +5225,7 @@ def test_rust_context_parser_extracts_expired_order_fields() -> None:
             "Expired day order at session close "
             '[akq_ctx={"phase":"execution","symbol":"AAPL","order_id":"ord-exp",'
             '"strategy_id":"beta","slot":"beta",'
-            '"event_time_str":"1970-01-01 00:00:02"}]'
+            '"event_time_iso":"1970-01-01T00:00:02Z"}]'
         ),
         args=(),
         exc_info=None,
@@ -5126,7 +5240,7 @@ def test_rust_context_parser_extracts_expired_order_fields() -> None:
     assert typed_record.order_id == "ord-exp"
     assert typed_record.strategy_id == "beta"
     assert typed_record.slot == "beta"
-    assert typed_record.event_time_str == "1970-01-01 00:00:02"
+    assert typed_record.event_time_iso == "1970-01-01T00:00:02Z"
 
 
 def test_rust_context_parser_extracts_unknown_cancel_fields() -> None:
@@ -5168,7 +5282,7 @@ def test_rust_context_parser_extracts_non_cancellable_cancel_fields() -> None:
             "Ignored cancel request because order is not cancellable in status Filled "
             '[akq_ctx={"phase":"execution","symbol":"AAPL","order_id":"ord-cancel",'
             '"strategy_id":"gamma","slot":"gamma",'
-            '"event_time_str":"1970-01-01 00:00:03"}]'
+            '"event_time_iso":"1970-01-01T00:00:03Z"}]'
         ),
         args=(),
         exc_info=None,
@@ -5186,7 +5300,7 @@ def test_rust_context_parser_extracts_non_cancellable_cancel_fields() -> None:
     assert typed_record.order_id == "ord-cancel"
     assert typed_record.strategy_id == "gamma"
     assert typed_record.slot == "gamma"
-    assert typed_record.event_time_str == "1970-01-01 00:00:03"
+    assert typed_record.event_time_iso == "1970-01-01T00:00:03Z"
 
 
 def test_rust_context_parser_extracts_deferred_same_cycle_order_fields() -> None:
@@ -5203,7 +5317,7 @@ def test_rust_context_parser_extracts_deferred_same_cycle_order_fields() -> None
             "finish in current slice "
             '[akq_ctx={"phase":"execution","symbol":"MSFT","order_id":"ord-defer",'
             '"strategy_id":"delta","slot":"delta",'
-            '"event_time_str":"1970-01-01 00:00:04"}]'
+            '"event_time_iso":"1970-01-01T00:00:04Z"}]'
         ),
         args=(),
         exc_info=None,
@@ -5222,7 +5336,7 @@ def test_rust_context_parser_extracts_deferred_same_cycle_order_fields() -> None
     assert typed_record.order_id == "ord-defer"
     assert typed_record.strategy_id == "delta"
     assert typed_record.slot == "delta"
-    assert typed_record.event_time_str == "1970-01-01 00:00:04"
+    assert typed_record.event_time_iso == "1970-01-01T00:00:04Z"
 
 
 def test_rust_context_parser_extracts_ioc_cancel_fields() -> None:
@@ -5238,7 +5352,7 @@ def test_rust_context_parser_extracts_ioc_cancel_fields() -> None:
             "Cancelled IOC order because it was not filled on current event "
             '[akq_ctx={"phase":"execution","symbol":"IOC_WARN","order_id":"ord-ioc",'
             '"strategy_id":"epsilon","slot":"epsilon",'
-            '"event_time_str":"1970-01-01 00:00:05"}]'
+            '"event_time_iso":"1970-01-01T00:00:05Z"}]'
         ),
         args=(),
         exc_info=None,
@@ -5256,7 +5370,7 @@ def test_rust_context_parser_extracts_ioc_cancel_fields() -> None:
     assert typed_record.order_id == "ord-ioc"
     assert typed_record.strategy_id == "epsilon"
     assert typed_record.slot == "epsilon"
-    assert typed_record.event_time_str == "1970-01-01 00:00:05"
+    assert typed_record.event_time_iso == "1970-01-01T00:00:05Z"
 
 
 def test_rust_context_parser_extracts_stop_limit_deferred_fields() -> None:
@@ -5272,7 +5386,7 @@ def test_rust_context_parser_extracts_stop_limit_deferred_fields() -> None:
             "Deferred triggered stop-limit order because trigger price 10 breached "
             'limit price 9.5 during in-bar activation [akq_ctx={"phase":"execution",'
             '"symbol":"STOP_LIMIT_WARN","order_id":"ord-stop","strategy_id":"zeta",'
-            '"slot":"zeta","event_time_str":"1970-01-01 00:00:06"}]'
+            '"slot":"zeta","event_time_iso":"1970-01-01T00:00:06Z"}]'
         ),
         args=(),
         exc_info=None,
@@ -5291,7 +5405,7 @@ def test_rust_context_parser_extracts_stop_limit_deferred_fields() -> None:
     assert typed_record.order_id == "ord-stop"
     assert typed_record.strategy_id == "zeta"
     assert typed_record.slot == "zeta"
-    assert typed_record.event_time_str == "1970-01-01 00:00:06"
+    assert typed_record.event_time_iso == "1970-01-01T00:00:06Z"
 
 
 def test_run_grid_search_parallel_warns_worker_log_visibility(caplog: Any) -> None:
@@ -6599,8 +6713,8 @@ def test_order_rejects_non_positive_quantity() -> None:
         )
 
 
-def test_order_and_trade_time_string_properties() -> None:
-    """Order/Trade should expose readable Asia/Shanghai timestamp strings."""
+def test_order_and_trade_time_iso_properties() -> None:
+    """Order/Trade should expose UTC ISO 8601 timestamp strings."""
     ts = pd.Timestamp("2025-01-02 15:00:00", tz="Asia/Shanghai").value
     order = akquant.Order(
         "o-time-str",
@@ -6624,9 +6738,9 @@ def test_order_and_trade_time_string_properties() -> None:
         None,
     )
 
-    assert order.created_at_str == "2025-01-02 15:00:00"
-    assert order.updated_at_str == "2025-01-02 15:00:00"
-    assert trade.timestamp_str == "2025-01-02 15:00:00"
+    assert order.created_at_iso == "2025-01-02T07:00:00Z"
+    assert order.updated_at_iso == "2025-01-02T07:00:00Z"
+    assert trade.timestamp_iso == "2025-01-02T07:00:00Z"
 
 
 def test_order_and_trade_position_effect_defaults() -> None:

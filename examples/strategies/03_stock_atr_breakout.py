@@ -99,7 +99,7 @@ class AtrBreakoutStrategy(Strategy):
             # 买入 500 股
             self.buy(symbol=symbol, quantity=500)
             print(
-                f"[{bar.timestamp_str}] LONG BREAKOUT: Price {bar.close:.2f} > "
+                f"[{bar.timestamp_iso}] LONG BREAKOUT: Price {bar.close:.2f} > "
                 f"Upper {upper_band:.2f} (ATR={atr:.2f})"
             )
 
@@ -107,7 +107,7 @@ class AtrBreakoutStrategy(Strategy):
         elif bar.close < lower_band and current_pos > 0:
             self.close_position(symbol=symbol)
             print(
-                f"[{bar.timestamp_str}] CLOSE LONG: Price {bar.close:.2f} < "
+                f"[{bar.timestamp_iso}] CLOSE LONG: Price {bar.close:.2f} < "
                 f"Lower {lower_band:.2f} (ATR={atr:.2f})"
             )
 

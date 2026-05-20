@@ -43,7 +43,7 @@ from ..config import (
     StrategyConfig,
 )
 from ..data import ParquetDataCatalog
-from ..feed_adapter import DataFeedAdapter, FeedSlice
+from ..feed_adapter import DEFAULT_INPUT_TIMEZONE, DataFeedAdapter, FeedSlice
 from ..indicator_recording import IndicatorRecorder
 from ..log import build_log_extra, get_logger, has_configured_handler, register_logger
 from ..risk import apply_risk_config
@@ -68,6 +68,7 @@ from ..utils.inspector import infer_warmup_period
 from .result import BacktestResult
 
 _RUNTIME_CONFIG_FIELDS = {f.name for f in fields(StrategyRuntimeConfig)}
+DEFAULT_TIMEZONE = "Asia/Shanghai"
 _RUNTIME_EXECUTION_MODE = getattr(cast(Any, _akquant_module), "ExecutionMode", None)
 _RUNTIME_MODE_NEXT_OPEN = getattr(_RUNTIME_EXECUTION_MODE, "NextOpen", "next_open")
 _RUNTIME_MODE_CURRENT_CLOSE = getattr(
@@ -418,6 +419,50 @@ def _index_to_local_trading_days(
     if local_index.tz is None:
         local_index = local_index.tz_localize("UTC")
     return cast(pd.DatetimeIndex, local_index.tz_convert(timezone))
+
+
+def _parse_runtime_boundary_timestamp(
+    value: Union[str, Any, pd.Timestamp], timezone: str
+) -> pd.Timestamp:
+    """Interpret naive runtime boundaries in the configured strategy timezone."""
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        return cast(pd.Timestamp, timestamp.tz_localize(timezone))
+    return timestamp
+
+
+def _boundary_timestamp_to_utc_ns(
+    value: Union[str, Any, pd.Timestamp], timezone: str
+) -> int:
+    timestamp = _parse_runtime_boundary_timestamp(value, timezone)
+    return int(timestamp.tz_convert("UTC").value)
+
+
+def _filter_datetime_index_frame_by_runtime_window(
+    frame: pd.DataFrame,
+    start_time: Optional[Union[str, Any]],
+    end_time: Optional[Union[str, Any]],
+    timezone: str,
+) -> pd.DataFrame:
+    """Filter a datetime-indexed frame using runtime boundaries.
+
+    Naive frame indices follow the same Shanghai-default market-data semantics as
+    the main DataFrame -> Bar conversion path, while naive runtime boundaries are
+    interpreted in the configured strategy timezone.
+    """
+    if frame.empty or not isinstance(frame.index, pd.DatetimeIndex):
+        return frame
+    compare_index = frame.index
+    if compare_index.tz is None:
+        compare_index = compare_index.tz_localize(DEFAULT_INPUT_TIMEZONE)
+    mask = pd.Series(True, index=frame.index)
+    if start_time is not None:
+        start_ts = _parse_runtime_boundary_timestamp(start_time, timezone)
+        mask &= compare_index >= start_ts
+    if end_time is not None:
+        end_ts = _parse_runtime_boundary_timestamp(end_time, timezone)
+        mask &= compare_index <= end_ts
+    return cast(pd.DataFrame, frame.loc[mask.to_numpy()])
 
 
 def _build_trading_day_metadata(
@@ -1471,8 +1516,17 @@ def _load_data_map_from_adapter(
     end_time: Optional[Union[str, Any]],
     timezone: Optional[str],
 ) -> Dict[str, pd.DataFrame]:
-    request_start = pd.Timestamp(start_time) if start_time is not None else None
-    request_end = pd.Timestamp(end_time) if end_time is not None else None
+    effective_timezone = timezone or DEFAULT_TIMEZONE
+    request_start = (
+        _parse_runtime_boundary_timestamp(start_time, effective_timezone)
+        if start_time is not None
+        else None
+    )
+    request_end = (
+        _parse_runtime_boundary_timestamp(end_time, effective_timezone)
+        if end_time is not None
+        else None
+    )
     requested_symbols = symbols or ["BENCHMARK"]
     data_map: Dict[str, pd.DataFrame] = {}
 
@@ -1834,11 +1888,12 @@ def _resolve_runtime_warmup_depth(
 
 def _to_active_start_time_ns(
     start_time: Optional[Union[str, Any]],
+    timezone: str,
 ) -> Optional[int]:
     """Normalize an optional active start time to UTC nanoseconds."""
     if start_time is None:
         return None
-    return int(pd.Timestamp(start_time).value)
+    return _boundary_timestamp_to_utc_ns(start_time, timezone)
 
 
 def _apply_strategy_runtime_config(
@@ -2136,9 +2191,11 @@ def run_backtest(
                      如果是 Dict[str, int]，则按代码匹配；如果不传(None)，默认为 1。
     :param show_progress: 是否显示进度条 (默认 True)
     :param start_time: 回测开始时间 (e.g., "2020-01-01 09:30"). 优先级高于
-                       config.start_time.
+                       config.start_time。若传入 naive 时间，将按当前 `timezone`
+                       解释，再转换为 UTC 参与过滤。
     :param end_time: 回测结束时间 (e.g., "2020-12-31 15:00"). 优先级高于
-                     config.end_time.
+                     config.end_time。若传入 naive 时间，将按当前 `timezone`
+                     解释，再转换为 UTC 参与过滤。
     :param catalog_path: 当 data 未显式传入时，按该目录加载 ParquetDataCatalog 数据。
                          不传则使用 ParquetDataCatalog 默认目录。
     :param config: BacktestConfig 配置对象 (可选)
@@ -2332,7 +2389,6 @@ def run_backtest(
     # Defaults
     DEFAULT_INITIAL_CASH = float(getattr(StrategyConfig, "initial_cash", 100000.0))
     DEFAULT_COMMISSION_RATE = 0.0
-    DEFAULT_TIMEZONE = "Asia/Shanghai"
     DEFAULT_SHOW_PROGRESS = True
     DEFAULT_HISTORY_DEPTH = 0
 
@@ -2401,7 +2457,7 @@ def run_backtest(
 
     # 1. 确保日志已初始化
     logger = get_logger("backtest")
-    if not has_configured_handler(logger.name):
+    if not has_configured_handler(logger.name, namespace_only=True):
         register_logger(console=True, level="INFO")
         logger = get_logger("backtest")
     normalized_analyzers = _coerce_analyzer_plugins(analyzer_plugins)
@@ -2839,7 +2895,9 @@ def run_backtest(
     preserve_pre_start_history = bool(start_time) and effective_depth > 0
     load_start_time = None if preserve_pre_start_history else start_time
     active_start_time_ns = (
-        _to_active_start_time_ns(start_time) if preserve_pre_start_history else None
+        _to_active_start_time_ns(start_time, timezone)
+        if preserve_pre_start_history
+        else None
     )
     for current_strategy in all_strategy_instances:
         setattr(current_strategy, "_active_start_time_ns", active_start_time_ns)
@@ -2929,29 +2987,27 @@ def run_backtest(
                     pass
 
             # Filter by date if provided
-            if load_start_time:
-                # Handle potential mismatch between Timestamp and datetime.date
-                ts_start = pd.Timestamp(load_start_time)
-                # If index is date objects, compare with date()
+            if isinstance(df_input.index, pd.DatetimeIndex):
+                df_input = _filter_datetime_index_frame_by_runtime_window(
+                    df_input,
+                    load_start_time,
+                    end_time,
+                    timezone,
+                )
+            elif load_start_time or end_time:
                 if (
                     len(df_input) > 0
                     and isinstance(df_input.index[0], (dt_module.date))
                     and not isinstance(df_input.index[0], dt_module.datetime)
                 ):
-                    df_input = df_input[df_input.index >= ts_start.date()]
-                else:
-                    df_input = df_input[df_input.index >= ts_start]
-
-            if end_time:
-                ts_end = pd.Timestamp(end_time)
-                if (
-                    len(df_input) > 0
-                    and isinstance(df_input.index[0], (dt_module.date))
-                    and not isinstance(df_input.index[0], dt_module.datetime)
-                ):
-                    df_input = df_input[df_input.index <= ts_end.date()]
-                else:
-                    df_input = df_input[df_input.index <= ts_end]
+                    if load_start_time:
+                        ts_start = _parse_runtime_boundary_timestamp(
+                            load_start_time, timezone
+                        )
+                        df_input = df_input[df_input.index >= ts_start.date()]
+                    if end_time:
+                        ts_end = _parse_runtime_boundary_timestamp(end_time, timezone)
+                        df_input = df_input[df_input.index <= ts_end.date()]
 
             df = prepare_dataframe(df_input)
             if "symbol" in df.columns:
@@ -3010,10 +3066,13 @@ def run_backtest(
                             pass
 
                 # Filter by date
-                if load_start_time:
-                    df = df[df.index >= pd.Timestamp(load_start_time)]
-                if end_time:
-                    df = df[df.index <= pd.Timestamp(end_time)]
+                if isinstance(df.index, pd.DatetimeIndex):
+                    df = _filter_datetime_index_frame_by_runtime_window(
+                        df,
+                        load_start_time,
+                        end_time,
+                        timezone,
+                    )
 
                 df_prep = prepare_dataframe(df)
                 data_map_for_indicators[sym] = df_prep
@@ -3027,11 +3086,13 @@ def run_backtest(
                 # Filter by date
                 if load_start_time:
                     # Explicitly convert to int to satisfy mypy
-                    ts_start: int = int(pd.Timestamp(load_start_time).value)  # type: ignore
-                    data = [b for b in data if b.timestamp >= ts_start]  # type: ignore
+                    ts_start_ns = _boundary_timestamp_to_utc_ns(
+                        load_start_time, timezone
+                    )
+                    data = [b for b in data if b.timestamp >= ts_start_ns]  # type: ignore
                 if end_time:
-                    ts_end: int = int(pd.Timestamp(end_time).value)  # type: ignore
-                    data = [b for b in data if b.timestamp <= ts_end]  # type: ignore
+                    ts_end_ns = _boundary_timestamp_to_utc_ns(end_time, timezone)
+                    data = [b for b in data if b.timestamp <= ts_end_ns]  # type: ignore
 
                 data.sort(key=lambda b: b.timestamp)
                 feed.add_bars(data)
@@ -3073,7 +3134,12 @@ def run_backtest(
         loaded_count = 0
         for sym in symbols:
             # Try Catalog
-            df = catalog.read(sym, start_time=load_start_time, end_time=end_time)
+            df = catalog.read(
+                sym,
+                start_time=load_start_time,
+                end_time=end_time,
+                timezone=timezone,
+            )
             if df.empty:
                 logger.warning(f"Data not found in catalog for {sym}")
                 continue
@@ -3131,12 +3197,14 @@ def run_backtest(
             )
         except Exception as e:
             logger.error(f"Analyzer on_start error: {e}")
-    # engine.set_timezone_name(timezone)
-    offset_delta = pd.Timestamp.now(tz=timezone).utcoffset()
-    if offset_delta is None:
-        raise ValueError(f"Invalid timezone: {timezone}")
-    offset = int(offset_delta.total_seconds())
-    engine.set_timezone(offset)
+    if hasattr(engine, "set_timezone_name"):
+        cast(Any, engine).set_timezone_name(timezone)
+    else:
+        offset_delta = pd.Timestamp.now(tz=timezone).utcoffset()
+        if offset_delta is None:
+            raise ValueError(f"Invalid timezone: {timezone}")
+        offset = int(offset_delta.total_seconds())
+        engine.set_timezone(offset)
     engine.set_cash(initial_cash)
     if hasattr(engine, "set_default_strategy_id"):
         cast(Any, engine).set_default_strategy_id(effective_strategy_id)
@@ -4277,7 +4345,7 @@ def run_warm_start(
     from ..checkpoint import warm_start
 
     logger = get_logger("backtest")
-    if not has_configured_handler(logger.name):
+    if not has_configured_handler(logger.name, namespace_only=True):
         register_logger(console=True, level="INFO")
         logger = get_logger("backtest")
     strategy_config = config.strategy_config if config is not None else None

@@ -302,7 +302,7 @@ mod tests {
         assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
         assert!(rendered.contains("\"strategy_id\":\"fut-alpha\""));
         assert!(rendered.contains("\"slot\":\"fut-alpha\""));
-        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:02\""));
+        assert!(rendered.contains("\"event_time_iso\":\"1970-01-01T00:00:02Z\""));
     }
 
     #[test]
@@ -329,7 +329,7 @@ mod tests {
         assert!(rendered.contains("\"phase\":\"execution\""));
         assert!(rendered.contains("\"symbol\":\"RB2310\""));
         assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
-        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:03\""));
+        assert!(rendered.contains("\"event_time_iso\":\"1970-01-01T00:00:03Z\""));
     }
 
     #[test]

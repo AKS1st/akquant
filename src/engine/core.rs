@@ -1,5 +1,6 @@
 use crate::account::{AccountMetrics, calculate_account_metrics};
 use chrono::{DateTime, NaiveDate, NaiveTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use indicatif::ProgressBar;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyValueError;
@@ -61,6 +62,7 @@ pub struct Engine {
     #[pyo3(get, set)]
     pub risk_manager: RiskManager,
     pub(crate) timezone_offset: i32,
+    pub(crate) timezone_name: Option<String>,
     pub(crate) history_buffer: Arc<RwLock<HistoryBuffer>>,
     pub(crate) initial_cash: Decimal,
     #[pyo3(get, set)]
@@ -241,8 +243,7 @@ impl Engine {
         if !self.risk_budget_reset_daily {
             return;
         }
-        let current_day =
-            Self::local_datetime_from_ns(current_time, self.timezone_offset).date_naive();
+        let current_day = self.local_date_from_ns(current_time);
         if self.risk_budget_usage_day == Some(current_day) {
             return;
         }
@@ -446,8 +447,7 @@ impl Engine {
             .strategy_max_daily_loss_limits
             .get(&strategy_id)
             .copied()?;
-        let current_day =
-            Self::local_datetime_from_ns(current_time, self.timezone_offset).date_naive();
+        let current_day = self.local_date_from_ns(current_time);
         let current_pnl = self.current_strategy_pnl(&strategy_id);
         let needs_reset = self
             .strategy_daily_loss_day
@@ -1059,6 +1059,28 @@ impl Engine {
             .expect("Invalid timestamp")
     }
 
+    fn parsed_timezone(&self) -> Option<Tz> {
+        self.timezone_name
+            .as_deref()
+            .and_then(|name| name.parse::<Tz>().ok())
+    }
+
+    pub(crate) fn local_time_from_ns(&self, timestamp: i64) -> NaiveTime {
+        let utc_dt = Self::datetime_from_ns(timestamp);
+        if let Some(tz) = self.parsed_timezone() {
+            return utc_dt.with_timezone(&tz).time();
+        }
+        Self::local_datetime_from_ns(timestamp, self.timezone_offset).time()
+    }
+
+    pub(crate) fn local_date_from_ns(&self, timestamp: i64) -> NaiveDate {
+        let utc_dt = Self::datetime_from_ns(timestamp);
+        if let Some(tz) = self.parsed_timezone() {
+            return utc_dt.with_timezone(&tz).date_naive();
+        }
+        Self::local_datetime_from_ns(timestamp, self.timezone_offset).date_naive()
+    }
+
     pub(crate) fn local_datetime_from_ns(timestamp: i64, offset_secs: i32) -> DateTime<Utc> {
         let offset_ns = i64::from(offset_secs) * 1_000_000_000;
         Self::datetime_from_ns(timestamp + offset_ns)
@@ -1107,6 +1129,9 @@ impl Engine {
                 });
 
                 strategy.call_method1("_on_bar_event", args)?;
+                Python::attach(|py| {
+                    strategy.call_method1("_flush_pending_order_events", (py_ctx.clone_ref(py),))
+                })?;
 
                 // Extract orders and timers
                 let mut new_orders = Vec::new();
@@ -1146,6 +1171,9 @@ impl Engine {
                 });
 
                 strategy.call_method1("_on_tick_event", args)?;
+                Python::attach(|py| {
+                    strategy.call_method1("_flush_pending_order_events", (py_ctx.clone_ref(py),))
+                })?;
 
                 // Extract orders and timers
                 let mut new_orders = Vec::new();
@@ -1183,6 +1211,9 @@ impl Engine {
                 });
 
                 strategy.call_method1("_on_timer_event", args)?;
+                Python::attach(|py| {
+                    strategy.call_method1("_flush_pending_order_events", (py_ctx.clone_ref(py),))
+                })?;
 
                 // Extract orders and timers
                 let mut new_orders = Vec::new();

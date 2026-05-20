@@ -16,7 +16,7 @@ RUST_CONTEXT_MARKER = " [akq_ctx="
 CONTEXT_FIELDS = (
     "phase",
     "event_time",
-    "event_time_str",
+    "event_time_iso",
     "strategy_id",
     "slot",
     "symbol",
@@ -119,7 +119,7 @@ class AKQuantFormatter(logging.Formatter):
             "symbol",
             "order_id",
             "client_order_id",
-            "event_time_str",
+            "event_time_iso",
         ):
             value = getattr(record, field_name, None)
             if value is None or value == "":
@@ -222,7 +222,7 @@ def build_log_extra(
     *,
     phase: Optional[str] = None,
     event_time: Any = None,
-    event_time_str: Optional[str] = None,
+    event_time_iso: Optional[str] = None,
     strategy_id: Optional[str] = None,
     slot: Optional[str] = None,
     symbol: Optional[str] = None,
@@ -233,7 +233,7 @@ def build_log_extra(
     return {
         "phase": _normalize_context_value(phase),
         "event_time": event_time,
-        "event_time_str": _normalize_context_value(event_time_str),
+        "event_time_iso": _normalize_context_value(event_time_iso),
         "strategy_id": _normalize_context_value(strategy_id),
         "slot": _normalize_context_value(slot),
         "symbol": _normalize_context_value(symbol),
@@ -245,7 +245,9 @@ def build_log_extra(
 _install_log_record_factory()
 
 
-def has_configured_handler(name: Optional[str] = None) -> bool:
+def has_configured_handler(
+    name: Optional[str] = None, *, namespace_only: bool = False
+) -> bool:
     """Return True when the logger hierarchy has a visible handler configured."""
     current: Optional[logging.Logger] = logging.getLogger(
         ROOT_LOGGER_NAME if name is None else name
@@ -255,6 +257,8 @@ def has_configured_handler(name: Optional[str] = None) -> bool:
             not isinstance(handler, logging.NullHandler) for handler in current.handlers
         ):
             return True
+        if namespace_only and current.name == ROOT_LOGGER_NAME:
+            return False
         if not current.propagate:
             return False
         parent = current.parent

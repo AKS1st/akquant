@@ -118,6 +118,29 @@ def _build_intraday_data(symbol: str = "TEST") -> list[Bar]:
     return data
 
 
+def _build_cross_utc_boundary_same_local_day_data(symbol: str = "TEST") -> list[Bar]:
+    """Build bars that span two UTC dates but remain in one Asia/Shanghai local day."""
+    data: list[Bar] = []
+    timestamps = [
+        pd.Timestamp("2024-01-02 01:00:00", tz="Asia/Shanghai").tz_convert("UTC"),
+        pd.Timestamp("2024-01-02 23:00:00", tz="Asia/Shanghai").tz_convert("UTC"),
+    ]
+    closes = [10.0, 10.5]
+    for ts, close in zip(timestamps, closes):
+        data.append(
+            Bar(
+                timestamp=ts.value,
+                open=close,
+                high=close + 0.2,
+                low=close - 0.2,
+                close=close,
+                volume=10000.0,
+                symbol=symbol,
+            )
+        )
+    return data
+
+
 def _build_market_df(symbol: str = "TEST", n: int = 5) -> pd.DataFrame:
     rows = []
     for bar in _build_data(symbol=symbol, n=n):
@@ -611,6 +634,34 @@ def test_daily_curve_properties_reduce_intraday_points() -> None:
     assert len(result.equity_curve_daily) == 2
     assert len(result.cash_curve_daily) == 2
     assert len(result.margin_curve_daily) == 2
+
+
+def test_daily_curve_properties_follow_local_timezone_day() -> None:
+    """Daily curve aggregation should follow the configured local day, not UTC day."""
+    result = run_backtest(
+        data=_build_cross_utc_boundary_same_local_day_data(),
+        strategy=NoTradeStrategy,
+        symbols="TEST",
+        timezone="Asia/Shanghai",
+        initial_cash=200000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        lot_size=1,
+        show_progress=False,
+    )
+
+    assert len(result.equity_curve) == 2
+    assert len(result.equity_curve_daily) == 1
+    assert len(result.daily_returns) == 1
+    assert result.equity_curve_daily.index[0] == pd.Timestamp(
+        "2024-01-02 00:00:00", tz="Asia/Shanghai"
+    )
+    assert result.daily_returns.index[0] == pd.Timestamp(
+        "2024-01-02 00:00:00", tz="Asia/Shanghai"
+    )
 
 
 def test_report_accepts_curve_freq_daily(tmp_path: Path) -> None:

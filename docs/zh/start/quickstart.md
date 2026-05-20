@@ -17,6 +17,12 @@ uv pip install akquant akshare
 1. 当收盘价 > 开盘价 (阳线) -> 买入
 2. 当收盘价 < 开盘价 (阴线) -> 卖出
 
+> 提示：
+> 如果你后面在日志、JSON 输出或对象属性里看到 `timestamp_iso`、`event_time_iso` 这类字段是 `Z` 结尾的 UTC 字符串，不要慌。
+> AKQuant 统一用 UTC 保存“事件真实发生的时刻”，而终端里很多面向阅读的时间仍可能按本地时区显示。
+> 记住一句话就够了：**AKQuant 用 UTC 保存事实时间，用本地时区展示给人看。**
+> 想深入理解，请阅读 [AKQuant 的时间与时区](../guide/quant_basics.md) 和 [时区处理指南](../advanced/timezone.md)。
+
 ```python
 import akshare as ak
 from akquant import Strategy, run_backtest
@@ -164,6 +170,27 @@ kelly_criterion                         -0.086485
 134            -1.0  sh600000 2026-02-10 00:00:00+08:00
 [135 rows x 9 columns]
 ```
+
+### 结果里的时间为什么和 `timestamp_iso` 可能不一样？
+
+你在上面的 `result`、`positions_df`、`orders_df`、`trades_df` 输出里，会经常看到类似 `+08:00` 的本地时间。这些结果主要面向人类阅读。
+
+但如果你在策略里主动打印：
+
+```python
+print(bar.timestamp_iso)
+```
+
+你看到的可能会是 UTC ISO 8601，例如：
+
+```text
+2025-01-06T16:00:00Z
+```
+
+这并不表示时间错了，而是同一个时刻的不同表达：
+
+- 本地市场展示：更适合读日志、看回测结果
+- UTC 结构化字段：更适合排序、跨语言传递、JSON 日志和多市场统一处理
 
 可以通过 `print(result.orders_df)` 来查看详细的订单指标。
 

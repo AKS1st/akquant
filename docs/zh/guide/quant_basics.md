@@ -183,6 +183,46 @@ import akquant
 print(f"AKQuant version: {akquant.__version__}")
 ```
 
+### 2.6 理解 AKQuant 的时间与时区
+
+很多新手第一次接触 AKQuant 时，会对“为什么日志里看到的是北京时间，而 `timestamp_iso` 却是 `Z` 结尾的 UTC 字符串”感到困惑。这个现象不是 bug，而是框架刻意设计出来的两层时间语义：
+
+1. **内部权威时间统一为 UTC**
+   - 引擎内部推进时间、跨标的排序、Python/Rust 之间传递事件时，统一使用 **UTC 纳秒时间戳**。
+   - 这能避免多市场、多时区场景下出现“看起来一样，实际不是同一时刻”的歧义。
+
+2. **结构化字段统一为 UTC ISO 8601**
+   - `event_time_iso`
+   - `bar.timestamp_iso`
+   - `tick.timestamp_iso`
+   - `trade.timestamp_iso`
+   - `order.created_at_iso` / `order.updated_at_iso`
+   - 这些字段都表示同一个含义：**UTC 时间的标准字符串表示**。
+
+3. **显示层才做本地化转换**
+   - 你在策略里看到的 `self.now`、`self.to_local_time(...)`、`self.format_time(...)`，以及很多面向阅读的日志前缀，才会按策略配置的 `timezone` 转成本地时间。
+   - 换句话说，**结构化数据负责“准确”**，**显示层负责“好读”**。
+   - 同一个 `timezone` 也会影响绩效统计里的“按日”口径，例如 `daily_returns`、波动率、Sharpe / Sortino / VaR / CVaR 等，都会按该时区的**本地自然日**聚合，而不是按 UTC 自然日硬切。
+
+例如，A 股的北京时间 `2023-01-01 09:31:00+08:00`，对应的 UTC 时间其实是 `2023-01-01T01:31:00Z`。因此：
+
+- `bar.timestamp` 可能是一个 UTC 纳秒整数
+- `bar.timestamp_iso` 会是 `2023-01-01T01:31:00Z`
+- `self.format_time(bar.timestamp)` 才可能显示为 `2023-01-01 09:31:00`
+
+你可以把它理解成一句原则：
+
+> **AKQuant 用 UTC 保存事实，用本地时区展示给人看。**
+
+这样设计的好处是：
+
+- 回测、实盘、日志、导出 JSON 在跨语言和跨市场下语义一致
+- 不会再让一个字符串字段同时承担“排序、存储、展示”三种职责
+- 当你需要面向人类阅读时，仍然可以在策略层自由选择北京时间、美东时间或其他时区
+- 当你查看日收益和风险指标时，它们也会与策略配置的本地时区保持一致，不会出现“显示是本地时间、统计却按 UTC 日切”的错位
+
+如果你准备处理多市场数据，强烈建议继续阅读 [时区处理指南](../advanced/timezone.md)，建立“内部 UTC、显示层转换”的统一心智模型。
+
 ---
 
 ## 3. 快速上手：你的第一个策略
@@ -234,13 +274,13 @@ class DualMovingAverageStrategy(Strategy):
         if prev_ma_short <= prev_ma_long and ma_short > ma_long:
             if position == 0:
                 self.buy(bar.symbol, 100)  # 买入100股
-                print(f"[{bar.timestamp_str}] 金叉买入 {bar.symbol} @ {bar.close:.2f}")
+                print(f"[{bar.timestamp_iso}] 金叉买入 {bar.symbol} @ {bar.close:.2f}")
 
         # 2. 死叉：短期均线下穿长期均线，且持有仓位 -> 卖出
         elif prev_ma_short >= prev_ma_long and ma_short < ma_long:
             if position > 0:
                 self.sell(bar.symbol, 100)  # 卖出100股
-                print(f"[{bar.timestamp_str}] 死叉卖出 {bar.symbol} @ {bar.close:.2f}")
+                print(f"[{bar.timestamp_iso}] 死叉卖出 {bar.symbol} @ {bar.close:.2f}")
 
 # ------------------------------
 # 准备测试数据并运行
@@ -311,12 +351,12 @@ class BollingerStrategy(Strategy):
         # 1. 价格跌破下轨，买入（视为超跌）
         if current_price < lower and position == 0:
             self.buy(bar.symbol, 100)
-            print(f"[{bar.timestamp_str}] 超跌买入 {bar.symbol} @ {current_price:.2f}")
+            print(f"[{bar.timestamp_iso}] 超跌买入 {bar.symbol} @ {current_price:.2f}")
 
         # 2. 价格回归中轨或突破上轨，卖出（止盈）
         elif (current_price > ma or current_price > upper) and position > 0:
             self.sell(bar.symbol, 100)
-            print(f"[{bar.timestamp_str}] 回归卖出 {bar.symbol} @ {current_price:.2f}")
+            print(f"[{bar.timestamp_iso}] 回归卖出 {bar.symbol} @ {current_price:.2f}")
 ```
 
 ### 3.3 实战：获取真实数据

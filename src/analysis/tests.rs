@@ -2,6 +2,8 @@ use super::result::BacktestResult;
 use super::tracker::TradeTracker;
 use super::types::{ClosedTrade, TradePnL};
 use crate::model::{OrderSide, PositionEffect, Trade};
+use chrono::{TimeZone, Utc};
+use chrono_tz::Tz;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
@@ -164,6 +166,8 @@ fn test_max_drawdown_logic() {
         cash_curve_decimal: vec![],
         margin_curve_decimal: vec![],
         snapshots: vec![],
+        timezone_name: Some("UTC".to_string()),
+        timezone_offset: 0,
         trade_pnl: empty_pnl.clone(),
         trades: vec![],
         initial_cash: Decimal::from(100),
@@ -185,6 +189,8 @@ fn test_max_drawdown_logic() {
         cash_curve_decimal: vec![],
         margin_curve_decimal: vec![],
         snapshots: vec![],
+        timezone_name: Some("UTC".to_string()),
+        timezone_offset: 0,
         trade_pnl: empty_pnl.clone(),
         trades: vec![],
         initial_cash: Decimal::from(100),
@@ -206,6 +212,8 @@ fn test_max_drawdown_logic() {
         cash_curve_decimal: vec![],
         margin_curve_decimal: vec![],
         snapshots: vec![],
+        timezone_name: Some("UTC".to_string()),
+        timezone_offset: 0,
         trade_pnl: empty_pnl.clone(),
         trades: vec![],
         initial_cash: Decimal::from(100),
@@ -230,6 +238,8 @@ fn test_max_drawdown_logic() {
         cash_curve_decimal: vec![],
         margin_curve_decimal: vec![],
         snapshots: vec![],
+        timezone_name: Some("UTC".to_string()),
+        timezone_offset: 0,
         trade_pnl: empty_pnl.clone(),
         trades: vec![],
         initial_cash: Decimal::from(100),
@@ -264,6 +274,8 @@ fn test_ulcer_index_logic() {
         cash_curve_decimal: vec![],
         margin_curve_decimal: vec![],
         snapshots: vec![],
+        timezone_name: Some("UTC".to_string()),
+        timezone_offset: 0,
         trade_pnl: empty_pnl.clone(),
         trades: vec![],
         initial_cash: Decimal::from(100),
@@ -289,6 +301,8 @@ fn test_calmar_uses_raw_drawdown_ratio_not_pct() {
         cash_curve_decimal: vec![],
         margin_curve_decimal: vec![],
         snapshots: vec![],
+        timezone_name: Some("UTC".to_string()),
+        timezone_offset: 0,
         trade_pnl: empty_pnl,
         trades: vec![],
         initial_cash: Decimal::from(100),
@@ -302,4 +316,54 @@ fn test_calmar_uses_raw_drawdown_ratio_not_pct() {
 
     assert!((result.metrics.calmar_ratio - expected_raw_calmar).abs() < 1e-12);
     assert!((result.metrics.calmar_ratio - wrong_pct_calmar).abs() > 1e-3);
+}
+
+#[test]
+fn test_daily_metrics_resample_by_local_timezone_day() {
+    let empty_pnl = TradeTracker::new().calculate_pnl(None);
+    let tz: Tz = "Asia/Shanghai".parse().unwrap();
+    let local_ns = |year, month, day, hour, minute| {
+        tz.with_ymd_and_hms(year, month, day, hour, minute, 0)
+            .single()
+            .unwrap()
+            .with_timezone(&Utc)
+            .timestamp()
+            * 1_000_000_000
+    };
+
+    let equity_curve = vec![
+        (local_ns(2024, 1, 1, 23, 0), Decimal::from(100)),
+        (local_ns(2024, 1, 2, 2, 0), Decimal::from(110)),
+        (local_ns(2024, 1, 2, 23, 0), Decimal::from(121)),
+        (
+            local_ns(2024, 1, 3, 2, 0),
+            Decimal::from_str_exact("133.1").unwrap(),
+        ),
+    ];
+
+    let result = BacktestResult::calculate(crate::analysis::CalculatorInput {
+        equity_curve_decimal: equity_curve,
+        cash_curve_decimal: vec![],
+        margin_curve_decimal: vec![],
+        snapshots: vec![],
+        timezone_name: Some("Asia/Shanghai".to_string()),
+        timezone_offset: 8 * 3600,
+        trade_pnl: empty_pnl,
+        trades: vec![],
+        initial_cash: Decimal::from(100),
+        orders: vec![],
+        executions: vec![],
+        liquidation_audits: vec![],
+    });
+
+    let expected_returns = [0.21_f64, 0.10_f64];
+    let mean = expected_returns.iter().sum::<f64>() / expected_returns.len() as f64;
+    let variance = expected_returns
+        .iter()
+        .map(|value| (value - mean).powi(2))
+        .sum::<f64>()
+        / (expected_returns.len() - 1) as f64;
+    let expected_volatility = variance.sqrt() * (252.0f64).sqrt();
+
+    assert!((result.metrics.volatility - expected_volatility).abs() < 1e-12);
 }

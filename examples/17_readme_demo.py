@@ -32,11 +32,11 @@ class MyStrategy(Strategy):
 
         if current_pos == 0 and bar.close > bar.open:
             self.buy(symbol=bar.symbol, quantity=100)
-            print(f"[{bar.timestamp_str}] Buy 100 at {bar.close:.2f}")
+            print(f"[{bar.timestamp_iso}] Buy 100 at {bar.close:.2f}")
 
         elif current_pos > 0 and bar.close < bar.open:
             self.close_position(symbol=bar.symbol)
-            print(f"[{bar.timestamp_str}] Sell 100 at {bar.close:.2f}")
+            print(f"[{bar.timestamp_iso}] Sell 100 at {bar.close:.2f}")
 
 
 # 运行回测

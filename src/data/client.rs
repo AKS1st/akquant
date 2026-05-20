@@ -142,7 +142,8 @@ impl CsvDataClient {
                     AkqLogContext::new()
                         .phase("data")
                         .symbol(symbol)
-                        .event_time_str(format_event_time_nanos(timestamp_ns)),
+                        .event_time(timestamp_ns)
+                        .event_time_iso(format_event_time_nanos(timestamp_ns)),
                 )
             );
         }

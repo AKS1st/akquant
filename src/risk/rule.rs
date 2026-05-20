@@ -2,6 +2,8 @@ use crate::analysis::TradeTracker;
 use crate::error::AkQuantError;
 use crate::model::{Instrument, Order};
 use crate::portfolio::Portfolio;
+use chrono::{NaiveDate, TimeZone, Utc};
+use chrono_tz::Tz;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -18,6 +20,27 @@ pub struct RiskCheckContext<'a> {
     pub trade_tracker: &'a TradeTracker,
     pub current_time: i64,
     pub config: &'a RiskConfig,
+    pub timezone_name: Option<&'a str>,
+    pub timezone_offset: i32,
+}
+
+impl<'a> RiskCheckContext<'a> {
+    fn datetime_from_ns(timestamp: i64) -> chrono::DateTime<Utc> {
+        let secs = timestamp.div_euclid(1_000_000_000);
+        let nanos = timestamp.rem_euclid(1_000_000_000) as u32;
+        Utc.timestamp_opt(secs, nanos)
+            .single()
+            .expect("Invalid timestamp")
+    }
+
+    pub fn local_date(&self) -> NaiveDate {
+        let utc_dt = Self::datetime_from_ns(self.current_time);
+        if let Some(tz) = self.timezone_name.and_then(|name| name.parse::<Tz>().ok()) {
+            return utc_dt.with_timezone(&tz).date_naive();
+        }
+        let offset_ns = i64::from(self.timezone_offset) * 1_000_000_000;
+        Self::datetime_from_ns(self.current_time + offset_ns).date_naive()
+    }
 }
 
 /// Trait for risk check rules

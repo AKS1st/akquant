@@ -163,6 +163,8 @@ impl StatisticsManager {
         risk_config: &RiskConfig,
         initial_cash: Decimal,
         now_ns: Option<i64>,
+        timezone_name: Option<String>,
+        timezone_offset: i32,
     ) -> BacktestResult {
         // Calculate final PnL
         let trade_pnl = order_manager
@@ -207,6 +209,8 @@ impl StatisticsManager {
             cash_curve_decimal: cash_curve,
             margin_curve_decimal: margin_curve,
             snapshots,
+            timezone_name,
+            timezone_offset,
             trade_pnl,
             trades: order_manager.trade_tracker.closed_trades.to_vec(),
             initial_cash,

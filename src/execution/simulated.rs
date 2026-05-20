@@ -883,6 +883,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &risk_manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
 
         let events = sim.on_event(&event, &ctx);
@@ -969,6 +971,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &risk_manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
 
         let events = sim.on_event(&event, &ctx);
@@ -1040,6 +1044,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &risk_manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
 
         let events = sim.on_event(&event, &ctx);
@@ -1111,6 +1117,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &risk_manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
 
         let events = sim.on_event(&event, &ctx);
@@ -1184,6 +1192,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &risk_manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
 
         let events = sim.on_event(&event, &ctx);
@@ -1295,6 +1305,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &risk_manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
 
         let events = sim.on_event(&event, &ctx);
@@ -1403,6 +1415,8 @@ mod tests {
             session: TradingSession::Continuous,
             active_orders: &[],
             risk_config: &risk_manager.config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
 
         let events = sim.on_event(&event, &ctx);
@@ -1452,7 +1466,7 @@ mod tests {
         assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
         assert!(rendered.contains("\"strategy_id\":\"alpha\""));
         assert!(rendered.contains("\"slot\":\"alpha\""));
-        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:01\""));
+        assert!(rendered.contains("\"event_time_iso\":\"1970-01-01T00:00:01Z\""));
     }
 
     #[test]
@@ -1474,7 +1488,7 @@ mod tests {
         assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
         assert!(rendered.contains("\"strategy_id\":\"beta\""));
         assert!(rendered.contains("\"slot\":\"beta\""));
-        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:02\""));
+        assert!(rendered.contains("\"event_time_iso\":\"1970-01-01T00:00:02Z\""));
     }
 
     #[test]
@@ -1511,7 +1525,7 @@ mod tests {
         assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
         assert!(rendered.contains("\"strategy_id\":\"gamma\""));
         assert!(rendered.contains("\"slot\":\"gamma\""));
-        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:03\""));
+        assert!(rendered.contains("\"event_time_iso\":\"1970-01-01T00:00:03Z\""));
     }
 
     #[test]
@@ -1536,6 +1550,6 @@ mod tests {
         assert!(rendered.contains(&format!("\"order_id\":\"{}\"", order.id)));
         assert!(rendered.contains("\"strategy_id\":\"delta\""));
         assert!(rendered.contains("\"slot\":\"delta\""));
-        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:04\""));
+        assert!(rendered.contains("\"event_time_iso\":\"1970-01-01T00:00:04Z\""));
     }
 }

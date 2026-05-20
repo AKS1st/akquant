@@ -108,12 +108,12 @@ class DualMAStrategy(Strategy):
         # 4. 交易信号判断
         # 金叉：短线 > 长线，且当前空仓 -> 买入
         if fast_ma > slow_ma and position == 0:
-            print(f"[{bar.timestamp_str}] 金叉买入! 价格: {bar.close:.2f}")
+            print(f"[{bar.timestamp_iso}] 金叉买入! 价格: {bar.close:.2f}")
             self.buy(symbol=bar.symbol, quantity=1000)
 
         # 死叉：短线 < 长线，且当前持仓 -> 卖出
         elif fast_ma < slow_ma and position > 0:
-            print(f"[{bar.timestamp_str}] 死叉卖出! 价格: {bar.close:.2f}")
+            print(f"[{bar.timestamp_iso}] 死叉卖出! 价格: {bar.close:.2f}")
             self.sell(symbol=bar.symbol, quantity=position) # 卖出所有持仓
 
 # --------------------------

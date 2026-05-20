@@ -132,8 +132,8 @@ def test_strategy_logging_includes_structured_context(caplog: Any) -> None:
     assert strategy_record.slot == "alpha"
     assert strategy_record.symbol == "AAPL"
     assert strategy_record.phase == "strategy"
-    assert strategy_record.event_time_str == "2023-01-01 09:30:00"
-    assert str(strategy_record.event_time) == "2023-01-01 09:30:00+08:00"
+    assert strategy_record.event_time_iso == "2023-01-01T01:30:00Z"
+    assert strategy_record.event_time == ts
 
 
 def test_strategy_logging_live_profile_renders_context(
@@ -162,7 +162,7 @@ def test_strategy_logging_live_profile_renders_context(
     assert "akquant.strategy" in captured.out
     assert "strategy_id=alpha" in captured.out
     assert "symbol=AAPL" in captured.out
-    assert "event_time_str=2023-01-01 09:30:00" in captured.out
+    assert "event_time_iso=2023-01-01T01:30:00Z" in captured.out
 
 
 def test_strategy_logging_includes_order_context_during_callbacks(caplog: Any) -> None:

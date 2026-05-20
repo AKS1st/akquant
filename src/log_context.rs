@@ -1,6 +1,6 @@
 use crate::event::Event;
 use crate::model::Order;
-use chrono::{TimeZone, Utc};
+use chrono::{SecondsFormat, TimeZone, Utc};
 use serde::Serialize;
 
 const RUST_CONTEXT_MARKER: &str = " [akq_ctx=";
@@ -10,7 +10,9 @@ pub struct AkqLogContext {
     #[serde(skip_serializing_if = "Option::is_none")]
     phase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    event_time_str: Option<String>,
+    event_time: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event_time_iso: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     strategy_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,8 +38,14 @@ impl AkqLogContext {
     }
 
     #[must_use]
-    pub fn event_time_str(mut self, value: impl Into<String>) -> Self {
-        self.event_time_str = Some(value.into());
+    pub fn event_time(mut self, value: i64) -> Self {
+        self.event_time = Some(value);
+        self
+    }
+
+    #[must_use]
+    pub fn event_time_iso(mut self, value: impl Into<String>) -> Self {
+        self.event_time_iso = Some(value.into());
         self
     }
 
@@ -72,7 +80,8 @@ pub fn execution_order_context(order: &Order, event_time: i64) -> AkqLogContext 
         .phase("execution")
         .symbol(order.symbol.clone())
         .order_id(order.id.clone())
-        .event_time_str(format_event_time_nanos(event_time));
+        .event_time(event_time)
+        .event_time_iso(format_event_time_nanos(event_time));
     if let Some(strategy_id) = order
         .owner_strategy_id
         .as_deref()
@@ -134,6 +143,5 @@ pub fn render_log_message(message: impl Into<String>, context: AkqLogContext) ->
 #[must_use]
 pub fn format_event_time_nanos(timestamp_ns: i64) -> String {
     Utc.timestamp_nanos(timestamp_ns)
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string()
+        .to_rfc3339_opts(SecondsFormat::AutoSi, true)
 }

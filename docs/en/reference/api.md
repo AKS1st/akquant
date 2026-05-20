@@ -112,7 +112,7 @@ def run_backtest(
 *   `slippage`: Global slippage (Default 0.0). E.g., 0.0001 means 1bp (0.01%) slippage, using percent model.
 *   `volume_limit_pct`: Volume limit percentage (Default 0.25). Limits single trade to not exceed this percentage of the bar's total volume.
 *   `warmup_period`: Strategy warmup period. Specifies the length of historical data (number of Bars) to preload for indicator calculation.
-*   `start_time` / `end_time`: Backtest start/end time.
+*   `start_time` / `end_time`: Backtest start/end time. Naive strings or `Timestamp` values are interpreted in the current `timezone` before being converted to UTC for filtering.
 *   `catalog_path`: When `data` is omitted, load data from this directory using `ParquetDataCatalog` rules.
 *   `config`: `BacktestConfig` object for centralized configuration.
 *   `risk_config`: Risk configuration. Supports dict (e.g., `{"max_position_pct": 0.1}`) or `RiskConfig` object. Overrides fields in `config.strategy_config.risk` if both are provided.
@@ -696,7 +696,7 @@ Behavior notes:
 *   `profile="optimize"` uses a process-aware default text format so worker output is easier to distinguish.
 *   `profile="live"` is the natural place to enable structured context and/or JSON output.
 *   Rust-side runtime warnings under `akquant.*` are also bridged into Python `logging` and restored into the same structured field model whenever possible.
-*   For example, execution-path warnings such as insufficient-margin rejects, session-close expiry, unknown cancel requests, or same-slice `same-cycle` deferrals carry `phase="execution"` and may also include `symbol`, `order_id`, `strategy_id`, `slot`, and `event_time_str`.
+*   For example, execution-path warnings such as insufficient-margin rejects, session-close expiry, unknown cancel requests, or same-slice `same-cycle` deferrals carry `phase="execution"` and may also include `symbol`, `order_id`, `strategy_id`, `slot`, and `event_time_iso`.
 
 #### `akquant.register_logger`
 
@@ -921,7 +921,8 @@ The main entry point for the backtesting engine (usually used implicitly via `ru
 
 **Configuration Methods:**
 
-*   `set_timezone(offset: int)`: Set timezone offset.
+*   `set_timezone_name(timezone: str)`: Set an IANA timezone name such as `Asia/Shanghai`, `UTC`, or `US/Eastern`. This is the recommended API because it preserves DST and historical timezone rules.
+*   `set_timezone(offset: int)`: Set a fixed timezone offset in seconds. Kept only as a compatibility fallback and does not preserve DST or historical timezone rules.
 *   `use_simulated_execution()` / `use_realtime_execution()`: Set execution environment.
 *   `set_fill_policy(price_basis, bar_offset, temporal)`: Set unified three-axis execution policy (recommended).
 *   `get_fill_policy()`: Get current three-axis execution policy.

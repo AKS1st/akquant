@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -690,3 +690,144 @@ def test_daily_rebalance_same_cycle_terminal_fill_emits_callbacks() -> None:
     assert set(bbb_buys["status"].astype(str).str.lower()) == {"filled"}
     assert ("BBB", "buy", "filled") in strategy.order_events
     assert ("BBB", "buy") in strategy.trade_events
+
+
+def test_daily_rebalance_same_cycle_terminal_fill_preserves_all_order_callbacks() -> (
+    None
+):
+    """Immediate same-step fills should preserve the full on_order lifecycle."""
+    timestamps = [
+        pd.Timestamp("2023-01-02 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-03 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-04 10:00:00", tz="Asia/Shanghai"),
+    ]
+    data_map = {
+        "AAA": _build_symbol_df("AAA", timestamps, [10.0, 10.0, 10.0]),
+        "BBB": _build_symbol_df("BBB", timestamps, [10.0, 10.0, 10.0]),
+    }
+
+    strategy = DailyRebalanceSellThenBuySameCycleStrategy()
+    run_backtest(
+        data=data_map,
+        strategy=strategy,
+        symbols=["AAA", "BBB"],
+        initial_cash=100000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        lot_size=1,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        show_progress=False,
+    )
+
+    assert Counter(strategy.order_events) == Counter(
+        [
+            ("AAA", "buy", "new"),
+            ("AAA", "buy", "filled"),
+            ("AAA", "sell", "new"),
+            ("AAA", "sell", "filled"),
+            ("BBB", "buy", "new"),
+            ("BBB", "buy", "filled"),
+        ]
+    )
+    assert Counter(strategy.trade_events) == Counter(
+        [
+            ("AAA", "buy"),
+            ("AAA", "sell"),
+            ("BBB", "buy"),
+        ]
+    )
+
+
+def test_daily_rebalance_same_cycle_terminal_fill_preserves_result_views() -> None:
+    """Daily rebalance same-cycle rotation should keep result views complete."""
+    timestamps = [
+        pd.Timestamp("2023-01-02 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-03 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-04 10:00:00", tz="Asia/Shanghai"),
+    ]
+    data_map = {
+        "AAA": _build_symbol_df("AAA", timestamps, [10.0, 10.0, 10.0]),
+        "BBB": _build_symbol_df("BBB", timestamps, [10.0, 10.0, 10.0]),
+    }
+
+    result = run_backtest(
+        data=data_map,
+        strategy=DailyRebalanceSellThenBuySameCycleStrategy,
+        symbols=["AAA", "BBB"],
+        initial_cash=100000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        lot_size=1,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        show_progress=False,
+    )
+
+    orders_df = result.orders_df.sort_values("created_at").reset_index(drop=True)
+    assert len(orders_df) == 3
+    assert sorted(orders_df["symbol"].astype(str).tolist()) == ["AAA", "AAA", "BBB"]
+    assert sorted(orders_df["side"].astype(str).tolist()) == ["buy", "buy", "sell"]
+    assert set(orders_df["status"].astype(str).str.lower()) == {"filled"}
+    aaa_buy = orders_df[
+        (orders_df["symbol"] == "AAA") & (orders_df["side"] == "buy")
+    ].iloc[0]
+    aaa_sell = orders_df[
+        (orders_df["symbol"] == "AAA") & (orders_df["side"] == "sell")
+    ].iloc[0]
+    bbb_buy = orders_df[
+        (orders_df["symbol"] == "BBB") & (orders_df["side"] == "buy")
+    ].iloc[0]
+    assert aaa_buy["updated_at"] == timestamps[1]
+    assert aaa_sell["updated_at"] == timestamps[2]
+    assert bbb_buy["updated_at"] == timestamps[2]
+    assert float(aaa_buy["filled_quantity"]) == 9500.0
+    assert float(aaa_sell["filled_quantity"]) == 9500.0
+    assert float(bbb_buy["filled_quantity"]) == 9500.0
+
+    executions_df = result.executions_df.sort_values("timestamp").reset_index(drop=True)
+    assert len(executions_df) == 3
+    assert sorted(executions_df["symbol"].astype(str).tolist()) == ["AAA", "AAA", "BBB"]
+    assert sorted(executions_df["side"].astype(str).str.lower().tolist()) == [
+        "buy",
+        "buy",
+        "sell",
+    ]
+    assert (
+        float(
+            executions_df[
+                (executions_df["symbol"] == "AAA")
+                & (executions_df["side"].astype(str).str.lower() == "buy")
+            ].iloc[0]["quantity"]
+        )
+        == 9500.0
+    )
+    assert (
+        float(
+            executions_df[
+                (executions_df["symbol"] == "AAA")
+                & (executions_df["side"].astype(str).str.lower() == "sell")
+            ].iloc[0]["quantity"]
+        )
+        == 9500.0
+    )
+    assert (
+        float(
+            executions_df[
+                (executions_df["symbol"] == "BBB")
+                & (executions_df["side"].astype(str).str.lower() == "buy")
+            ].iloc[0]["quantity"]
+        )
+        == 9500.0
+    )
+
+    # trades_df stores closed round trips, so only the closed AAA leg should appear.
+    trades_df = result.trades_df.sort_values("entry_time").reset_index(drop=True)
+    assert len(trades_df) == 1
+    assert str(trades_df.iloc[0]["symbol"]) == "AAA"
+    assert str(trades_df.iloc[0]["side"]) == "Long"
+    assert float(trades_df.iloc[0]["quantity"]) == 9500.0
+    assert trades_df.iloc[0]["entry_time"] == timestamps[1]
+    assert trades_df.iloc[0]["exit_time"] == timestamps[2]

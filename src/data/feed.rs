@@ -17,7 +17,9 @@ use super::client::{
 fn clock_fallback_context(next_timer_ts: Option<i64>) -> AkqLogContext {
     let mut context = AkqLogContext::new().phase("data");
     if let Some(timer_ts) = next_timer_ts {
-        context = context.event_time_str(format_event_time_nanos(timer_ts));
+        context = context
+            .event_time(timer_ts)
+            .event_time_iso(format_event_time_nanos(timer_ts));
     }
     context
 }
@@ -342,7 +344,7 @@ mod tests {
         );
 
         assert!(rendered.contains("\"phase\":\"data\""));
-        assert!(rendered.contains("\"event_time_str\":\"1970-01-01 00:00:01\""));
+        assert!(rendered.contains("\"event_time_iso\":\"1970-01-01T00:00:01Z\""));
     }
 
     #[test]
@@ -350,6 +352,6 @@ mod tests {
         let rendered = render_log_message("clock-fallback", clock_fallback_context(None));
 
         assert!(rendered.contains("\"phase\":\"data\""));
-        assert!(!rendered.contains("event_time_str"));
+        assert!(!rendered.contains("event_time_iso"));
     }
 }

@@ -24,11 +24,11 @@ class OptionExpiryStrategy(Strategy):
     def on_bar(self, bar: Bar) -> None:
         """Handle new bar events."""
         if self._bar_count < 5:
-            print(f"on_bar: {bar.symbol} {bar.timestamp_str}")
+            print(f"on_bar: {bar.symbol} {bar.timestamp_iso}")
 
         # Buy Option on the first bar
         if self.get_position("CALL_OPT") == 0 and bar.symbol == "CALL_OPT":
-            print(f"[{bar.timestamp_str}] Attempting to buy 1 CALL_OPT")
+            print(f"[{bar.timestamp_iso}] Attempting to buy 1 CALL_OPT")
             self.buy(symbol="CALL_OPT", quantity=1.0)
 
 

@@ -458,6 +458,8 @@ mod tests {
             trade_tracker: &tracker,
             current_time: 0,
             config: &config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
         let order = create_order("OPT_P", OrderSide::Sell, dec!(1), dec!(4));
 
@@ -495,6 +497,8 @@ mod tests {
             trade_tracker: &tracker,
             current_time: 0,
             config: &config,
+            timezone_name: None,
+            timezone_offset: 0,
         };
         let rule = CashMarginRule;
 

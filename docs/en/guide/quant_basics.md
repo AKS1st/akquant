@@ -108,6 +108,45 @@ print(f"AKQuant version: {akquant.__version__}")
 print("Installation successful!")
 ```
 
+### 2.3 Understand AKQuant Time and Timezones
+
+Many users are confused the first time they see a local market timestamp in a log message but a UTC string ending with `Z` in `timestamp_iso`. That is intentional. AKQuant uses a two-layer time model:
+
+1. **Internal authoritative time is always UTC**
+   - The engine clock, cross-asset ordering, and Python/Rust event exchange all use **UTC timestamps in nanoseconds**.
+   - This avoids ambiguous "same-looking" local timestamps across markets and timezones.
+
+2. **Structured fields are always UTC ISO 8601**
+   - `event_time_iso`
+   - `bar.timestamp_iso`
+   - `tick.timestamp_iso`
+   - `trade.timestamp_iso`
+   - `order.created_at_iso` / `order.updated_at_iso`
+   - These fields all mean the same thing: a standard UTC representation of the event time.
+
+3. **Timezone conversion belongs to the display layer**
+   - `self.now`
+   - `self.to_local_time(...)`
+   - `self.format_time(...)`
+   - Readable log prefixes and strategy-facing helpers convert UTC into the configured local timezone when needed.
+   - The same `timezone` also defines the "daily" boundary used by performance statistics such as `daily_returns`, volatility, Sharpe / Sortino / VaR / CVaR, so those metrics follow the configured local calendar day rather than hard-cutting on UTC midnight.
+
+For example, a Beijing market time of `2023-01-01 09:31:00+08:00` is the same instant as `2023-01-01T01:31:00Z` in UTC. So in practice:
+
+*   `bar.timestamp` may be an integer UTC nanosecond timestamp
+*   `bar.timestamp_iso` may be `2023-01-01T01:31:00Z`
+*   `self.format_time(bar.timestamp)` may display `2023-01-01 09:31:00`
+
+The easiest mental model is:
+
+> **AKQuant stores facts in UTC and renders them in local time for humans.**
+
+This design makes backtesting, live trading, JSON logs, and cross-language integration consistent without forcing one ambiguous string field to do storage, ordering, and display at the same time.
+
+It also keeps the reporting layer aligned with the display layer: when you read daily returns or risk metrics, they use the same local-time day boundary implied by the strategy timezone.
+
+If you plan to work with multiple markets, read the [Timezone Handling Guide](../advanced/timezone.md) next and keep the rule "UTC inside, local time at the edge" in mind.
+
 ---
 
 ## 3. Hands-on: Developing Your First Strategy (Dual Moving Average)

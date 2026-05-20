@@ -374,7 +374,7 @@ class Bar:
     low: float
     close: float
     volume: float
-    timestamp_str: str
+    timestamp_iso: str
     def __new__(
         cls,
         timestamp: int,
@@ -577,6 +577,14 @@ class Engine:
         设置时区偏移 (秒).
 
         :param offset: 偏移秒数 (例如 UTC+8 为 28800)
+        """
+        ...
+
+    def set_timezone_name(self, timezone: str) -> None:
+        r"""
+        设置时区名称.
+
+        :param timezone: IANA 时区名称 (例如 "Asia/Shanghai", "UTC", "US/Eastern")
         """
         ...
 
@@ -1014,9 +1022,9 @@ class Order:
     time_in_force: akquant.TimeInForce
     status: akquant.OrderStatus
     created_at: int
-    created_at_str: str
+    created_at_iso: str
     updated_at: int
-    updated_at_str: str
+    updated_at_iso: str
     tag: str
     reject_reason: str
     owner_strategy_id: typing.Optional[str]
@@ -2722,7 +2730,7 @@ class Tick:
     symbol: str
     price: float
     volume: float
-    timestamp_str: str
+    timestamp_iso: str
     def __new__(
         cls, timestamp: typing.Any, price: typing.Any, volume: typing.Any, symbol: str
     ) -> "Tick": ...
@@ -2753,7 +2761,7 @@ class Trade:
     symbol: str
     side: akquant.OrderSide
     timestamp: int
-    timestamp_str: str
+    timestamp_iso: str
     bar_index: int
     quantity: float
     price: float

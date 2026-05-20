@@ -75,7 +75,7 @@ class TargetPositionsDemoStrategy(Strategy):
         plan = self.get_last_target_positions_plan()
         if plan:
             print(
-                f"[{bar.timestamp_str}] status={plan.get('status')} "
+                f"[{bar.timestamp_iso}] status={plan.get('status')} "
                 f"reduce={plan.get('reduce_legs')} "
                 f"increase={plan.get('increase_legs')} "
                 f"submitted={plan.get('submitted_legs')} "

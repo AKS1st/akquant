@@ -2,7 +2,15 @@ import logging
 from typing import Any
 
 from .log import build_log_extra, get_logger
-from .strategy_time import now as _now
+from .strategy_time import (
+    current_timestamp as _current_timestamp,
+)
+from .strategy_time import (
+    format_time_iso_utc as _format_time_iso_utc,
+)
+from .strategy_time import (
+    now as _now,
+)
 
 logger = get_logger("strategy")
 
@@ -40,7 +48,7 @@ def _extract_symbol(strategy: Any, order_payload: Any, trade_payload: Any) -> An
 
 
 def _build_log_extra(
-    strategy: Any, timestamp_str: str, event_time: Any
+    strategy: Any, event_time_ns: int | None, event_time_iso: str | None
 ) -> dict[str, Any]:
     """Build structured logging metadata for strategy-side logs."""
     strategy_id_raw = getattr(strategy, "_owner_strategy_id", None)
@@ -64,8 +72,8 @@ def _build_log_extra(
         client_order_id = getattr(trade_payload, "client_order_id", None)
     return build_log_extra(
         phase=phase,
-        event_time=event_time,
-        event_time_str=timestamp_str or None,
+        event_time=event_time_ns,
+        event_time_iso=event_time_iso,
         strategy_id=strategy_id,
         slot=slot,
         symbol=symbol,
@@ -77,6 +85,10 @@ def _build_log_extra(
 def log(strategy: Any, msg: str, level: int = logging.INFO) -> None:
     """输出日志 (自动添加当前回测时间)."""
     timestamp_str = ""
+    event_time_ns = _current_timestamp(strategy)
+    event_time_iso = (
+        _format_time_iso_utc(event_time_ns) if event_time_ns is not None else None
+    )
     ts = _now(strategy)
     if ts:
         timestamp_str = ts.strftime("%Y-%m-%d %H:%M:%S")
@@ -86,4 +98,8 @@ def log(strategy: Any, msg: str, level: int = logging.INFO) -> None:
     else:
         final_msg = msg
 
-    logger.log(level, final_msg, extra=_build_log_extra(strategy, timestamp_str, ts))
+    logger.log(
+        level,
+        final_msg,
+        extra=_build_log_extra(strategy, event_time_ns, event_time_iso),
+    )

@@ -64,6 +64,8 @@ fn process_order_request(engine: &mut Engine, py: Python<'_>, mut order: Order) 
             session: engine.clock.session,
             active_orders: &engine.state.order_manager.active_orders,
             risk_config: &engine.risk_manager.config,
+            timezone_name: engine.timezone_name.as_deref(),
+            timezone_offset: engine.timezone_offset,
         };
         engine.risk_manager.check_and_adjust(&mut order, &ctx)
     };
@@ -190,6 +192,8 @@ fn emit_execution_reports_for_current_event(engine: &mut Engine) {
         session: engine.clock.session,
         active_orders: &engine.state.order_manager.active_orders,
         risk_config: &engine.risk_manager.config,
+        timezone_name: engine.timezone_name.as_deref(),
+        timezone_offset: engine.timezone_offset,
     };
 
     let reports = engine.execution_model.on_event(&event, &ctx);
@@ -555,6 +559,8 @@ impl DataProcessor {
                 session: engine.clock.session,
                 active_orders: &engine.state.order_manager.active_orders,
                 risk_config: &engine.risk_manager.config,
+                timezone_name: engine.timezone_name.as_deref(),
+                timezone_offset: engine.timezone_offset,
             };
             let reports = engine
                 .execution_model
@@ -603,9 +609,8 @@ impl Processor for DataProcessor {
                     if timer.payload.starts_with("__framework_rebalance__|") {
                         self.finalize_current_timestamp(engine, py);
                     }
-                    let local_dt =
-                        Engine::local_datetime_from_ns(timer.timestamp, engine.timezone_offset);
-                    let session = engine.market_manager.get_session_status(local_dt.time());
+                    let local_time = engine.local_time_from_ns(timer.timestamp);
+                    let session = engine.market_manager.get_session_status(local_time);
                     engine.clock.update(timer.timestamp, session);
                     if engine.force_session_continuous {
                         engine.clock.session = TradingSession::Continuous;
@@ -644,10 +649,10 @@ impl Processor for DataProcessor {
                 }
                 self.last_timestamp = timestamp;
 
-                let local_dt = Engine::local_datetime_from_ns(timestamp, engine.timezone_offset);
-
                 // Update Market Manager (Session)
-                let session = engine.market_manager.get_session_status(local_dt.time());
+                let session = engine
+                    .market_manager
+                    .get_session_status(engine.local_time_from_ns(timestamp));
 
                 engine.clock.update(timestamp, session);
                 if engine.force_session_continuous {
@@ -655,7 +660,7 @@ impl Processor for DataProcessor {
                 }
 
                 // Daily Snapshot & Settlement
-                let local_date = local_dt.date_naive();
+                let local_date = engine.local_date_from_ns(timestamp);
                 if engine.is_active_timestamp(timestamp) && engine.current_date != Some(local_date)
                 {
                     if engine.current_date.is_some() {
@@ -1088,6 +1093,8 @@ impl Processor for ExecutionProcessor {
                         session: engine.clock.session,
                         active_orders: &engine.state.order_manager.active_orders,
                         risk_config: &engine.risk_manager.config,
+                        timezone_name: engine.timezone_name.as_deref(),
+                        timezone_offset: engine.timezone_offset,
                     };
 
                     let reports = engine.execution_model.on_event(&event, &ctx);

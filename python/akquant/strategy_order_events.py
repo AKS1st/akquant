@@ -34,11 +34,13 @@ def check_order_events(strategy: Any) -> None:
             strategy._known_orders[oid] = order
             _emit_order_callback(strategy, order)
 
+    pending_order_ids: set[str] = set()
     if hasattr(strategy.ctx, "orders"):
         for order in strategy.ctx.orders:
             oid = getattr(order, "id", "")
             if not oid or oid in strategy._known_orders:
                 continue
+            pending_order_ids.add(oid)
             strategy._known_orders[oid] = order
             _emit_order_callback(strategy, order)
 
@@ -74,6 +76,8 @@ def check_order_events(strategy: Any) -> None:
                     pass
                 _emit_order_callback(strategy, order)
                 del strategy._known_orders[oid]
+            elif oid in pending_order_ids:
+                continue
             else:
                 del strategy._known_orders[oid]
 

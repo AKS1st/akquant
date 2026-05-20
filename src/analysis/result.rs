@@ -1,5 +1,7 @@
 use super::types::*;
 use crate::model::{Order, Trade};
+use chrono::{NaiveDate, TimeZone, Utc};
+use chrono_tz::Tz;
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::*;
 use rust_decimal::Decimal;
@@ -12,6 +14,8 @@ pub struct CalculatorInput {
     pub cash_curve_decimal: Vec<(i64, Decimal)>,
     pub margin_curve_decimal: Vec<(i64, Decimal)>,
     pub snapshots: Vec<(i64, Vec<PositionSnapshot>)>,
+    pub timezone_name: Option<String>,
+    pub timezone_offset: i32,
     pub trade_pnl: TradePnL,
     pub trades: Vec<ClosedTrade>,
     pub initial_cash: Decimal,
@@ -60,6 +64,27 @@ pub struct BacktestResult {
 }
 
 impl BacktestResult {
+    fn datetime_from_ns(timestamp: i64) -> chrono::DateTime<Utc> {
+        let secs = timestamp.div_euclid(1_000_000_000);
+        let nanos = timestamp.rem_euclid(1_000_000_000) as u32;
+        Utc.timestamp_opt(secs, nanos)
+            .single()
+            .expect("Invalid timestamp")
+    }
+
+    fn local_date_from_ns(
+        timestamp: i64,
+        timezone_name: Option<&str>,
+        timezone_offset: i32,
+    ) -> NaiveDate {
+        let utc_dt = Self::datetime_from_ns(timestamp);
+        if let Some(tz) = timezone_name.and_then(|name| name.parse::<Tz>().ok()) {
+            return utc_dt.with_timezone(&tz).date_naive();
+        }
+        let offset_ns = i64::from(timezone_offset) * 1_000_000_000;
+        Self::datetime_from_ns(timestamp + offset_ns).date_naive()
+    }
+
     pub fn calculate(input: CalculatorInput) -> Self {
         // Convert equity_curve to f64 for storage/python
         let equity_curve: Vec<(i64, f64)> = input
@@ -161,15 +186,12 @@ impl BacktestResult {
         let ulcer_index = (sum_sq_drawdown / equity_curve.len() as f64).sqrt();
 
         // 3. Returns Series for Volatility & Sharpe (Resampled to Daily)
-        let mut daily_equity_map: BTreeMap<i64, Decimal> = BTreeMap::new();
-
-        // Use 24h buckets (86400 * 1e9 ns) to group by day.
-        // Note: This assumes local time is consistent or UTC.
-        // A simple approximation is integer division by 86400_000_000_000 (1 day in ns).
-        // This works for UTC timestamps.
+        let mut daily_equity_map: BTreeMap<NaiveDate, Decimal> = BTreeMap::new();
+        let timezone_name = input.timezone_name.as_deref();
+        let timezone_offset = input.timezone_offset;
 
         for (ts, eq) in &input.equity_curve_decimal {
-            let day_key = ts / 86_400_000_000_000;
+            let day_key = Self::local_date_from_ns(*ts, timezone_name, timezone_offset);
             daily_equity_map.insert(day_key, *eq);
         }
 
