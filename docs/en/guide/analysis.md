@@ -32,6 +32,45 @@ result.report(
 )
 ```
 
+### Structured Benchmark Analysis
+
+If you need benchmark comparison outputs for a web frontend, notebook workflow, or offline pipeline, use the structured API instead of reading values from the HTML report:
+
+```python
+benchmark_returns = (
+    benchmark_df.set_index("date")["close"].pct_change().fillna(0.0)
+)
+
+benchmark_analysis = result.benchmark_analysis(
+    benchmark=benchmark_returns,
+    curve_freq="D",
+)
+
+summary = benchmark_analysis["summary"]
+series = benchmark_analysis["series"]
+
+print(summary["information_ratio"])
+print(series[:2])
+```
+
+The structured benchmark analysis shares the same alignment and calculation logic as `result.report(..., benchmark=...)`, making it suitable as a long-term frontend/API contract:
+
+- `summary`: aggregate relative metrics
+- `series`: aligned daily time series
+- `meta`: sample count and date range
+- `reason`: explanation when the benchmark input is invalid or cannot be aligned
+
+To persist the analysis:
+
+```python
+result.export_benchmark_analysis(
+    path="artifacts/benchmark_analysis.json",
+    benchmark=benchmark_returns,
+    format="json",
+    curve_freq="D",
+)
+```
+
 This generates a consolidated dashboard including:
 
 - **Equity Curve**: Interactive chart of account equity over time.

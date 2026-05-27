@@ -13,3 +13,5 @@ Key update in this chapter:
 
 - `result.report(..., benchmark=...)` now supports benchmark comparison in the built-in HTML report.
 - The report includes cumulative excess return, annual excess return, tracking error, information ratio, beta, and alpha.
+- `result.benchmark_analysis(...)` exposes the same benchmark logic as a structured payload for frontends and APIs.
+- `result.export_benchmark_analysis(...)` can persist benchmark analysis as JSON or parquet artifacts.

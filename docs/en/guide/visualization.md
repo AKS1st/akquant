@@ -20,3 +20,57 @@ result.report(
 ```
 
 When `benchmark` is provided, the HTML report adds a benchmark comparison section with strategy/benchmark/excess cumulative curves and relative metrics (total excess, annual excess, tracking error, information ratio, beta, alpha).
+
+## Structured Benchmark Analysis
+
+AKQuant now exposes the benchmark comparison logic as a structured analysis payload that can be reused by web frontends, APIs, and offline pipelines instead of relying on HTML parsing.
+
+```python
+benchmark_returns = (
+    benchmark_df.set_index("date")["close"].pct_change().fillna(0.0)
+)
+
+payload = result.benchmark_analysis(
+    benchmark=benchmark_returns,
+    curve_freq="D",
+)
+
+print(payload["schema_version"])
+print(payload["summary"]["annual_excess"])
+print(payload["series"][0])
+```
+
+The payload includes:
+
+- `schema_version`: contract version for downstream consumers
+- `available`: whether benchmark analysis is available
+- `reason`: validation or alignment message when analysis is unavailable
+- `benchmark.label`: display label of the selected benchmark
+- `summary`: aggregate metrics such as `total_excess`, `annual_excess`, `tracking_error`, `information_ratio`, `beta`, and `alpha`
+- `series`: aligned daily points with strategy, benchmark, excess, and cumulative series
+- `meta`: sample count, start/end date, and annualization settings
+
+Recommended practice:
+
+- Prepare the benchmark return series on the backend
+- Call `result.benchmark_analysis(...)` once after the backtest
+- Let the frontend render `summary + series + meta`
+- Reuse the same analysis payload for both `result.report(..., benchmark=...)` and the frontend view
+
+## Export for Frontend or Archival
+
+You can persist the benchmark analysis as part of the backtest artifacts:
+
+```python
+result.export_benchmark_analysis(
+    path="artifacts/benchmark_analysis.json",
+    benchmark=benchmark_returns,
+    format="json",
+    curve_freq="D",
+)
+```
+
+`format="parquet"` is also supported and writes:
+
+- `series.parquet`: aligned benchmark time series
+- `metadata.json`: summary metrics and metadata

@@ -192,6 +192,45 @@ result.report(
 )
 ```
 
+### 结构化 Benchmark Analysis
+
+如果你除了 HTML 报告之外，还需要把基准对比结果给前端、Notebook 或离线任务，推荐直接使用结构化接口：
+
+```python
+benchmark_returns = (
+    benchmark_df.set_index("date")["close"].pct_change().fillna(0.0)
+)
+
+benchmark_analysis = result.benchmark_analysis(
+    benchmark=benchmark_returns,
+    curve_freq="D",
+)
+
+summary = benchmark_analysis["summary"]
+series = benchmark_analysis["series"]
+
+print(summary["information_ratio"])
+print(series[:2])
+```
+
+结构化 benchmark analysis 与 `result.report(..., benchmark=...)` 共用同一套对齐和计算逻辑，因此适合作为长期数据契约：
+
+- `summary`: 汇总指标
+- `series`: 逐日对齐序列
+- `meta`: 样本数与日期范围
+- `reason`: 输入无效或无重叠区间时的说明
+
+如果你需要把这份结果落盘：
+
+```python
+result.export_benchmark_analysis(
+    path="artifacts/benchmark_analysis.json",
+    benchmark=benchmark_returns,
+    format="json",
+    curve_freq="D",
+)
+```
+
 ### 组合归因与容量分析 (Attribution & Capacity)
 
 `BacktestResult` 提供了可直接用于二次分析的结构化结果：

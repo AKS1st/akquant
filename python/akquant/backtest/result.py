@@ -1545,6 +1545,57 @@ class BacktestResult:
             return
         raise ValueError("format must be 'json' or 'parquet'")
 
+    def benchmark_analysis(
+        self,
+        benchmark: Optional[Union[str, pd.Series]] = None,
+        curve_freq: str = "raw",
+    ) -> Dict[str, Any]:
+        """Build a structured benchmark analysis payload for APIs and reports."""
+        from ..analysis.benchmark import benchmark_analysis_from_result
+
+        return cast(
+            Dict[str, Any],
+            benchmark_analysis_from_result(
+                result=self,
+                benchmark=benchmark,
+                curve_freq=curve_freq,
+            ),
+        )
+
+    def export_benchmark_analysis(
+        self,
+        path: str,
+        benchmark: Optional[Union[str, pd.Series]] = None,
+        format: str = "json",
+        curve_freq: str = "raw",
+    ) -> None:
+        """Export structured benchmark analysis to json or a parquet bundle."""
+        output_format = str(format).strip().lower()
+        output_path = Path(path)
+        payload = self.benchmark_analysis(
+            benchmark=benchmark,
+            curve_freq=curve_freq,
+        )
+        if output_format == "json":
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(
+                json.dumps(payload, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+            return
+        if output_format == "parquet":
+            output_path.mkdir(parents=True, exist_ok=True)
+            series_frame = pd.DataFrame(payload.get("series", []))
+            series_frame.to_parquet(output_path / "series.parquet")
+            metadata = dict(payload)
+            metadata.pop("series", None)
+            (output_path / "metadata.json").write_text(
+                json.dumps(metadata, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+            return
+        raise ValueError("format must be 'json' or 'parquet'")
+
     @staticmethod
     def _json_ready_records(frame: pd.DataFrame) -> List[Dict[str, Any]]:
         records: List[Dict[str, Any]] = []
