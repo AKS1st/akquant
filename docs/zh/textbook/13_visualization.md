@@ -109,7 +109,44 @@ result.report(
 - 信息比率 (Information Ratio)
 - Beta / Alpha
 
-### 13.3.3 信用账户强平审计视图
+### 13.3.3 结构化 Benchmark Analysis 与前端复用
+
+长期项目里，更推荐把 benchmark analysis 当成结构化分析资产，而不是只存在于 HTML 报告中。
+
+```python
+benchmark_returns = (
+    benchmark_df.set_index("date")["close"].pct_change().fillna(0.0)
+)
+
+payload = result.benchmark_analysis(
+    benchmark=benchmark_returns,
+    curve_freq="D",
+)
+
+print(payload["summary"])
+print(payload["series"][:2])
+```
+
+推荐做法：
+
+1. 回测结束后由后端调用 `result.benchmark_analysis(...)`
+2. 将 `summary + series + meta` 直接返回给前端
+3. `result.report(..., benchmark=...)` 与前端页面复用同一套 benchmark analysis 逻辑
+
+这样可以避免前端再次计算超额收益、IR、Beta、Alpha，减少口径漂移。
+
+如需把 benchmark analysis 作为回测产物保存：
+
+```python
+result.export_benchmark_analysis(
+    path="artifacts/benchmark_analysis.json",
+    benchmark=benchmark_returns,
+    format="json",
+    curve_freq="D",
+)
+```
+
+### 13.3.4 信用账户强平审计视图
 
 在融资/融券回测中，如果发生维持担保比例触发的强平，`BacktestResult` 会产出结构化审计表：
 

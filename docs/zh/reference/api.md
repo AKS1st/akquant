@@ -1160,6 +1160,8 @@ class RiskConfig:
 *   `exposure_df(freq="D")`: 组合暴露分解（净暴露、总暴露、杠杆）。
 *   `attribution_df(by="symbol", use_net=True, top_n=None)`: 按 symbol/tag 做归因汇总。
 *   `capacity_df(freq="D")`: 容量代理指标（订单数、成交率、换手）。
+*   `benchmark_analysis(benchmark=None, curve_freq="raw")`: 返回结构化 benchmark analysis，可直接供前端/API 使用。
+*   `export_benchmark_analysis(path, benchmark=None, format="json", curve_freq="raw")`: 将 benchmark analysis 导出为 JSON 或 parquet 产物。
 *   `orders_by_strategy()`: 按 `owner_strategy_id` 聚合订单统计。
 *   `executions_by_strategy()`: 按 `owner_strategy_id` 聚合成交流水统计。
 *   `get_event_stats()`: 返回流式事件统计摘要（如 `processed_events`、`dropped_event_count`、`callback_error_count`、`backpressure_policy`、`stream_mode`）。
@@ -1168,6 +1170,18 @@ class RiskConfig:
 ```python
 orders_by_strategy = result.orders_by_strategy()
 executions_by_strategy = result.executions_by_strategy()
+benchmark_analysis = result.benchmark_analysis(
+    benchmark=benchmark_returns,
+    curve_freq="D",
+)
+
+# benchmark_analysis 常用字段:
+# - schema_version, available, reason
+# - benchmark.label
+# - summary.total_excess / annual_excess / tracking_error
+# - summary.information_ratio / beta / alpha
+# - series[*].date / strategy_return / benchmark_return / excess_return
+# - series[*].strategy_cum_return / benchmark_cum_return / excess_cum_return
 
 # 常用字段示例
 # orders_by_strategy:

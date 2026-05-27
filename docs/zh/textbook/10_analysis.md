@@ -155,7 +155,15 @@ margin_daily = result.margin_curve_daily
 
 # 报告可选使用日频曲线
 result.report(filename="report_daily.html", curve_freq="D")
+
+# benchmark analysis 也可复用同一频率配置
+benchmark_analysis = result.benchmark_analysis(
+    benchmark=benchmark_returns,
+    curve_freq="D",
+)
 ```
+
+当你需要把“策略 vs 沪深300”之类的超额收益结果提供给前端或研究流水线时，优先使用 `result.benchmark_analysis(...)` 或 `result.export_benchmark_analysis(...)`，而不是从 HTML 报告中反向提取数据。
 
 ### 10.5.4 代码示例
 

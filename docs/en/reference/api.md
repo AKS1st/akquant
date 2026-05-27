@@ -1084,6 +1084,8 @@ Backtest result object.
 *   `exposure_df(freq="D")`: Portfolio exposure decomposition (net/gross/leverage).
 *   `attribution_df(by="symbol", use_net=True, top_n=None)`: Grouped attribution by symbol/tag.
 *   `capacity_df(freq="D")`: Capacity proxy metrics (order count, fill rates, turnover).
+*   `benchmark_analysis(benchmark=None, curve_freq="raw")`: Return a structured benchmark analysis payload for frontends and APIs.
+*   `export_benchmark_analysis(path, benchmark=None, format="json", curve_freq="raw")`: Persist benchmark analysis as JSON or parquet artifacts.
 *   `orders_by_strategy()`: Strategy-ownership order aggregation by `owner_strategy_id`.
 *   `executions_by_strategy()`: Strategy-ownership execution aggregation by `owner_strategy_id`.
 *   `get_event_stats()`: Unified stream summary stats (for example `processed_events`, `dropped_event_count`, `callback_error_count`, `backpressure_policy`, `stream_mode`).
@@ -1092,6 +1094,18 @@ Backtest result object.
 ```python
 orders_by_strategy = result.orders_by_strategy()
 executions_by_strategy = result.executions_by_strategy()
+benchmark_analysis = result.benchmark_analysis(
+    benchmark=benchmark_returns,
+    curve_freq="D",
+)
+
+# Common benchmark_analysis fields:
+# - schema_version, available, reason
+# - benchmark.label
+# - summary.total_excess / annual_excess / tracking_error
+# - summary.information_ratio / beta / alpha
+# - series[*].date / strategy_return / benchmark_return / excess_return
+# - series[*].strategy_cum_return / benchmark_cum_return / excess_cum_return
 
 # Common columns
 # orders_by_strategy:

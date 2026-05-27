@@ -387,6 +387,37 @@ def test_report_aligns_naive_benchmark_dates_without_notice(tmp_path: Path) -> N
     assert "基准序列 NAIVE_BENCH 索引必须为日期索引" not in html
 
 
+def test_backtest_result_exposes_structured_benchmark_analysis() -> None:
+    """BacktestResult should expose benchmark analysis for non-HTML consumers."""
+    result = run_backtest(
+        data=_build_data(),
+        strategy=RoundTripStrategy,
+        symbols="TEST",
+        initial_cash=200000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        lot_size=1,
+        show_progress=False,
+    )
+    benchmark_returns = pd.Series(
+        [0.0, 0.001, -0.0005, 0.0008, 0.0],
+        index=pd.date_range("2023-01-01", periods=5, freq="D"),
+        name="CSI300",
+    )
+
+    payload = result.benchmark_analysis(benchmark=benchmark_returns, curve_freq="D")
+
+    assert payload["schema_version"] == "1.0"
+    assert payload["available"] is True
+    assert payload["benchmark"]["label"] == "CSI300"
+    assert payload["summary"]["information_ratio"] is not None
+    assert payload["meta"]["aligned_points"] > 0
+    assert payload["series"][0]["date"] == "2023-01-01"
+
+
 def test_report_shows_notice_for_range_index_benchmark(tmp_path: Path) -> None:
     """RangeIndex benchmark input should render a clear validation notice."""
     _skip_if_no_plotly()

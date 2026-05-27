@@ -6,6 +6,18 @@ from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 import pandas as pd
 
+from ..analysis.benchmark import (
+    build_benchmark_analysis as _build_benchmark_analysis,
+)
+from ..analysis.benchmark import (
+    build_daily_returns_from_equity as _build_daily_returns_from_equity,
+)
+from ..analysis.benchmark import (
+    normalize_curve_freq as _normalize_curve_freq,
+)
+from ..analysis.benchmark import (
+    resolve_equity_curve as _resolve_equity_curve,
+)
 from ..utils import format_metric_value
 from .analysis import (
     plot_pnl_vs_duration,
@@ -562,185 +574,27 @@ def _rename_table_columns(df: pd.DataFrame, mapping: dict[str, str]) -> pd.DataF
     return cast(pd.DataFrame, renamed)
 
 
-def _normalize_curve_freq(curve_freq: str) -> str:
-    """Normalize curve frequency option."""
-    value = str(curve_freq).strip()
-    if value.lower() == "raw":
-        return "raw"
-    if value.upper() == "D":
-        return "D"
-    raise ValueError("curve_freq must be 'raw' or 'D'")
-
-
-def _resolve_equity_curve(result: Any, curve_freq: str) -> pd.Series:
-    """Resolve equity curve for report rendering."""
-    if curve_freq == "D" and hasattr(result, "equity_curve_daily"):
-        series = cast(pd.Series, result.equity_curve_daily)
-        if not series.empty:
-            return series
-    return cast(pd.Series, result.equity_curve)
-
-
-def _build_daily_returns_from_equity(equity_curve: pd.Series) -> pd.Series:
-    """Build daily returns from equity curve."""
-    if equity_curve.empty:
-        return pd.Series(dtype=float)
-    daily_equity = equity_curve.resample("D").last().ffill()
-    returns = daily_equity.pct_change().fillna(0.0)
-    return cast(pd.Series, returns)
-
-
-def _normalize_returns_series_with_reason(
-    series: pd.Series, series_label: str = "收益序列"
-) -> tuple[pd.Series, Optional[str]]:
-    """Normalize returns to a daily index and report validation errors."""
-    cleaned = series.copy()
-    cleaned = pd.to_numeric(cleaned, errors="coerce")
-    cleaned = cast(pd.Series, cleaned.dropna())
-    if cleaned.empty:
-        return cast(pd.Series, cleaned), f"{series_label}为空"
-
-    raw_index = cleaned.index
-    if isinstance(raw_index, pd.RangeIndex):
-        return (
-            pd.Series(dtype=float),
-            f"{series_label}索引必须为日期索引，当前为 RangeIndex",
-        )
-    if not isinstance(raw_index, pd.DatetimeIndex) and pd.api.types.is_numeric_dtype(
-        raw_index.dtype
-    ):
-        return (
-            pd.Series(dtype=float),
-            f"{series_label}索引必须为 DatetimeIndex 或可解析的日期索引",
-        )
-
-    if isinstance(raw_index, pd.DatetimeIndex):
-        dt_index = raw_index
-    else:
-        dt_index = pd.DatetimeIndex(pd.to_datetime(raw_index, errors="coerce"))
-
-    valid_mask = ~pd.isna(dt_index)
-    if not bool(valid_mask.any()):
-        return pd.Series(dtype=float), f"{series_label}索引无法解析为日期"
-
-    cleaned = cleaned.loc[valid_mask].copy()
-    dt_index = dt_index[valid_mask]
-    if dt_index.empty:
-        return pd.Series(dtype=float), f"{series_label}索引无法解析为日期"
-
-    if dt_index.tz is not None:
-        # Drop timezone while preserving the local calendar day for daily alignment.
-        dt_index = dt_index.tz_localize(None)
-    cleaned.index = dt_index.normalize()
-    cleaned = cast(pd.Series, cleaned.groupby(cleaned.index).last())
-    cleaned = cast(pd.Series, cleaned.sort_index().astype(float))
-    return cleaned, None
-
-
-def _normalize_returns_series(series: pd.Series) -> pd.Series:
-    """Normalize return series index to timezone-naive daily datetime index."""
-    normalized, _ = _normalize_returns_series_with_reason(series)
-    return normalized
-
-
-def _resolve_benchmark_returns(
-    benchmark: Optional[Union[str, pd.Series]], strategy_returns: pd.Series
-) -> tuple[Optional[pd.Series], str]:
-    """Resolve benchmark input into aligned return series and display label."""
-    if benchmark is None:
-        return None, "未提供基准"
-    if isinstance(benchmark, str):
-        return None, f"暂不支持自动拉取基准: {benchmark}"
-    if not isinstance(benchmark, pd.Series):
-        return None, "基准类型错误，需为 pd.Series 或 str"
-    benchmark_label = (
-        str(benchmark.name)
-        if benchmark.name is not None and str(benchmark.name).strip()
-        else "Benchmark"
-    )
-    benchmark_series, benchmark_reason = _normalize_returns_series_with_reason(
-        benchmark, f"基准序列 {benchmark_label}"
-    )
-    if benchmark_reason is not None:
-        return None, benchmark_reason
-    quantile_95 = float(benchmark_series.abs().quantile(0.95))
-    if quantile_95 > 2.0:
-        benchmark_series = cast(pd.Series, benchmark_series.pct_change().fillna(0.0))
-    strategy_series, strategy_reason = _normalize_returns_series_with_reason(
-        strategy_returns, "策略收益序列"
-    )
-    if strategy_reason is not None:
-        return None, f"{strategy_reason}，无法对齐基准: {benchmark_label}"
-    if strategy_series.index.intersection(benchmark_series.index).empty:
-        return None, f"策略与基准无重叠区间: {benchmark_label}"
-    return benchmark_series, benchmark_label
-
-
 def _build_benchmark_sections(
     strategy_returns: pd.Series,
     benchmark: Optional[Union[str, pd.Series]],
     config: dict[str, Any],
 ) -> dict[str, str]:
     """Build benchmark comparison metrics and chart sections."""
-    benchmark_returns, benchmark_label = _resolve_benchmark_returns(
-        benchmark, strategy_returns
+    payload = _build_benchmark_analysis(
+        strategy_returns=strategy_returns, benchmark=benchmark
     )
-    if benchmark_returns is None:
-        reason = (
-            "未提供可用基准数据，已跳过相对收益分析。"
-            if benchmark is None
-            else f"未生成基准对比: {benchmark_label}"
-        )
-        empty_html = f'<div class="empty-panel">{reason}</div>'
+    if not bool(payload["available"]):
+        empty_html = f'<div class="empty-panel">{payload["reason"]}</div>'
         return {
             "benchmark_metrics_html": empty_html,
             "benchmark_chart_html": empty_html,
         }
-    strategy_series = _normalize_returns_series(strategy_returns)
-    aligned = pd.concat(
-        [strategy_series.rename("strategy"), benchmark_returns.rename("benchmark")],
-        axis=1,
-        join="inner",
-    ).dropna()
-    if aligned.empty:
-        empty_html = (
-            '<div class="empty-panel">'
-            "策略与基准收益率无可用重叠样本，已跳过对比。"
-            "</div>"
-        )
-        return {
-            "benchmark_metrics_html": empty_html,
-            "benchmark_chart_html": empty_html,
-        }
-    strategy_aligned = cast(pd.Series, aligned["strategy"].astype(float))
-    benchmark_aligned = cast(pd.Series, aligned["benchmark"].astype(float))
-    excess = cast(pd.Series, strategy_aligned - benchmark_aligned)
-    annual_factor = 252.0
-    annual_excess = float(excess.mean() * annual_factor)
-    tracking_error = float(excess.std(ddof=0) * (annual_factor**0.5))
-    info_ratio = annual_excess / tracking_error if tracking_error > 0 else float("nan")
-    strategy_total = float((1.0 + strategy_aligned).to_numpy(dtype=float).prod())
-    benchmark_total = float((1.0 + benchmark_aligned).to_numpy(dtype=float).prod())
-    total_excess = (
-        strategy_total / benchmark_total - 1.0 if benchmark_total > 0 else float("nan")
-    )
-    mean_strategy = float(strategy_aligned.mean())
-    mean_benchmark = float(benchmark_aligned.mean())
-    variance_benchmark = float(benchmark_aligned.var(ddof=0))
-    beta = float("nan")
-    alpha = float("nan")
-    if variance_benchmark > 0:
-        covariance = float(
-            (
-                (strategy_aligned - mean_strategy)
-                * (benchmark_aligned - mean_benchmark)
-            ).mean()
-        )
-        beta = covariance / variance_benchmark
-        alpha = (mean_strategy - beta * mean_benchmark) * annual_factor
+    benchmark_label = str(payload["benchmark"]["label"])
+    summary = cast(dict[str, Optional[float]], payload["summary"])
+    series_frame = pd.DataFrame(payload["series"])
 
-    def metric_color(value: float) -> str:
-        if pd.isna(value):
+    def metric_color(value: Optional[float]) -> str:
+        if value is None or pd.isna(value):
             return ""
         if value > 0:
             return "positive"
@@ -748,8 +602,8 @@ def _build_benchmark_sections(
             return "negative"
         return ""
 
-    def metric_fmt(value: float, kind: str) -> str:
-        if pd.isna(value):
+    def metric_fmt(value: Optional[float], kind: str) -> str:
+        if value is None or pd.isna(value):
             return "N/A"
         if kind == "pct":
             return f"{value * 100:.2f}%"
@@ -759,33 +613,35 @@ def _build_benchmark_sections(
         ("基准名称 (Benchmark)", benchmark_label, ""),
         (
             "累计超额收益 (Total Excess)",
-            metric_fmt(total_excess, "pct"),
-            metric_color(total_excess),
+            metric_fmt(summary["total_excess"], "pct"),
+            metric_color(summary["total_excess"]),
         ),
         (
             "年化超额收益 (Annual Excess)",
-            metric_fmt(annual_excess, "pct"),
-            metric_color(annual_excess),
+            metric_fmt(summary["annual_excess"], "pct"),
+            metric_color(summary["annual_excess"]),
         ),
         (
             "跟踪误差 (Tracking Error)",
-            metric_fmt(tracking_error, "pct"),
+            metric_fmt(summary["tracking_error"], "pct"),
             "",
         ),
         (
             "信息比率 (Information Ratio)",
-            metric_fmt(info_ratio, "ratio"),
-            metric_color(info_ratio),
+            metric_fmt(summary["information_ratio"], "ratio"),
+            metric_color(summary["information_ratio"]),
         ),
         (
             "Beta",
-            metric_fmt(beta, "ratio"),
-            metric_color(beta - 1.0 if not pd.isna(beta) else beta),
+            metric_fmt(summary["beta"], "ratio"),
+            metric_color(
+                None if summary["beta"] is None else cast(float, summary["beta"]) - 1.0
+            ),
         ),
         (
             "Alpha (Annual)",
-            metric_fmt(alpha, "pct"),
-            metric_color(alpha),
+            metric_fmt(summary["alpha"], "pct"),
+            metric_color(summary["alpha"]),
         ),
     ]
     metrics_html = ""
@@ -794,15 +650,12 @@ def _build_benchmark_sections(
             f'<div class="metric-card"><div class="metric-value {color_cls}">{value}'
             f'</div><div class="metric-label">{label}</div></div>'
         )
-    cumulative_strategy = cast(pd.Series, (1.0 + strategy_aligned).cumprod() - 1.0)
-    cumulative_benchmark = cast(pd.Series, (1.0 + benchmark_aligned).cumprod() - 1.0)
-    cumulative_excess = cast(pd.Series, cumulative_strategy - cumulative_benchmark)
     go = __import__("plotly.graph_objects", fromlist=["Figure"])
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=cumulative_strategy.index,
-            y=cumulative_strategy,
+            x=series_frame["date"],
+            y=series_frame["strategy_cum_return"],
             mode="lines",
             name="策略累计收益",
             line=dict(color="#1f77b4", width=2),
@@ -810,8 +663,8 @@ def _build_benchmark_sections(
     )
     fig.add_trace(
         go.Scatter(
-            x=cumulative_benchmark.index,
-            y=cumulative_benchmark,
+            x=series_frame["date"],
+            y=series_frame["benchmark_cum_return"],
             mode="lines",
             name=f"基准累计收益 ({benchmark_label})",
             line=dict(color="#7f8c8d", width=2, dash="dash"),
@@ -819,8 +672,8 @@ def _build_benchmark_sections(
     )
     fig.add_trace(
         go.Scatter(
-            x=cumulative_excess.index,
-            y=cumulative_excess,
+            x=series_frame["date"],
+            y=series_frame["excess_cum_return"],
             mode="lines",
             name="累计超额收益",
             line=dict(color="#c0392b", width=2),

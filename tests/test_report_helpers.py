@@ -1,10 +1,14 @@
 import pandas as pd
+from akquant.analysis.benchmark import (
+    benchmark_analysis_from_result,
+    build_benchmark_analysis,
+    normalize_returns_series,
+    resolve_benchmark_returns,
+)
 from akquant.plot.report import (
     _build_analysis_table_sections,
     _build_metrics_html,
     _build_summary_context,
-    _normalize_returns_series,
-    _resolve_benchmark_returns,
 )
 from akquant.utils import format_metric_value
 
@@ -213,7 +217,7 @@ def test_normalize_returns_series_preserves_local_calendar_day() -> None:
     idx = pd.date_range("2023-01-01", periods=3, freq="D", tz="Asia/Shanghai")
     series = pd.Series([0.0, 0.01, -0.02], index=idx)
 
-    normalized = _normalize_returns_series(series)
+    normalized = normalize_returns_series(series)
 
     expected_idx = pd.date_range("2023-01-01", periods=3, freq="D")
     pd.testing.assert_index_equal(normalized.index, expected_idx)
@@ -225,8 +229,47 @@ def test_resolve_benchmark_returns_rejects_range_index() -> None:
     strategy_returns = pd.Series([0.0, 0.01, -0.02], index=strategy_idx)
     benchmark_returns = pd.Series([0.0, 0.005, -0.001], name="RANGE_BENCH")
 
-    resolved, reason = _resolve_benchmark_returns(benchmark_returns, strategy_returns)
+    resolved, reason = resolve_benchmark_returns(benchmark_returns, strategy_returns)
 
     assert resolved is None
     assert "RangeIndex" in reason
     assert "日期索引" in reason
+
+
+def test_build_benchmark_analysis_returns_structured_payload() -> None:
+    """Structured benchmark analysis should expose summary and aligned series."""
+    strategy_idx = pd.date_range("2023-01-01", periods=3, freq="D", tz="Asia/Shanghai")
+    strategy_returns = pd.Series([0.0, 0.01, -0.02], index=strategy_idx)
+    benchmark_returns = pd.Series(
+        [0.0, 0.005, -0.01],
+        index=pd.date_range("2023-01-01", periods=3, freq="D"),
+        name="CSI300",
+    )
+
+    payload = build_benchmark_analysis(strategy_returns, benchmark_returns)
+
+    assert payload["schema_version"] == "1.0"
+    assert payload["available"] is True
+    assert payload["benchmark"]["label"] == "CSI300"
+    assert payload["meta"]["aligned_points"] == 3
+    assert payload["meta"]["start_date"] == "2023-01-01"
+    assert payload["meta"]["end_date"] == "2023-01-03"
+    assert payload["summary"]["tracking_error"] is not None
+    assert payload["series"][0]["date"] == "2023-01-01"
+    assert payload["series"][-1]["excess_cum_return"] is not None
+
+
+def test_benchmark_analysis_from_result_uses_equity_curve() -> None:
+    """Benchmark analysis from result should derive returns from the equity curve."""
+    result = DummyResult(with_data=True)
+    benchmark_returns = pd.Series(
+        [0.0, 0.005],
+        index=pd.date_range("2023-01-01", periods=2, freq="D"),
+        name="CSI300",
+    )
+
+    payload = benchmark_analysis_from_result(result, benchmark_returns)
+
+    assert payload["available"] is True
+    assert payload["benchmark"]["label"] == "CSI300"
+    assert payload["meta"]["aligned_points"] == 2
