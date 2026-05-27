@@ -1,10 +1,7 @@
-from .base import GatewayBundle, MarketGateway, TraderGateway
-from .ctp_adapter import CTPMarketAdapter, CTPTraderAdapter
-from .ctp_native import CTPMarketGateway, CTPTraderGateway
-from .factory import create_gateway_bundle
-from .mapper import BrokerEventMapper, create_default_mapper
-from .miniqmt import MiniQMTMarketGateway, MiniQMTTraderGateway
-from .models import (
+from .broker_event_bridge import BrokerEventBridge
+from .broker_event_mapper import BrokerEventMapper, create_default_mapper
+from .broker_models import (
+    BrokerCapability,
     UnifiedAccount,
     UnifiedErrorType,
     UnifiedExecutionReport,
@@ -13,8 +10,18 @@ from .models import (
     UnifiedOrderStatus,
     UnifiedPosition,
     UnifiedTrade,
+    normalize_position_effect,
+    validate_execution_semantics,
 )
-from .ptrade import PTradeMarketGateway, PTradeTraderGateway
+from .broker_recovery import BrokerRecovery
+from .broker_runtime import BrokerRuntime
+from .brokers.ctp.adapter import CTPMarketAdapter, CTPTraderAdapter
+from .brokers.ctp.native import CTPMarketGateway, CTPTraderGateway
+from .brokers.miniqmt.stub import MiniQMTMarketGateway, MiniQMTTraderGateway
+from .brokers.ptrade.stub import PTradeMarketGateway, PTradeTraderGateway
+from .factory import create_gateway_bundle
+from .order_submitter import BrokerOrderSubmitter
+from .protocols import GatewayBundle, MarketGateway, TraderGateway
 from .registry import (
     get_broker_builder,
     list_registered_brokers,
@@ -26,6 +33,11 @@ __all__ = [
     "MarketGateway",
     "TraderGateway",
     "GatewayBundle",
+    "BrokerCapability",
+    "BrokerEventBridge",
+    "BrokerRecovery",
+    "BrokerRuntime",
+    "BrokerOrderSubmitter",
     "UnifiedOrderStatus",
     "UnifiedErrorType",
     "UnifiedExecutionReport",
@@ -34,6 +46,8 @@ __all__ = [
     "UnifiedTrade",
     "UnifiedAccount",
     "UnifiedPosition",
+    "normalize_position_effect",
+    "validate_execution_semantics",
     "BrokerEventMapper",
     "create_default_mapper",
     "CTPMarketGateway",

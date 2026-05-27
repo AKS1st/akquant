@@ -4,11 +4,14 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Type, Union, cast
 
 from .akquant import Bar, DataFeed, Engine, Instrument
+from .gateway.broker_runtime import BrokerRuntime
 from .gateway.factory import create_gateway_bundle
-from .gateway.models import (
-    BrokerCapability,
-    UnifiedOrderRequest,
-    validate_execution_semantics,
+from .gateway.models import BrokerCapability
+from .gateway.order_submitter import (
+    build_live_order_client_ids,
+    find_live_close_position,
+    resolve_live_order_legs,
+    validate_live_order_client_ids,
 )
 from .log import build_log_extra, get_logger
 from .strategy import Strategy
@@ -16,6 +19,16 @@ from .strategy_loader import resolve_strategy_input
 from .utils import format_metric_value
 
 logger = get_logger("gateway.live")
+
+_LEGACY_GATEWAY_OPTION_KEYS = (
+    "md_front",
+    "td_front",
+    "broker_id",
+    "user_id",
+    "password",
+    "app_id",
+    "auth_code",
+)
 
 
 class _StrategyCallbackFanout:
@@ -172,17 +185,26 @@ class LiveRunner:
         self.strategy_id = (strategy_id or "_default").strip() or "_default"
         self.strategies_by_slot = strategies_by_slot or {}
         self.instruments = instruments
-        self.md_front = md_front
-        self.td_front = td_front
-        self.broker_id = broker_id
-        self.user_id = user_id
-        self.password = password
-        self.app_id = app_id
-        self.auth_code = auth_code
+        self.gateway_options = self._normalize_gateway_options(
+            gateway_options=gateway_options,
+            md_front=md_front,
+            td_front=td_front,
+            broker_id=broker_id,
+            user_id=user_id,
+            password=password,
+            app_id=app_id,
+            auth_code=auth_code,
+        )
+        self.md_front = cast(str, self.gateway_options.get("md_front", ""))
+        self.td_front = cast(Optional[str], self.gateway_options.get("td_front"))
+        self.broker_id = cast(str, self.gateway_options.get("broker_id", ""))
+        self.user_id = cast(str, self.gateway_options.get("user_id", ""))
+        self.password = cast(str, self.gateway_options.get("password", ""))
+        self.app_id = cast(str, self.gateway_options.get("app_id", ""))
+        self.auth_code = cast(str, self.gateway_options.get("auth_code", ""))
         self.use_aggregator = use_aggregator
         self.broker = broker
         self.trading_mode = trading_mode
-        self.gateway_options = gateway_options or {}
         self.initialize = initialize
         self.on_start = on_start
         self.on_stop = on_stop
@@ -634,23 +656,23 @@ class LiveRunner:
         if hasattr(self.engine, "set_risk_budget_reset_daily"):
             cast(Any, self.engine).set_risk_budget_reset_daily(risk_budget_reset_daily)
 
+    def _normalize_gateway_options(
+        self,
+        gateway_options: Optional[Dict[str, Any]],
+        **legacy_values: Any,
+    ) -> Dict[str, Any]:
+        normalized = dict(gateway_options or {})
+        for key in _LEGACY_GATEWAY_OPTION_KEYS:
+            if key in normalized:
+                continue
+            value = legacy_values.get(key)
+            if value is None or value == "":
+                continue
+            normalized[key] = value
+        return normalized
+
     def _build_gateway_kwargs(self) -> Dict[str, Any]:
-        kwargs = dict(self.gateway_options)
-        if self.md_front:
-            kwargs.setdefault("md_front", self.md_front)
-        if self.td_front:
-            kwargs.setdefault("td_front", self.td_front)
-        if self.broker_id:
-            kwargs.setdefault("broker_id", self.broker_id)
-        if self.user_id:
-            kwargs.setdefault("user_id", self.user_id)
-        if self.password:
-            kwargs.setdefault("password", self.password)
-        if self.app_id:
-            kwargs.setdefault("app_id", self.app_id)
-        if self.auth_code:
-            kwargs.setdefault("auth_code", self.auth_code)
-        return kwargs
+        return dict(self.gateway_options)
 
     def _start_gateway_thread(self, target: Any, name: str) -> None:
         thread = threading.Thread(target=target, name=name, daemon=True)
@@ -689,12 +711,41 @@ class LiveRunner:
         self._broker_recovery_thread: threading.Thread | None = None
         self._broker_recovery_interval_sec = 1.0
         self._broker_trader_gateway: Any = None
+        self._broker_runtime: Any = None
+        self._broker_order_submitter: Any = None
+        self._broker_event_bridge: Any = None
+        self._broker_recovery: Any = None
         self._broker_submit_seq = 0
         self._broker_submit_lock = threading.Lock()
         self._broker_recovery_mode = self._normalize_broker_recovery_mode(
             getattr(self, "gateway_options", {}).get("recovery_mode", "compatible")
         )
         self._broker_recovery_last_error_key = ""
+        self._broker_runtime = BrokerRuntime(
+            event_lock=self._broker_event_lock,
+            event_store=self._broker_events,
+            event_keys=self._broker_event_keys,
+            get_on_broker_event=lambda: self.on_broker_event,
+            make_event_key=self._make_event_key,
+            update_broker_state=self._update_broker_state,
+            resolve_owner_strategy_id=self._resolve_owner_strategy_id,
+            payload_to_dict=self._payload_to_dict,
+            safe_strategy_callback=self._safe_strategy_callback,
+            get_trader_gateway=lambda: self._broker_trader_gateway,
+            notify_strategy_error=self._notify_strategy_error,
+            get_recovery_mode=lambda: self._broker_recovery_mode,
+            get_last_error_key=lambda: self._broker_recovery_last_error_key,
+            set_last_error_key=self._set_broker_recovery_last_error_key,
+            resolve_trader_capabilities=self._resolve_trader_capabilities,
+            next_client_order_id=self._next_client_order_id,
+            can_submit_client_order=self.can_submit_client_order,
+            sync_order_id_mapping=self._sync_order_id_mapping,
+            bind_order_owner=self._bind_order_owner,
+            payload_field=self._payload_field,
+            get_execution_capabilities=self.get_execution_capabilities,
+        )
+        self._broker_event_bridge = self._broker_runtime.event_bridge
+        self._broker_recovery = self._broker_runtime.recovery
 
     def _bind_broker_callbacks(self, trader_gateway: Any, strategy: Strategy) -> None:
         self._broker_trader_gateway = trader_gateway
@@ -716,174 +767,46 @@ class LiveRunner:
         self, trader_gateway: Any, strategy: Strategy
     ) -> None:
         self._broker_capabilities = self._resolve_trader_capabilities(trader_gateway)
-
-        def _submit_order(
-            symbol: str,
-            side: str,
-            quantity: float,
-            price: float | None = None,
-            client_order_id: str | None = None,
-            order_type: str = "Market",
-            time_in_force: str = "GTC",
-            trigger_price: float | None = None,
-            tag: str | None = None,
-            position_effect: str = "auto",
-            reduce_only: bool = False,
-            extra: dict[str, Any] | None = None,
-        ) -> str:
-            _ = trigger_price
-            _ = tag
-            if extra:
-                raise RuntimeError("extra broker fields are not supported")
-            capability = self._resolve_trader_capabilities(trader_gateway)
-            normalized_position_effect = validate_execution_semantics(
-                capability,
-                position_effect,
-                reduce_only,
-            )
-            owner_strategy_id = str(getattr(strategy, "_owner_strategy_id", "_default"))
-            order_legs = self._resolve_live_order_legs(
-                trader_gateway=trader_gateway,
-                capability=capability,
-                symbol=symbol,
-                side=side,
-                quantity=quantity,
-                position_effect=normalized_position_effect,
-                reduce_only=reduce_only,
-            )
-            request_client_order_id = client_order_id or self._next_client_order_id()
-            client_order_ids = self._build_live_order_client_ids(
-                request_client_order_id=request_client_order_id,
-                order_legs=order_legs,
-            )
-            self._validate_live_order_client_ids(
-                strategy=strategy,
-                client_order_ids=client_order_ids,
-                symbol=symbol,
-                side=side,
-                quantity=quantity,
-            )
-            broker_order_ids: list[str] = []
-            for leg_index, (leg_position_effect, leg_quantity) in enumerate(order_legs):
-                request = UnifiedOrderRequest(
-                    client_order_id=client_order_ids[leg_index],
-                    symbol=symbol,
-                    side=side,
-                    quantity=leg_quantity,
-                    price=price,
-                    order_type=order_type,
-                    time_in_force=time_in_force,
-                    position_effect=leg_position_effect,
-                    reduce_only=reduce_only,
-                )
-                broker_order_id = str(trader_gateway.place_order(request))
-                broker_order_ids.append(broker_order_id)
-                self._sync_order_id_mapping(request.client_order_id, broker_order_id)
-                self._bind_order_owner(
-                    request.client_order_id, broker_order_id, owner_strategy_id
-                )
-            return broker_order_ids[0]
-
-        setattr(strategy, "submit_order", _submit_order)
-        setattr(strategy, "can_submit_client_order", self.can_submit_client_order)
-        setattr(strategy, "get_execution_capabilities", self.get_execution_capabilities)
+        self._broker_order_submitter = self._broker_runtime.install_submitter(
+            trader_gateway,
+            strategy,
+        )
 
     def _resolve_live_order_legs(
         self,
         trader_gateway: Any,
-        capability: BrokerCapability,
+        capability: Any,
         symbol: str,
         side: str,
         quantity: float,
         position_effect: str,
         reduce_only: bool,
     ) -> list[tuple[str, float]]:
-        normalized_effect = str(position_effect).strip().lower()
-        if quantity <= 0:
-            return [(normalized_effect, quantity)]
-        if reduce_only:
-            return [(normalized_effect, quantity)]
-        if normalized_effect != "close":
-            return [(normalized_effect, quantity)]
-        supported_effects = {
-            str(item).strip().lower() for item in capability.supported_position_effects
-        }
-        if not capability.position_details:
-            return [(normalized_effect, quantity)]
-        if (
-            "close_today" not in supported_effects
-            or "close_yesterday" not in supported_effects
-        ):
-            return [(normalized_effect, quantity)]
-
-        query_positions = getattr(trader_gateway, "query_positions", None)
-        if not callable(query_positions):
-            return [(normalized_effect, quantity)]
-        try:
-            positions = query_positions()
-        except Exception:
-            return [(normalized_effect, quantity)]
-
-        target_position = self._find_live_close_position(positions, symbol, side)
-        if target_position is None:
-            return [(normalized_effect, quantity)]
-
-        available_today = max(
-            0.0, float(getattr(target_position, "available_today_quantity", 0.0) or 0.0)
+        return resolve_live_order_legs(
+            trader_gateway=trader_gateway,
+            capability=capability,
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            position_effect=position_effect,
+            reduce_only=reduce_only,
+            payload_field=self._payload_field,
         )
-        available_yesterday = max(
-            0.0,
-            float(getattr(target_position, "available_yesterday_quantity", 0.0) or 0.0),
-        )
-        split_quantity = min(quantity, available_today + available_yesterday)
-        legs: list[tuple[str, float]] = []
-        close_today_quantity = min(split_quantity, available_today)
-        if close_today_quantity > 0:
-            legs.append(("close_today", close_today_quantity))
-        remaining_quantity = max(split_quantity - close_today_quantity, 0.0)
-        close_yesterday_quantity = min(remaining_quantity, available_yesterday)
-        if close_yesterday_quantity > 0:
-            legs.append(("close_yesterday", close_yesterday_quantity))
-        unresolved_quantity = max(quantity - split_quantity, 0.0)
-        if unresolved_quantity > 0 or not legs:
-            legs.append(
-                ("close", unresolved_quantity if unresolved_quantity > 0 else quantity)
-            )
-        return legs
 
     def _find_live_close_position(
         self, positions: Any, symbol: str, side: str
     ) -> Any | None:
-        target_symbol = str(symbol).strip()
-        normalized_side = str(side).strip().lower()
-        for position in positions or ():
-            position_symbol = str(self._payload_field(position, "symbol")).strip()
-            if position_symbol != target_symbol:
-                continue
-            position_direction = (
-                str(self._payload_field(position, "direction")).strip().lower()
-            )
-            position_quantity = float(self._payload_field(position, "quantity") or 0.0)
-            if normalized_side == "sell" and (
-                position_direction in {"buy", "long"} or position_quantity > 0
-            ):
-                return position
-            if normalized_side == "buy" and (
-                position_direction in {"sell", "short"} or position_quantity < 0
-            ):
-                return position
-        return None
+        return find_live_close_position(
+            positions=positions,
+            symbol=symbol,
+            side=side,
+            payload_field=self._payload_field,
+        )
 
     def _build_live_order_client_ids(
         self, request_client_order_id: str, order_legs: list[tuple[str, float]]
     ) -> list[str]:
-        if len(order_legs) <= 1:
-            return [request_client_order_id]
-        client_order_ids = [request_client_order_id]
-        for leg_index, (position_effect, _) in enumerate(order_legs[1:], start=2):
-            suffix = str(position_effect).replace("_", "-")
-            client_order_ids.append(f"{request_client_order_id}-{suffix}-{leg_index}")
-        return client_order_ids
+        return build_live_order_client_ids(request_client_order_id, order_legs)
 
     def _validate_live_order_client_ids(
         self,
@@ -893,36 +816,15 @@ class LiveRunner:
         side: str,
         quantity: float,
     ) -> None:
-        for client_order_id in client_order_ids:
-            if self.can_submit_client_order(client_order_id):
-                continue
-            exc = RuntimeError(f"duplicate active client_order_id: {client_order_id}")
-            owner_strategy_id = (
-                str(getattr(strategy, "_owner_strategy_id", "_default")).strip()
-                or "_default"
-            )
-            logger.warning(
-                "Rejected live submit_order because client_order_id is already active",
-                extra=build_log_extra(
-                    phase="gateway",
-                    strategy_id=owner_strategy_id,
-                    slot=owner_strategy_id if owner_strategy_id != "_default" else None,
-                    symbol=symbol,
-                    client_order_id=client_order_id,
-                ),
-            )
-            self._notify_strategy_error(
-                strategy,
-                exc,
-                "submit_order",
-                {
-                    "client_order_id": client_order_id,
-                    "symbol": symbol,
-                    "side": side,
-                    "quantity": quantity,
-                },
-            )
-            raise exc
+        validate_live_order_client_ids(
+            strategy=strategy,
+            client_order_ids=client_order_ids,
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            can_submit_client_order=self.can_submit_client_order,
+            notify_strategy_error=self._notify_strategy_error,
+        )
 
     def _start_broker_dispatcher(self, strategy: Strategy) -> None:
         self._stop_broker_dispatcher()
@@ -965,12 +867,7 @@ class LiveRunner:
         self._broker_recovery_thread = None
 
     def _queue_broker_event(self, event_name: str, payload: Any) -> None:
-        event_key = self._make_event_key(event_name, payload)
-        with self._broker_event_lock:
-            if event_key in self._broker_event_keys:
-                return
-            self._broker_event_keys.add(event_key)
-            self._broker_events.append((event_name, payload))
+        self._broker_runtime.queue_event(event_name, payload)
 
     def _broker_dispatch_loop(self, strategy: Strategy) -> None:
         while (
@@ -982,50 +879,7 @@ class LiveRunner:
         self._drain_broker_events(strategy)
 
     def _drain_broker_events(self, strategy: Strategy) -> None:
-        with self._broker_event_lock:
-            events = list(self._broker_events)
-            self._broker_events.clear()
-            self._broker_event_keys.clear()
-        for event_name, payload in events:
-            self._update_broker_state(event_name, payload)
-            if self.on_broker_event is not None:
-                owner_strategy_id = self._resolve_owner_strategy_id(payload)
-                payload_dict = self._payload_to_dict(payload)
-                try:
-                    self.on_broker_event(
-                        {
-                            "event_type": event_name,
-                            "owner_strategy_id": owner_strategy_id,
-                            "payload": payload_dict,
-                        }
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Broker event observer failed",
-                        exc_info=exc,
-                        extra=build_log_extra(
-                            phase="gateway",
-                            strategy_id=owner_strategy_id,
-                            slot=(
-                                owner_strategy_id
-                                if owner_strategy_id != "_default"
-                                else None
-                            ),
-                            symbol=str(payload_dict.get("symbol", "") or "").strip()
-                            or None,
-                            order_id=payload_dict.get("broker_order_id")
-                            or payload_dict.get("order_id"),
-                            client_order_id=payload_dict.get("client_order_id"),
-                        ),
-                    )
-            if event_name == "order":
-                self._safe_strategy_callback(strategy, "on_order", payload)
-            elif event_name == "trade":
-                self._safe_strategy_callback(strategy, "on_trade", payload)
-            elif event_name == "execution_report":
-                self._safe_strategy_callback(strategy, "on_execution_report", payload)
-            elif event_name == "account":
-                self._safe_strategy_callback(strategy, "on_portfolio_update", payload)
+        self._broker_runtime.drain_events(strategy)
 
     def _broker_recovery_loop(self, strategy: Strategy) -> None:
         while (
@@ -1037,78 +891,10 @@ class LiveRunner:
             time.sleep(self._broker_recovery_interval_sec)
 
     def _run_broker_recovery_cycle(self, strategy: Strategy | None = None) -> None:
-        gateway = self._broker_trader_gateway
-        if gateway is None:
-            return
-        heartbeat = getattr(gateway, "heartbeat", None)
-        if callable(heartbeat):
-            try:
-                alive = heartbeat()
-            except Exception as exc:
-                self._handle_broker_recovery_error(
-                    strategy,
-                    "broker_recovery.heartbeat",
-                    exc,
-                    {"stage": "heartbeat"},
-                )
-                return
-            if not alive:
-                connect = getattr(gateway, "connect", None)
-                if callable(connect):
-                    try:
-                        connect()
-                    except Exception as exc:
-                        self._handle_broker_recovery_error(
-                            strategy,
-                            "broker_recovery.connect",
-                            exc,
-                            {"stage": "connect"},
-                        )
-                        return
-        sync_open_orders = getattr(gateway, "sync_open_orders", None)
-        if callable(sync_open_orders):
-            try:
-                for order in sync_open_orders():
-                    self._queue_broker_event("order", order)
-            except Exception as exc:
-                self._handle_broker_recovery_error(
-                    strategy,
-                    "broker_recovery.sync_open_orders",
-                    exc,
-                    {"stage": "sync_open_orders"},
-                )
-                if self._broker_recovery_mode == "strict":
-                    return
-        sync_today_trades = getattr(gateway, "sync_today_trades", None)
-        if callable(sync_today_trades):
-            try:
-                for trade in sync_today_trades():
-                    self._queue_broker_event("trade", trade)
-            except Exception as exc:
-                self._handle_broker_recovery_error(
-                    strategy,
-                    "broker_recovery.sync_today_trades",
-                    exc,
-                    {"stage": "sync_today_trades"},
-                )
-                if self._broker_recovery_mode == "strict":
-                    return
-        query_account = getattr(gateway, "query_account", None)
-        if callable(query_account):
-            try:
-                account = query_account()
-                if account is not None:
-                    self._queue_broker_event("account", account)
-            except Exception as exc:
-                self._handle_broker_recovery_error(
-                    strategy,
-                    "broker_recovery.query_account",
-                    exc,
-                    {"stage": "query_account"},
-                )
-                if self._broker_recovery_mode == "strict":
-                    return
-        self._broker_recovery_last_error_key = ""
+        self._broker_runtime.run_recovery_cycle(
+            strategy,
+            handle_error=self._handle_broker_recovery_error,
+        )
 
     def _update_broker_state(self, event_name: str, payload: Any) -> None:
         if event_name == "order":
@@ -1306,30 +1092,10 @@ class LiveRunner:
         error: Exception,
         payload: Dict[str, Any],
     ) -> None:
-        if self._broker_recovery_mode != "strict":
-            return
-        error_key = f"{source}:{type(error).__name__}:{error}"
-        if error_key == self._broker_recovery_last_error_key:
-            return
+        self._broker_runtime.handle_recovery_error(strategy, source, error, payload)
+
+    def _set_broker_recovery_last_error_key(self, error_key: str) -> None:
         self._broker_recovery_last_error_key = error_key
-        if strategy is not None:
-            self._notify_strategy_error(strategy, error, source, payload)
-        if self.on_broker_event is not None:
-            try:
-                self.on_broker_event(
-                    {
-                        "event_type": "recovery_error",
-                        "owner_strategy_id": "_default",
-                        "payload": {
-                            **dict(payload),
-                            "source": source,
-                            "error_type": type(error).__name__,
-                            "error_message": str(error),
-                        },
-                    }
-                )
-            except Exception:
-                pass
 
     def _notify_strategy_error(
         self,

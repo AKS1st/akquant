@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, Sequence
 
 from ..akquant import DataFeed
-from .base import GatewayBundle
+from .protocols import GatewayBundle
 
 GatewayBuilder = Callable[[DataFeed, Sequence[str], bool], GatewayBundle]
 
