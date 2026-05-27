@@ -9,7 +9,7 @@ from akquant.gateway import (
     register_broker,
     unregister_broker,
 )
-from akquant.gateway.models import (
+from akquant.gateway.broker_models import (
     BrokerCapability,
     UnifiedAccount,
     UnifiedExecutionReport,

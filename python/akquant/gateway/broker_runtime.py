@@ -1,0 +1,127 @@
+from typing import Any, Callable
+
+from .broker_event_bridge import BrokerEventBridge
+from .broker_models import BrokerCapability
+from .broker_recovery import BrokerRecovery
+from .order_submitter import BrokerOrderSubmitter
+
+
+class BrokerRuntime:
+    """Coordinate broker-live submitter, event bridge and recovery helpers."""
+
+    def __init__(
+        self,
+        *,
+        event_lock: Any,
+        event_store: list[tuple[str, Any]],
+        event_keys: set[str],
+        get_on_broker_event: Callable[[], Callable[[dict[str, Any]], None] | None],
+        make_event_key: Callable[[str, Any], str],
+        update_broker_state: Callable[[str, Any], None],
+        resolve_owner_strategy_id: Callable[[Any], str],
+        payload_to_dict: Callable[[Any], dict[str, Any]],
+        safe_strategy_callback: Callable[[Any, str, Any], None],
+        get_trader_gateway: Callable[[], Any],
+        notify_strategy_error: Callable[[Any, Exception, str, Any], None],
+        get_recovery_mode: Callable[[], str],
+        get_last_error_key: Callable[[], str],
+        set_last_error_key: Callable[[str], None],
+        resolve_trader_capabilities: Callable[[Any], BrokerCapability],
+        next_client_order_id: Callable[[], str],
+        can_submit_client_order: Callable[[str], bool],
+        sync_order_id_mapping: Callable[[str, str], None],
+        bind_order_owner: Callable[[str, str, str], None],
+        payload_field: Callable[[Any, str], Any],
+        get_execution_capabilities: Callable[[], dict[str, Any]],
+    ) -> None:
+        """Assemble broker submitter, event bridge and recovery coordinators."""
+        self._event_bridge = BrokerEventBridge(
+            event_lock=event_lock,
+            event_store=event_store,
+            event_keys=event_keys,
+            get_on_broker_event=get_on_broker_event,
+            make_event_key=make_event_key,
+            update_broker_state=update_broker_state,
+            resolve_owner_strategy_id=resolve_owner_strategy_id,
+            payload_to_dict=payload_to_dict,
+            safe_strategy_callback=safe_strategy_callback,
+        )
+        self._recovery = BrokerRecovery(
+            get_trader_gateway=get_trader_gateway,
+            queue_broker_event=self._event_bridge.queue_event,
+            notify_strategy_error=notify_strategy_error,
+            get_on_broker_event=get_on_broker_event,
+            get_recovery_mode=get_recovery_mode,
+            get_last_error_key=get_last_error_key,
+            set_last_error_key=set_last_error_key,
+        )
+        self._resolve_trader_capabilities = resolve_trader_capabilities
+        self._next_client_order_id = next_client_order_id
+        self._can_submit_client_order = can_submit_client_order
+        self._sync_order_id_mapping = sync_order_id_mapping
+        self._bind_order_owner = bind_order_owner
+        self._notify_strategy_error = notify_strategy_error
+        self._payload_field = payload_field
+        self._get_execution_capabilities = get_execution_capabilities
+        self._submitter: BrokerOrderSubmitter | None = None
+
+    @property
+    def event_bridge(self) -> BrokerEventBridge:
+        """Expose the broker event bridge used by the runtime."""
+        return self._event_bridge
+
+    @property
+    def recovery(self) -> BrokerRecovery:
+        """Expose the broker recovery helper used by the runtime."""
+        return self._recovery
+
+    @property
+    def submitter(self) -> BrokerOrderSubmitter | None:
+        """Return the installed submitter, if broker live submit is enabled."""
+        return self._submitter
+
+    def install_submitter(
+        self, trader_gateway: Any, strategy: Any
+    ) -> BrokerOrderSubmitter:
+        """Create and install the strategy-facing broker submitter."""
+        self._submitter = BrokerOrderSubmitter(
+            trader_gateway=trader_gateway,
+            strategy=strategy,
+            resolve_trader_capabilities=self._resolve_trader_capabilities,
+            next_client_order_id=self._next_client_order_id,
+            can_submit_client_order=self._can_submit_client_order,
+            sync_order_id_mapping=self._sync_order_id_mapping,
+            bind_order_owner=self._bind_order_owner,
+            notify_strategy_error=self._notify_strategy_error,
+            payload_field=self._payload_field,
+            get_execution_capabilities=self._get_execution_capabilities,
+        )
+        self._submitter.install()
+        return self._submitter
+
+    def queue_event(self, event_name: str, payload: Any) -> None:
+        """Queue a broker event through the runtime-owned event bridge."""
+        self._event_bridge.queue_event(event_name, payload)
+
+    def drain_events(self, strategy: Any) -> None:
+        """Drain queued broker events and dispatch them to the strategy."""
+        self._event_bridge.drain_events(strategy)
+
+    def run_recovery_cycle(
+        self,
+        strategy: Any | None = None,
+        handle_error: Callable[[Any | None, str, Exception, dict[str, Any]], None]
+        | None = None,
+    ) -> None:
+        """Run one recovery cycle through the runtime-owned recovery helper."""
+        self._recovery.run_cycle(strategy, handle_error=handle_error)
+
+    def handle_recovery_error(
+        self,
+        strategy: Any | None,
+        source: str,
+        error: Exception,
+        payload: dict[str, Any],
+    ) -> None:
+        """Delegate recovery error handling to the recovery helper."""
+        self._recovery.handle_error(strategy, source, error, payload)

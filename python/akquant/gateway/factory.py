@@ -1,10 +1,10 @@
 from typing import Any, Sequence
 
 from ..akquant import DataFeed
-from .base import GatewayBundle, MarketGateway, TraderGateway
-from .ctp_adapter import CTPMarketAdapter, CTPTraderAdapter
-from .miniqmt import MiniQMTMarketGateway, MiniQMTTraderGateway
-from .ptrade import PTradeMarketGateway, PTradeTraderGateway
+from .brokers.ctp.adapter import CTPMarketAdapter, CTPTraderAdapter
+from .brokers.miniqmt.stub import MiniQMTMarketGateway, MiniQMTTraderGateway
+from .brokers.ptrade.stub import PTradeMarketGateway, PTradeTraderGateway
+from .protocols import GatewayBundle, MarketGateway, TraderGateway
 from .registry import create_registered_gateway_bundle, list_registered_brokers
 
 
