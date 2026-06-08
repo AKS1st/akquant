@@ -159,6 +159,42 @@ class BuyBuySellBuyStrategy(akquant.Strategy):
         self._step += 1
 
 
+class PositionEntryPriceCaptureStrategy(akquant.Strategy):
+    """Capture runtime position helper state across buy/sell transitions."""
+
+    def __init__(self) -> None:
+        """Initialize step counter and capture buffer."""
+        super().__init__()
+        self._step = 0
+        self.snapshots: list[dict[str, float | str]] = []
+
+    def on_bar(self, bar: akquant.Bar) -> None:
+        """Record helper values before submitting deterministic orders."""
+        pos = self.position
+        ctx_entry_price = 0.0
+        if self.ctx is not None:
+            ctx_entry_price = float(self.ctx.get_position_entry_price(bar.symbol))
+        self.snapshots.append(
+            {
+                "size": float(pos.size),
+                "available": float(pos.available),
+                "entry_price": float(pos.entry_price),
+                "avg_price": float(pos.avg_price),
+                "ctx_entry_price": ctx_entry_price,
+                "repr": repr(pos),
+            }
+        )
+        if self._step == 0:
+            self.buy(symbol=bar.symbol, quantity=10)
+        elif self._step == 1:
+            self.buy(symbol=bar.symbol, quantity=10)
+        elif self._step == 2:
+            self.sell(symbol=bar.symbol, quantity=5)
+        elif self._step == 3:
+            self.sell(symbol=bar.symbol, quantity=15)
+        self._step += 1
+
+
 class ContinuousBuyStrategy(akquant.Strategy):
     """Submit a buy order on every bar."""
 
@@ -381,6 +417,22 @@ def _build_daily_loss_bars(symbol: str) -> list[akquant.Bar]:
         akquant.Bar(day1, 10.0, 10.0, 10.0, 10.0, 1000.0, symbol),
         akquant.Bar(day2, 8.0, 8.0, 8.0, 8.0, 1000.0, symbol),
         akquant.Bar(day3, 8.0, 8.0, 8.0, 8.0, 1000.0, symbol),
+    ]
+
+
+def _build_position_entry_price_bars(symbol: str) -> list[akquant.Bar]:
+    """Build bars for weighted-average position entry price checks."""
+    day1 = _ns(datetime(2023, 2, 1, 15, 0, tzinfo=timezone.utc))
+    day2 = _ns(datetime(2023, 2, 2, 15, 0, tzinfo=timezone.utc))
+    day3 = _ns(datetime(2023, 2, 3, 15, 0, tzinfo=timezone.utc))
+    day4 = _ns(datetime(2023, 2, 4, 15, 0, tzinfo=timezone.utc))
+    day5 = _ns(datetime(2023, 2, 5, 15, 0, tzinfo=timezone.utc))
+    return [
+        akquant.Bar(day1, 10.0, 10.0, 10.0, 10.0, 1000.0, symbol),
+        akquant.Bar(day2, 12.0, 12.0, 12.0, 12.0, 1000.0, symbol),
+        akquant.Bar(day3, 11.0, 11.0, 11.0, 11.0, 1000.0, symbol),
+        akquant.Bar(day4, 11.0, 11.0, 11.0, 11.0, 1000.0, symbol),
+        akquant.Bar(day5, 11.0, 11.0, 11.0, 11.0, 1000.0, symbol),
     ]
 
 
@@ -1781,6 +1833,56 @@ def test_engine_set_fill_policy_roundtrip() -> None:
     assert basis == "close"
     assert int(bar_offset) == 1
     assert temporal == "next_event"
+
+
+def test_position_helper_exposes_runtime_entry_price() -> None:
+    """Position helper should expose weighted-average runtime entry price."""
+    symbol = "POS_HELPER"
+    engine = akquant.Engine()
+    engine.use_simple_market(0.0)
+    engine.set_force_session_continuous(True)
+    cast(Any, engine).set_fill_policy("close", 0, "same_cycle")
+    engine.set_cash(100000.0)
+    engine.set_stock_fee_rules(0.0, 0.0, 0.0, 0.0)
+    engine.set_t_plus_one(False)
+
+    instr = akquant.Instrument(
+        symbol=symbol,
+        asset_type=akquant.AssetType.Stock,
+        multiplier=1.0,
+        margin_ratio=1.0,
+        tick_size=0.01,
+        option_type=None,
+        strike_price=None,
+        expiry_date=None,
+        lot_size=1.0,
+    )
+    engine.add_instrument(instr)
+    engine.add_bars(_build_position_entry_price_bars(symbol))
+
+    strategy = PositionEntryPriceCaptureStrategy()
+    engine.run(strategy, show_progress=False)
+
+    assert len(strategy.snapshots) == 5
+    assert strategy.snapshots[0]["size"] == pytest.approx(0.0, rel=1e-9)
+    assert strategy.snapshots[0]["entry_price"] == pytest.approx(0.0, rel=1e-9)
+    assert strategy.snapshots[1]["size"] == pytest.approx(10.0, rel=1e-9)
+    assert strategy.snapshots[1]["available"] == pytest.approx(10.0, rel=1e-9)
+    assert strategy.snapshots[1]["entry_price"] == pytest.approx(10.0, rel=1e-9)
+    assert strategy.snapshots[1]["avg_price"] == pytest.approx(10.0, rel=1e-9)
+    assert strategy.snapshots[1]["ctx_entry_price"] == pytest.approx(10.0, rel=1e-9)
+    assert strategy.snapshots[2]["size"] == pytest.approx(20.0, rel=1e-9)
+    assert strategy.snapshots[2]["entry_price"] == pytest.approx(11.0, rel=1e-9)
+    assert strategy.snapshots[3]["size"] == pytest.approx(15.0, rel=1e-9)
+    assert strategy.snapshots[3]["entry_price"] == pytest.approx(34.0 / 3.0, rel=1e-9)
+    assert strategy.snapshots[3]["avg_price"] == pytest.approx(34.0 / 3.0, rel=1e-9)
+    assert strategy.snapshots[3]["ctx_entry_price"] == pytest.approx(
+        34.0 / 3.0, rel=1e-9
+    )
+    assert strategy.snapshots[4]["size"] == pytest.approx(0.0, rel=1e-9)
+    assert strategy.snapshots[4]["available"] == pytest.approx(0.0, rel=1e-9)
+    assert strategy.snapshots[4]["entry_price"] == pytest.approx(0.0, rel=1e-9)
+    assert "entry_price=0.0" in cast(str, strategy.snapshots[4]["repr"])
 
 
 def test_engine_set_fill_policy_invalid_combo() -> None:

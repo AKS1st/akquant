@@ -28,6 +28,19 @@ class Position:
         """可用持仓数量."""
         return self._ctx.get_available_position(self._symbol)
 
+    @property
+    def entry_price(self) -> float:
+        """持仓均价."""
+        return self._ctx.get_position_entry_price(self._symbol)
+
+    @property
+    def avg_price(self) -> float:
+        """持仓均价别名."""
+        return self.entry_price
+
     def __repr__(self) -> str:
         """返回持仓信息的字符串表示."""
-        return f"Position(symbol={self._symbol}, size={self.size})"
+        return (
+            f"Position(symbol={self._symbol}, size={self.size}, "
+            f"available={self.available}, entry_price={self.entry_price})"
+        )

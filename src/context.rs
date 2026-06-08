@@ -43,6 +43,7 @@ pub struct ContextInit {
     pub previous_cash: Decimal,
     pub positions: Arc<HashMap<String, Decimal>>,
     pub available_positions: Arc<HashMap<String, Decimal>>,
+    pub position_entry_prices: Arc<HashMap<String, Decimal>>,
     pub session: TradingSession,
     pub current_time: i64,
     pub active_orders: Arc<Vec<Order>>,
@@ -75,6 +76,7 @@ pub struct ContextUpdate {
     pub previous_cash: Decimal,
     pub positions: Arc<HashMap<String, Decimal>>,
     pub available_positions: Arc<HashMap<String, Decimal>>,
+    pub position_entry_prices: Arc<HashMap<String, Decimal>>,
     pub session: TradingSession,
     pub current_time: i64,
     pub active_orders: Arc<Vec<Order>>,
@@ -287,6 +289,7 @@ impl StrategyContext {
         self.previous_cash = update.previous_cash;
         self.positions = update.positions;
         self.available_positions = update.available_positions;
+        self.position_entry_prices = update.position_entry_prices;
         self.session = update.session;
         self.current_time = update.current_time;
         self.active_orders_arc = update.active_orders.clone();
@@ -375,6 +378,7 @@ pub struct StrategyContext {
     pub previous_cash: Decimal,
     pub positions: Arc<HashMap<String, Decimal>>,
     pub available_positions: Arc<HashMap<String, Decimal>>,
+    pub position_entry_prices: Arc<HashMap<String, Decimal>>,
     #[pyo3(get)]
     pub session: TradingSession,
     #[pyo3(get)]
@@ -443,6 +447,7 @@ impl StrategyContext {
             previous_cash: init.previous_cash,
             positions: init.positions,
             available_positions: init.available_positions,
+            position_entry_prices: init.position_entry_prices,
             session: init.session,
             current_time: init.current_time,
             closed_trades: init.closed_trades,
@@ -479,6 +484,7 @@ impl StrategyContext {
     /// :param cash: 初始资金
     /// :param positions: 初始持仓 {symbol: quantity}
     /// :param available_positions: 初始可用持仓 {symbol: quantity}
+    /// :param position_entry_prices: 初始持仓均价 {symbol: entry_price}
     /// :param session: 当前交易时段
     /// :param current_time: 当前时间戳 (纳秒)
     /// :param active_orders: 当前活跃订单列表
@@ -493,6 +499,7 @@ impl StrategyContext {
         previous_cash: Option<&Bound<'_, PyAny>>,
         positions: HashMap<String, f64>,
         available_positions: HashMap<String, f64>,
+        position_entry_prices: Option<HashMap<String, f64>>,
         session: Option<TradingSession>,
         current_time: Option<i64>,
         active_orders: Option<Vec<Order>>,
@@ -524,6 +531,11 @@ impl StrategyContext {
             .into_iter()
             .map(|(k, v)| (k, Decimal::from_f64(v).unwrap_or(Decimal::ZERO)))
             .collect();
+        let entry_price_dec: HashMap<String, Decimal> = position_entry_prices
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k, Decimal::from_f64(v).unwrap_or(Decimal::ZERO)))
+            .collect();
 
         Ok(StrategyContext {
             orders: Vec::new(),
@@ -538,6 +550,7 @@ impl StrategyContext {
             previous_cash: extract_decimal(previous_cash.unwrap_or(cash))?,
             positions: Arc::new(pos_dec),
             available_positions: Arc::new(avail_dec),
+            position_entry_prices: Arc::new(entry_price_dec),
             session: session.unwrap_or(TradingSession::Continuous),
             current_time: current_time.unwrap_or(0),
             closed_trades: Arc::new(closed_trades.unwrap_or_default()),
@@ -668,6 +681,14 @@ impl StrategyContext {
         self.available_positions
             .iter()
             .filter(|(_, v)| !v.is_zero())
+            .map(|(k, v)| (k.clone(), v.to_f64().unwrap_or_default()))
+            .collect()
+    }
+
+    #[getter]
+    fn get_position_entry_prices(&self) -> HashMap<String, f64> {
+        self.position_entry_prices
+            .iter()
             .map(|(k, v)| (k.clone(), v.to_f64().unwrap_or_default()))
             .collect()
     }
@@ -945,6 +966,18 @@ impl StrategyContext {
     /// :return: 可用持仓数量
     fn get_available_position(&self, symbol: String) -> f64 {
         self.available_positions
+            .get(&symbol)
+            .unwrap_or(&Decimal::ZERO)
+            .to_f64()
+            .unwrap_or_default()
+    }
+
+    /// 获取当前持仓均价.
+    ///
+    /// :param symbol: 标的代码
+    /// :return: 持仓均价
+    fn get_position_entry_price(&self, symbol: String) -> f64 {
+        self.position_entry_prices
             .get(&symbol)
             .unwrap_or(&Decimal::ZERO)
             .to_f64()

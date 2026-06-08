@@ -871,9 +871,13 @@ def on_pre_open(self, event: Dict[str, Any]) -> None:
 *   `get_history_map(count, symbols, field="close") -> Dict[str, np.ndarray]`: 批量获取多个标的历史数据。
 *   `rebalance_to_topn(scores, top_n, weight_mode="equal", ...) -> List[str]`: 根据打分选取 TopN 并执行调仓，支持等权或按分数归一化。
 *   `get_history_df(count, symbol) -> pd.DataFrame`: 获取历史数据 DataFrame (OHLCV)。
-*   `get_position(symbol) -> float`: 获取当前持仓量。
+*   `get_position(symbol) -> float`: 获取当前持仓量。返回值仍为数量，不返回对象。
 *   `get_available_position(symbol) -> float`: 获取可用持仓量。
 *   `get_positions() -> Dict[str, float]`: 获取所有标的持仓。
+*   `self.position.entry_price -> float`: 通过 `Position` helper 获取当前标的持仓均价。
+*   `self.position.avg_price -> float`: `entry_price` 的别名。
+*   `ctx.get_position_entry_price(symbol) -> float`: 获取指定标的当前持仓均价。
+*   `ctx.get_position_entry_prices() -> Dict[str, float]`: 获取所有标的当前持仓均价。
 *   `hold_bar(symbol) -> int`: 获取当前持仓持有的 Bar 数量。
 *   `get_cash() -> float`: 获取当前可用资金。
 *   `get_account() -> Dict[str, float]`: 获取账户详情快照。常见字段包括 `cash`、`equity`、`market_value`、`notional_value`、`frozen_cash`、`margin`、`used_margin`、`unrealized_pnl`、`borrowed_cash`、`short_market_value`、`maintenance_ratio`、`account_mode`、`accrued_interest`、`daily_interest`。

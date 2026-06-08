@@ -848,7 +848,13 @@ Note: if you do not pass an explicit `fill_policy` here, the framework defaults 
 
 *   `get_history(count, symbol, field="close") -> np.ndarray`: Get history data array (Zero-Copy). Supports `open/high/low/close/volume` and any numeric extra fields (e.g., `adj_close`, `adj_factor`).
 *   `get_history_df(count, symbol) -> pd.DataFrame`: Get history data DataFrame (OHLCV).
-*   `get_position(symbol) -> float`: Get current position size.
+*   `get_position(symbol) -> float`: Get current position size. This still returns a numeric quantity, not an object.
+*   `get_available_position(symbol) -> float`: Get available position size.
+*   `get_positions() -> Dict[str, float]`: Get all positions by symbol.
+*   `self.position.entry_price -> float`: Get the current symbol's average entry price via the `Position` helper.
+*   `self.position.avg_price -> float`: Alias of `entry_price`.
+*   `ctx.get_position_entry_price(symbol) -> float`: Get the current average entry price for one symbol.
+*   `ctx.get_position_entry_prices() -> Dict[str, float]`: Get current average entry prices for all symbols.
 *   `get_cash() -> float`: Get current available cash.
 *   `get_account() -> Dict[str, float]`: Get an account snapshot. Common fields include `cash`, `equity`, `market_value`, `notional_value`, `frozen_cash`, `margin`, `used_margin`, `unrealized_pnl`, `borrowed_cash`, `short_market_value`, `maintenance_ratio`, `account_mode`, `accrued_interest`, and `daily_interest`.
     *   In cash / spot-style accounts, `market_value` usually represents marked position value.
