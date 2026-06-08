@@ -617,6 +617,18 @@ In addition to `get_position`, you can query more account information:
 *   **`self.get_trades()`**: Get all historical closed trades.
 *   **`self.get_open_orders()`**: Get current open orders.
 *   **`self.get_available_position(symbol)`**: Get available position (considering T+1 rule).
+*   **`self.position.entry_price`**: Get the current symbol's average entry price from the `Position` helper.
+*   **`self.position.avg_price`**: Alias of `entry_price`.
+*   **`self.ctx.get_position_entry_price(symbol)`**: Get average entry price for a specific symbol.
+
+`self.get_position(symbol)` still returns a numeric quantity. If you need average entry price, use the `Position` helper or `self.ctx.get_position_entry_price(symbol)`.
+
+```python
+def on_bar(self, bar):
+    pos = self.position
+    if pos.size > 0 and pos.entry_price > 0:
+        pnl_pct = (bar.close - pos.entry_price) / pos.entry_price
+```
 
 ### 5.6 Instrument Static Metadata Query (Recommended)
 

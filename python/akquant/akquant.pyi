@@ -2703,6 +2703,23 @@ class StrategyContext:
         """
         ...
 
+    def get_position_entry_prices(self) -> dict[str, float]:
+        r"""
+        获取当前所有持仓均价.
+
+        :return: 持仓均价字典 {symbol: entry_price}
+        """
+        ...
+
+    def get_position_entry_price(self, symbol: str) -> float:
+        r"""
+        获取当前持仓均价.
+
+        :param symbol: 标的代码
+        :return: 持仓均价
+        """
+        ...
+
 class ExpiryEvent:
     symbol: str
     asset_type: akquant.AssetType

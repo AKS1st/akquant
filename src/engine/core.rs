@@ -146,6 +146,22 @@ impl Engine {
         )
     }
 
+    fn build_position_entry_prices(&self) -> Arc<HashMap<String, Decimal>> {
+        let mut entry_prices = HashMap::new();
+        for (symbol, quantity) in self.state.portfolio.positions.iter() {
+            if quantity.is_zero() {
+                continue;
+            }
+            let average_price = self
+                .state
+                .order_manager
+                .trade_tracker
+                .get_average_price(symbol);
+            entry_prices.insert(symbol.clone(), average_price);
+        }
+        Arc::new(entry_prices)
+    }
+
     pub(crate) fn is_active_timestamp(&self, timestamp: i64) -> bool {
         self.active_start_time_ns
             .is_none_or(|start_ns| timestamp >= start_ns)
@@ -602,6 +618,7 @@ impl Engine {
     ) -> PyResult<Py<StrategyContext>> {
         self.ensure_strategy_context_capacity();
         let account_metrics = self.current_account_metrics();
+        let position_entry_prices = self.build_position_entry_prices();
         if let Some(existing_ctx) = self
             .strategy_contexts
             .get(slot_index)
@@ -616,6 +633,7 @@ impl Engine {
                         previous_cash,
                         positions: self.state.portfolio.positions.clone(),
                         available_positions: self.state.portfolio.available_positions.clone(),
+                        position_entry_prices,
                         session: self.clock.session,
                         current_time: self.clock.timestamp().unwrap_or(0),
                         active_orders,
@@ -999,12 +1017,14 @@ impl Engine {
         previous_account_metrics: AccountMetrics,
     ) -> StrategyContext {
         let account_metrics = self.current_account_metrics();
+        let position_entry_prices = self.build_position_entry_prices();
         // Create a temporary context for the strategy to use
         StrategyContext::new(crate::context::ContextInit {
             cash: self.state.portfolio.cash,
             previous_cash,
             positions: self.state.portfolio.positions.clone(),
             available_positions: self.state.portfolio.available_positions.clone(),
+            position_entry_prices,
             session: self.clock.session,
             current_time: self.clock.timestamp().unwrap_or(0),
             active_orders,

@@ -869,7 +869,11 @@ akquant.run_backtest(
     > pos = self.position  # 获取当前 symbol 的 Position 对象
     > print(pos.size)      # 总持仓
     > print(pos.available) # 可用持仓
+    > print(pos.entry_price)  # 持仓均价
+    > print(pos.avg_price)    # entry_price 的别名
     > ```
+    >
+    > `self.get_position(symbol)` 的返回值仍然是 `float` 数量；如果你需要持仓均价，请使用 `Position` helper 或 `self.ctx.get_position_entry_price(symbol)`。
 
 **示例代码**：
 
@@ -881,6 +885,10 @@ def on_bar(self, bar: Bar):
     # 卖出逻辑：必须检查可用持仓
     if signal_sell and pos.available > 0:
         self.sell(bar.symbol, pos.available)
+
+    # 成本线判断：直接读取运行态持仓均价
+    if pos.size > 0 and pos.entry_price > 0:
+        pnl_pct = (bar.close - pos.entry_price) / pos.entry_price
 ```
 
 > **注意**：如果你在 T+1 模式下尝试卖出超过 `available` 的数量，订单会被风控模块（Risk Manager）**拒绝 (Rejected)**，并提示 "Insufficient available position"。

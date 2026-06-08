@@ -161,7 +161,7 @@ A: 因为这些字段现在统一表示 UTC 时间。北京时间 09:31 对应 U
 A: 请检查你的输入数据是否是 Naive Datetime（无时区）。如果是 Naive 的，AKQuant 会默认当作北京时间处理，导致转换到 UTC 时出错。请在传入数据前使用 `.tz_localize("US/Eastern")` 处理数据索引。
 
 **Q: `AttributeError: 'float' object has no attribute 'quantity'` 是什么？**
-A: 这通常是在访问持仓时发生的错误。`self.ctx.get_position(symbol)` 返回的是持仓数量（float），而不是一个对象。请直接使用返回值作为数量。
+A: 这通常是在访问持仓时发生的错误。`self.ctx.get_position(symbol)` 返回的是持仓数量（float），而不是一个对象。请直接使用返回值作为数量。如果你需要持仓均价，请改用 `self.position.entry_price` 或 `self.ctx.get_position_entry_price(symbol)`。
 
 **Q: 混合频率回测时，日线和分钟线怎么对齐？**
 A: AKQuant 是事件驱动的，按时间戳顺序处理 Bar。

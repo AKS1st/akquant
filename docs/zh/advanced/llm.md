@@ -17,7 +17,7 @@ Your task is to write trading strategies or backtest scripts based on user requi
     *   **Initialization**: Define parameters in `__init__`. Calling `super().__init__()` is optional but recommended.
     *   **Subscription**: Call `self.subscribe(symbol)` in `on_start` to explicitly declare interest. In backtest, it's optional if data is provided.
     *   **Logic**: Implement trading logic in `on_bar(self, bar: Bar)`.
-    *   **Position Helper**: You can use `self.get_position(symbol)` or the `Position` helper class (e.g., `pos = Position(self.ctx, symbol)`).
+    *   **Position Helper**: You can use `self.get_position(symbol)` for numeric quantity, or the `Position` helper class (e.g., `pos = Position(self.ctx, symbol)`) when you also need `size`, `available`, or `entry_price`.
 
 2.  **Data Access**:
     *   **Warmup Period**:
@@ -36,7 +36,7 @@ Your task is to write trading strategies or backtest scripts based on user requi
         *   `self.order_target_percent(target, symbol)`: Adjust position to target percentage.
         *   `self.order_target_value(target, symbol)`: Adjust position to target value.
         *   在 `fill_policy={"price_basis":"close","bar_offset":0}` 下，同一事件周期中若同时存在卖单与买单，撮合采用先卖后买语义：先处理卖单成交并结算资金，再进行买单风控与下单数量计算。
-    *   **Position**: `self.get_position(symbol)` returns current holding (float).
+    *   **Position**: `self.get_position(symbol)` returns current holding (float). `self.position.entry_price` or `self.ctx.get_position_entry_price(symbol)` returns runtime average entry price.
     *   **Account**: `self.ctx.cash`, `self.get_portfolio_value()`, `self.get_account()`.
 
 4.  **Indicators**:
