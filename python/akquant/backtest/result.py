@@ -1167,6 +1167,37 @@ class BacktestResult:
             "other_risk_reject_count": (~known_mask).astype(int),
         }
 
+    @staticmethod
+    def _classify_reject_reason(reason: Any) -> str:
+        """Map raw reject messages to stable report-friendly categories."""
+        reason_text = str(reason).strip()
+        if not reason_text:
+            return "Empty Reject Reason"
+        reason_lower = reason_text.lower()
+        if "insufficient margin" in reason_lower:
+            return "Insufficient Margin"
+        if "daily loss" in reason_lower or "stop-loss threshold" in reason_lower:
+            return "Daily Loss Limit"
+        if "drawdown" in reason_lower:
+            return "Drawdown Limit"
+        if "reduce_only mode" in reason_lower or "cooldown" in reason_lower:
+            return "Reduce-Only / Cooldown"
+        if (
+            "projected position" in reason_lower
+            or "available position" in reason_lower
+            or "is restricted" in reason_lower
+        ):
+            return "Position Limit"
+        if "order quantity" in reason_lower or "lot size" in reason_lower:
+            return "Order Size Limit"
+        if "order value" in reason_lower:
+            return "Order Value Limit"
+        if "portfolio risk budget" in reason_lower:
+            return "Portfolio Risk Budget"
+        if "risk budget" in reason_lower and "strategy" in reason_lower:
+            return "Strategy Risk Budget"
+        return "Other"
+
     def top_reject_reasons(self, top_n: int = 10) -> pd.DataFrame:
         """Get Top-N rejection reasons from orders."""
         columns = ["reject_reason", "count", "ratio"]
@@ -1211,6 +1242,64 @@ class BacktestResult:
         )
         frame["ratio"] = frame["count"] / float(total)
         return cast(pd.DataFrame, frame.reset_index(drop=True))
+
+    def top_reject_reason_types(self, top_n: int = 10) -> pd.DataFrame:
+        """Get Top-N rejection categories with a sample raw message."""
+        columns = ["reject_reason_type", "sample_reject_reason", "count", "ratio"]
+        if top_n <= 0:
+            return pd.DataFrame(columns=columns)
+
+        orders = self.orders_df.copy()
+        if orders.empty:
+            return pd.DataFrame(columns=columns)
+
+        if "reject_reason" not in orders.columns:
+            orders["reject_reason"] = ""
+        if "status" not in orders.columns:
+            orders["status"] = ""
+        reject_reason = orders["reject_reason"].fillna("").astype(str)
+        status = orders["status"].fillna("").astype(str)
+        rejected_mask = (reject_reason.str.len() > 0) | status.str.contains(
+            "Rejected", case=False, regex=False
+        )
+        rejected = orders.loc[rejected_mask].copy()
+        if rejected.empty:
+            return pd.DataFrame(columns=columns)
+
+        cleaned_reason = (
+            rejected["reject_reason"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace("", "(empty reject reason)")
+        )
+        classified = cleaned_reason.map(self._classify_reject_reason)
+        total = int(len(classified))
+        if total <= 0:
+            return pd.DataFrame(columns=columns)
+
+        frame = pd.DataFrame(
+            {
+                "reject_reason_type": classified.astype(str),
+                "sample_reject_reason": cleaned_reason.astype(str),
+            }
+        )
+        grouped = (
+            frame.groupby("reject_reason_type", sort=False)
+            .agg(
+                count=("reject_reason_type", "size"),
+                sample_reject_reason=(
+                    "sample_reject_reason",
+                    lambda series: cast(str, series.value_counts().index[0]),
+                ),
+            )
+            .reset_index()
+        )
+        grouped = grouped.sort_values(
+            ["count", "reject_reason_type"], ascending=[False, True]
+        ).head(top_n)
+        grouped["ratio"] = grouped["count"] / float(total)
+        return cast(pd.DataFrame, grouped[columns].reset_index(drop=True))
 
     def risk_rejections_by_strategy(self) -> pd.DataFrame:
         """Get strategy-level risk rejection breakdown table."""
@@ -1765,7 +1854,7 @@ class BacktestResult:
         indicator_symbol: Optional[str] = None,
         indicator_include_warmup: bool = True,
         benchmark: Optional[Union[str, pd.Series]] = None,
-        curve_freq: str = "raw",
+        curve_freq: str = "D",
     ) -> None:
         """
         生成 HTML 策略回测报告 (便捷方法).
@@ -1784,7 +1873,7 @@ class BacktestResult:
         :param indicator_symbol: 可选标的过滤，仅展示指定标的指标
         :param indicator_include_warmup: 是否在指标报告区块中保留预热点
         :param benchmark: 基准收益序列 (pd.Series) 或基准标识字符串
-        :param curve_freq: 曲线频率，"raw" 为原始频率，"D" 为日频末值
+        :param curve_freq: 曲线频率，默认 "D" 为日频末值，"raw" 为原始频率
         """
         # 延迟导入，避免循环引用和非必要的 Plotly 依赖
         try:

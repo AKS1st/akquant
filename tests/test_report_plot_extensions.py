@@ -1,10 +1,12 @@
 import importlib.util
+import inspect
 from pathlib import Path
 from typing import cast
 
 import pandas as pd
 import pytest
 from akquant import Bar, Strategy, run_backtest
+from akquant.backtest.result import BacktestResult
 from akquant.config import RiskConfig
 from akquant.plot import (
     plot_dashboard,
@@ -716,6 +718,12 @@ def test_report_accepts_curve_freq_daily(tmp_path: Path) -> None:
     assert report_path.exists()
 
 
+def test_report_defaults_curve_freq_to_daily() -> None:
+    """Report API should default to daily curve frequency for lighter HTML."""
+    default_value = inspect.signature(BacktestResult.report)
+    assert default_value.parameters["curve_freq"].default == "D"
+
+
 def test_report_rejects_invalid_curve_freq(tmp_path: Path) -> None:
     """Report generation should reject unsupported curve frequency values."""
     _skip_if_no_plotly()
@@ -735,6 +743,45 @@ def test_report_rejects_invalid_curve_freq(tmp_path: Path) -> None:
     report_path = tmp_path / "report_curve_freq_invalid.html"
     with pytest.raises(ValueError):
         result.report(filename=str(report_path), show=False, curve_freq="W")
+
+
+def test_report_displays_normalized_reject_reason_types(tmp_path: Path) -> None:
+    """Report HTML should show reject types and sample details separately."""
+    _skip_if_no_plotly()
+    result = run_backtest(
+        data=_build_intraday_data(),
+        strategy=NoTradeStrategy,
+        symbols="TEST",
+        initial_cash=200000.0,
+        commission_rate=0.0,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        lot_size=1,
+        show_progress=False,
+    )
+    result.orders_df = pd.DataFrame(
+        {
+            "reject_reason": [
+                (
+                    "Risk: Insufficient margin at execution. "
+                    "Required: 35, Available: -330445.517600"
+                ),
+                (
+                    "Risk: Insufficient margin at execution. "
+                    "Required: 35, Available: -310706.591600"
+                ),
+            ],
+            "status": ["Rejected", "Rejected"],
+        }
+    )
+    report_path = tmp_path / "report_reject_reason_types.html"
+    result.report(filename=str(report_path), show=False)
+    html = report_path.read_text(encoding="utf-8")
+    assert "拒单类型 (Reject Type)" in html
+    assert "示例详情 (Sample Detail)" in html
+    assert "Insufficient Margin" in html
 
 
 def test_report_contains_forced_liquidation_audit_section(tmp_path: Path) -> None:

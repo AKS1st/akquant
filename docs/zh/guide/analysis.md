@@ -177,7 +177,7 @@ result.report(
     filename="report.html",
     show=True,  # 设为 True 以自动在浏览器中打开 (默认为 False)
     compact_currency=True,  # 金额列使用 K/M/B 紧凑显示 (默认为 True)
-    curve_freq="raw",  # "raw" 保留原始频率，"D" 使用日频末值
+    curve_freq="D",  # 默认即为 "D"，"raw" 可保留原始频率
 )
 ```
 

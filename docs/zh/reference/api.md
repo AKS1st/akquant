@@ -1187,10 +1187,11 @@ class RiskConfig:
 *   `capacity_df(freq="D")`: 容量代理指标（订单数、成交率、换手）。
 *   `benchmark_analysis(benchmark=None, curve_freq="raw")`: 返回结构化 benchmark analysis，可直接供前端/API 使用。
 *   `export_benchmark_analysis(path, benchmark=None, format="json", curve_freq="raw")`: 将 benchmark analysis 导出为 JSON 或 parquet 产物。
+*   `top_reject_reason_types(top_n=10)`: 按拒单类型聚合拒单统计，并附带一条示例明细。
 *   `orders_by_strategy()`: 按 `owner_strategy_id` 聚合订单统计。
 *   `executions_by_strategy()`: 按 `owner_strategy_id` 聚合成交流水统计。
 *   `get_event_stats()`: 返回流式事件统计摘要（如 `processed_events`、`dropped_event_count`、`callback_error_count`、`backpressure_policy`、`stream_mode`）。
-*   `report(..., curve_freq="raw" | "D")`: 生成 HTML 报告时，可选原始频率或日频末值曲线。
+*   `report(..., curve_freq="D" | "raw")`: 生成 HTML 报告时，默认使用日频末值曲线，也可切回原始频率。
 
 ```python
 orders_by_strategy = result.orders_by_strategy()

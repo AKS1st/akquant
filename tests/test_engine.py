@@ -915,6 +915,57 @@ def test_backtest_result_top_reject_reasons_and_lot_size_category() -> None:
     assert int(risk_df["order_size_limit_reject_count"].sum()) >= 1
 
 
+def test_backtest_result_top_reject_reason_types_normalizes_dynamic_details() -> None:
+    """Reject type view should merge dynamic messages into stable categories."""
+    result = akquant.run_backtest(
+        data=_build_regression_bars("REJECT_REASON_TYPE"),
+        strategy=SingleBuyStrategy,
+        symbols="REJECT_REASON_TYPE",
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        lot_size=1,
+        show_progress=False,
+    )
+    result.orders_df = pd.DataFrame(
+        {
+            "reject_reason": [
+                (
+                    "Risk: Insufficient margin at execution. "
+                    "Required: 35, Available: -330445.517600"
+                ),
+                (
+                    "Risk: Insufficient margin at execution. "
+                    "Required: 35, Available: -310706.591600"
+                ),
+                "Order error: Risk: Daily loss 5.46% exceeds limit 5.00%",
+                "Order error: Risk: Daily loss 8.79% exceeds limit 5.00%",
+                "",
+            ],
+            "status": ["Rejected", "Rejected", "Rejected", "Rejected", "Rejected"],
+        }
+    )
+
+    top_reason_types = result.top_reject_reason_types(top_n=5)
+
+    assert not top_reason_types.empty
+    assert "reject_reason_type" in top_reason_types.columns
+    assert "sample_reject_reason" in top_reason_types.columns
+    assert "count" in top_reason_types.columns
+    assert "ratio" in top_reason_types.columns
+    counts = dict(
+        zip(
+            top_reason_types["reject_reason_type"].astype(str),
+            top_reason_types["count"].astype(int),
+        )
+    )
+    assert counts["Insufficient Margin"] == 2
+    assert counts["Daily Loss Limit"] == 2
+    sample_detail = top_reason_types.loc[
+        top_reason_types["reject_reason_type"].astype(str) == "Insufficient Margin",
+        "sample_reject_reason",
+    ].iloc[0]
+    assert "Required: 35" in str(sample_detail)
+
+
 def test_policy_resolver_next_close_same_cycle_sets_timer_same_cycle() -> None:
     """Close + bar_offset=1 + same_cycle should resolve timer policy."""
     resolved = backtest_engine._resolve_execution_policy(

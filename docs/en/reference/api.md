@@ -1113,10 +1113,11 @@ Backtest result object.
 *   `capacity_df(freq="D")`: Capacity proxy metrics (order count, fill rates, turnover).
 *   `benchmark_analysis(benchmark=None, curve_freq="raw")`: Return a structured benchmark analysis payload for frontends and APIs.
 *   `export_benchmark_analysis(path, benchmark=None, format="json", curve_freq="raw")`: Persist benchmark analysis as JSON or parquet artifacts.
+*   `top_reject_reason_types(top_n=10)`: Aggregate reject counts by normalized reject type and include a sample detail row.
 *   `orders_by_strategy()`: Strategy-ownership order aggregation by `owner_strategy_id`.
 *   `executions_by_strategy()`: Strategy-ownership execution aggregation by `owner_strategy_id`.
 *   `get_event_stats()`: Unified stream summary stats (for example `processed_events`, `dropped_event_count`, `callback_error_count`, `backpressure_policy`, `stream_mode`).
-*   `report(..., curve_freq="raw" | "D")`: Generate HTML report with raw or daily curve frequency.
+*   `report(..., curve_freq="D" | "raw")`: Generate HTML report with daily end-of-day curves by default, or switch back to raw frequency.
 
 ```python
 orders_by_strategy = result.orders_by_strategy()
