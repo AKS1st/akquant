@@ -203,6 +203,12 @@ impl Engine {
         }
     }
 
+    pub(crate) fn context_timestamp(&self) -> i64 {
+        self.terminal_result_timestamp()
+            .or_else(|| self.clock.timestamp())
+            .unwrap_or(0)
+    }
+
     pub(crate) fn execution_policy_core(&self) -> ExecutionPolicyCore {
         self.execution_policy_core_state
     }
@@ -635,7 +641,7 @@ impl Engine {
                         available_positions: self.state.portfolio.available_positions.clone(),
                         position_entry_prices,
                         session: self.clock.session,
-                        current_time: self.clock.timestamp().unwrap_or(0),
+                        current_time: self.context_timestamp(),
                         active_orders,
                         closed_trades: self.state.order_manager.trade_tracker.closed_trades.clone(),
                         recent_trades: step_trades,
@@ -1026,7 +1032,7 @@ impl Engine {
             available_positions: self.state.portfolio.available_positions.clone(),
             position_entry_prices,
             session: self.clock.session,
-            current_time: self.clock.timestamp().unwrap_or(0),
+            current_time: self.context_timestamp(),
             active_orders,
             closed_trades: self.state.order_manager.trade_tracker.closed_trades.clone(),
             recent_trades: step_trades,

@@ -4211,7 +4211,9 @@ def test_build_trading_day_metadata_merges_multi_symbol_day_bounds() -> None:
         ),
     }
 
-    trading_days, day_bounds = _build_trading_day_metadata(data_map, "Asia/Shanghai")
+    trading_days, day_bounds, day_rebalance_timestamps = _build_trading_day_metadata(
+        data_map, "Asia/Shanghai"
+    )
 
     assert trading_days == [pd.Timestamp("2023-01-03", tz="Asia/Shanghai")]
     assert day_bounds == {
@@ -4219,6 +4221,9 @@ def test_build_trading_day_metadata_merges_multi_symbol_day_bounds() -> None:
             pd.Timestamp("2023-01-03 01:30:00", tz="UTC").value,
             pd.Timestamp("2023-01-03 07:00:00", tz="UTC").value,
         )
+    }
+    assert day_rebalance_timestamps == {
+        "2023-01-03": pd.Timestamp("2023-01-03 02:00:00", tz="UTC").value
     }
 
 

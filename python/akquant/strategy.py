@@ -350,7 +350,9 @@ class Strategy:
     _framework_current_callback: Optional[str]
     _framework_current_order: Optional[Any]
     _framework_current_trade: Optional[Any]
+    _framework_daily_rebalance_timers_registered: bool
     _trading_day_bounds: Dict[str, Tuple[int, int]]
+    _trading_day_rebalance_timestamps: Dict[str, int]
     _oco_groups: Dict[str, set[str]]
     _oco_order_to_group: Dict[str, str]
     _use_engine_oco: bool
@@ -490,7 +492,9 @@ class Strategy:
         instance._framework_current_callback = None
         instance._framework_current_order = None
         instance._framework_current_trade = None
+        instance._framework_daily_rebalance_timers_registered = False
         instance._trading_day_bounds = {}
+        instance._trading_day_rebalance_timestamps = {}
         instance._oco_groups = {}
         instance._oco_order_to_group = {}
         instance._use_engine_oco = False

@@ -60,6 +60,9 @@ from ..strategy_framework_hooks import (
     collect_boundary_timer_entries as _collect_boundary_timer_entries_impl,
 )
 from ..strategy_framework_hooks import (
+    collect_daily_rebalance_timer_entries as _collect_daily_rebalance_entries_impl,
+)
+from ..strategy_framework_hooks import (
     collect_pre_open_timer_entries as _collect_pre_open_timer_entries_impl,
 )
 from ..strategy_loader import resolve_strategy_input
@@ -213,6 +216,29 @@ def _prime_framework_boundary_timers(
         entries = _collect_boundary_timer_entries_impl(current_strategy)
         if entries:
             current_strategy._framework_boundary_timers_registered = True
+        for timestamp_ns, payload in entries:
+            unique_timers[payload] = int(timestamp_ns)
+
+    for payload, timestamp_ns in sorted(
+        unique_timers.items(),
+        key=lambda item: (int(item[1]), item[0]),
+    ):
+        add_timer(timestamp_ns, payload)
+
+
+def _prime_framework_daily_rebalance_timers(
+    strategies: Sequence[Strategy], engine: Any
+) -> None:
+    """Prime daily rebalance timers before the event loop starts."""
+    add_timer = getattr(engine, "add_timer", None)
+    if not callable(add_timer):
+        return
+
+    unique_timers: dict[str, int] = {}
+    for current_strategy in strategies:
+        entries = _collect_daily_rebalance_entries_impl(current_strategy)
+        if entries:
+            current_strategy._framework_daily_rebalance_timers_registered = True
         for timestamp_ns, payload in entries:
             unique_timers[payload] = int(timestamp_ns)
 
@@ -467,12 +493,14 @@ def _filter_datetime_index_frame_by_runtime_window(
 
 def _build_trading_day_metadata(
     data_map_for_indicators: Dict[str, pd.DataFrame], timezone: str
-) -> Tuple[List[pd.Timestamp], Dict[str, Tuple[int, int]]]:
-    """Build sorted trading days and per-day nanosecond bounds."""
+) -> Tuple[List[pd.Timestamp], Dict[str, Tuple[int, int]], Dict[str, int]]:
+    """Build sorted trading days, per-day bounds, and rebalance timestamps."""
     all_dates: set[pd.Timestamp] = set()
     day_bounds: Dict[str, Tuple[int, int]] = {}
+    day_symbols: Dict[str, set[str]] = {}
+    day_timestamp_symbol_count: Dict[str, Dict[int, int]] = {}
 
-    for df in data_map_for_indicators.values():
+    for symbol, df in data_map_for_indicators.items():
         if df.empty or not isinstance(df.index, pd.DatetimeIndex):
             continue
 
@@ -487,6 +515,15 @@ def _build_trading_day_metadata(
             day_key = pd.Timestamp(day_ts).date().isoformat()
             start_ns = int(day_df.index.min().value)
             end_ns = int(day_df.index.max().value)
+            day_symbols.setdefault(day_key, set()).add(str(symbol))
+            seen_timestamps = {
+                int(ts.value) for ts in cast(pd.DatetimeIndex, day_df.index).unique()
+            }
+            timestamp_counts = day_timestamp_symbol_count.setdefault(day_key, {})
+            for timestamp_ns in seen_timestamps:
+                timestamp_counts[timestamp_ns] = (
+                    timestamp_counts.get(timestamp_ns, 0) + 1
+                )
             if day_key in day_bounds:
                 prev_start, prev_end = day_bounds[day_key]
                 day_bounds[day_key] = (
@@ -496,7 +533,23 @@ def _build_trading_day_metadata(
             else:
                 day_bounds[day_key] = (start_ns, end_ns)
 
-    return sorted(all_dates), day_bounds
+    day_rebalance_timestamps: Dict[str, int] = {}
+    for day_key, timestamp_counts in day_timestamp_symbol_count.items():
+        symbol_count = len(day_symbols.get(day_key, set()))
+        if symbol_count <= 0:
+            continue
+        first_complete_timestamp = min(
+            (
+                timestamp_ns
+                for timestamp_ns, count in timestamp_counts.items()
+                if int(count) >= symbol_count
+            ),
+            default=None,
+        )
+        if first_complete_timestamp is not None:
+            day_rebalance_timestamps[day_key] = int(first_complete_timestamp)
+
+    return sorted(all_dates), day_bounds, day_rebalance_timestamps
 
 
 BacktestDataInput = Union[
@@ -3164,7 +3217,7 @@ def run_backtest(
     # Inject trading days to strategy (for add_daily_timer)
     all_strategy_instances = [strategy_instance, *slot_strategy_instances.values()]
     if data_map_for_indicators:
-        all_dates, day_bounds = _build_trading_day_metadata(
+        all_dates, day_bounds, day_rebalance_timestamps = _build_trading_day_metadata(
             data_map_for_indicators, timezone
         )
 
@@ -3173,6 +3226,10 @@ def run_backtest(
                 current_strategy._trading_days = all_dates
             if hasattr(current_strategy, "_trading_day_bounds"):
                 current_strategy._trading_day_bounds = day_bounds
+            if hasattr(current_strategy, "_trading_day_rebalance_timestamps"):
+                current_strategy._trading_day_rebalance_timestamps = (
+                    day_rebalance_timestamps
+                )
 
     # 4. 配置引擎
     engine = Engine()
@@ -3180,6 +3237,7 @@ def run_backtest(
     for current_strategy in all_strategy_instances:
         setattr(current_strategy, "_engine", engine)
     _prime_framework_boundary_timers(all_strategy_instances, engine)
+    _prime_framework_daily_rebalance_timers(all_strategy_instances, engine)
     _prime_framework_pre_open_timers(all_strategy_instances, engine)
     if analyzer_manager.plugins:
         try:
@@ -4975,7 +5033,7 @@ def run_warm_start(
         warnings.warn(warning_message, RuntimeWarning, stacklevel=2)
         logger.warning(warning_message)
     if data_map_for_indicators:
-        all_dates, day_bounds = _build_trading_day_metadata(
+        all_dates, day_bounds, day_rebalance_timestamps = _build_trading_day_metadata(
             data_map_for_indicators, timezone_name
         )
 
@@ -4984,6 +5042,10 @@ def run_warm_start(
                 current_strategy._trading_days = all_dates
             if hasattr(current_strategy, "_trading_day_bounds"):
                 current_strategy._trading_day_bounds = day_bounds
+            if hasattr(current_strategy, "_trading_day_rebalance_timestamps"):
+                current_strategy._trading_day_rebalance_timestamps = (
+                    day_rebalance_timestamps
+                )
             setattr(current_strategy, "_engine", engine)
 
     # Capture restored cash BEFORE running (for correct initial_market_value in result)
@@ -5417,6 +5479,7 @@ def run_warm_start(
             stream_mode,
         )
     _prime_framework_boundary_timers(all_strategy_instances, engine)
+    _prime_framework_daily_rebalance_timers(all_strategy_instances, engine)
     _prime_framework_pre_open_timers(all_strategy_instances, engine)
 
     if hasattr(strategy_instance, "_on_start_internal"):

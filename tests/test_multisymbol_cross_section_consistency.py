@@ -588,6 +588,40 @@ class DailyRebalanceSellThenBuySameCycleStrategy(Strategy):
         )
 
 
+class DailyRebalanceCrossSymbolCarryoverStrategy(Strategy):
+    """Cover cross-symbol daily rebalance with retained positions and price drift."""
+
+    def __init__(self) -> None:
+        """Initialize staged rebalance state and reject capture."""
+        super().__init__()
+        self.step = 0
+        self.rejected_reasons: list[str] = []
+
+    def on_daily_rebalance(self, trading_date: object, timestamp: int) -> None:
+        """Rotate targets across days while retaining one drifting position."""
+        _ = (trading_date, timestamp)
+        if self.step == 0:
+            self.order_target_weights(
+                {"AAA": 0.49, "BBB": 0.49},
+                liquidate_unmentioned=True,
+            )
+        elif self.step == 1:
+            self.order_target_weights(
+                {"BBB": 0.49, "CCC": 0.49},
+                liquidate_unmentioned=True,
+            )
+        elif self.step == 2:
+            self.order_target_weights(
+                {"BBB": 0.90},
+                liquidate_unmentioned=True,
+            )
+        self.step += 1
+
+    def on_reject(self, order: Any) -> None:
+        """Capture unexpected reject reasons for assertion."""
+        self.rejected_reasons.append(str(order.reject_reason))
+
+
 class TargetPositionsLongShortRotationStrategy(Strategy):
     """Exercise multi-symbol signed target positions through one advanced API call."""
 
@@ -831,3 +865,49 @@ def test_daily_rebalance_same_cycle_terminal_fill_preserves_result_views() -> No
     assert float(trades_df.iloc[0]["quantity"]) == 9500.0
     assert trades_df.iloc[0]["entry_time"] == timestamps[1]
     assert trades_df.iloc[0]["exit_time"] == timestamps[2]
+
+
+def test_daily_rebalance_uses_complete_timestamp_prices_for_cross_symbol_targets() -> (
+    None
+):
+    """Daily rebalance should wait for a complete slice before sizing target weights."""
+    timestamps = [
+        pd.Timestamp("2022-12-30 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-01 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-02 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-03 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-04 10:00:00", tz="Asia/Shanghai"),
+        pd.Timestamp("2023-01-05 10:00:00", tz="Asia/Shanghai"),
+    ]
+    data_map = {
+        "AAA": _build_symbol_df("AAA", timestamps, [0.98, 0.99, 1.0, 1.0, 1.0, 1.0]),
+        "BBB": _build_symbol_df("BBB", timestamps, [1.0, 0.95, 1.0, 1.0, 2.0, 2.0]),
+        "CCC": _build_symbol_df("CCC", timestamps, [1.02, 0.98, 1.0, 1.0, 1.0, 1.0]),
+    }
+
+    strategy = DailyRebalanceCrossSymbolCarryoverStrategy()
+    result = run_backtest(
+        data=data_map,
+        strategy=strategy,
+        symbols=["AAA", "BBB", "CCC"],
+        initial_cash=1_000_000.0,
+        commission_rate=0.00005,
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=5.0,
+        lot_size=100,
+        history_depth=2,
+        start_time="2023-01-02",
+        fill_policy={"price_basis": "close", "bar_offset": 0, "temporal": "same_cycle"},
+        show_progress=False,
+    )
+
+    orders_df = result.orders_df.sort_values("created_at").reset_index(drop=True)
+    assert strategy.rejected_reasons == []
+    assert not any(
+        str(status).lower() == "rejected" for status in orders_df["status"].tolist()
+    )
+    final_positions = result.positions.iloc[-1]
+    assert float(final_positions.get("AAA", 0.0)) == 0.0
+    assert float(final_positions.get("CCC", 0.0)) == 0.0
+    assert float(final_positions.get("BBB", 0.0)) == 670400.0

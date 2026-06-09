@@ -1,7 +1,9 @@
 use crate::event::Event;
 use crate::execution::matcher::MatchContext;
 use crate::log_context::{execution_order_context_from_event, render_log_message};
-use crate::model::{Order, OrderSide, OrderStatus, OrderType, PriceBasis, TimeInForce, Trade};
+use crate::model::{
+    Order, OrderSide, OrderStatus, OrderType, PriceBasis, TimeInForce, Timer, Trade,
+};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -9,6 +11,15 @@ use uuid::Uuid;
 pub struct CommonMatcher;
 
 impl CommonMatcher {
+    fn effective_timer_execution_timestamp(timer: &Timer) -> i64 {
+        timer
+            .payload
+            .strip_prefix("__framework_rebalance__|")
+            .and_then(|payload| payload.rsplit('|').next())
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(timer.timestamp)
+    }
+
     fn cancelled_unfilled_ioc_fok_warning(order: &Order, event: &Event) -> String {
         render_log_message(
             format!(
@@ -139,7 +150,7 @@ impl CommonMatcher {
             match event {
                 Event::Bar(b) => order.updated_at = b.timestamp,
                 Event::Tick(t) => order.updated_at = t.timestamp,
-                Event::Timer(t) => order.updated_at = t.timestamp,
+                Event::Timer(t) => order.updated_at = Self::effective_timer_execution_timestamp(t),
                 _ => {}
             }
             log::warn!(
@@ -474,6 +485,7 @@ impl CommonMatcher {
                 }
             }
             Event::Timer(timer) => {
+                let execution_timestamp = Self::effective_timer_execution_timestamp(timer);
                 if !matches!(
                     (execution_policy.price_basis, execution_policy.bar_offset),
                     (PriceBasis::Close, 0)
@@ -525,7 +537,7 @@ impl CommonMatcher {
                     let trade_qty = order.quantity - order.filled_quantity;
                     if trade_qty > Decimal::ZERO {
                         order.status = OrderStatus::Filled;
-                        order.updated_at = timer.timestamp;
+                        order.updated_at = execution_timestamp;
                         order.filled_quantity += trade_qty;
                         order.average_filled_price = Some(final_price);
                         let trade = Trade {
@@ -537,7 +549,7 @@ impl CommonMatcher {
                             quantity: trade_qty,
                             price: final_price,
                             commission: Decimal::ZERO,
-                            timestamp: timer.timestamp,
+                            timestamp: execution_timestamp,
                             bar_index,
                             owner_strategy_id: order.owner_strategy_id.clone(),
                         };
@@ -547,7 +559,7 @@ impl CommonMatcher {
                     || order.time_in_force == TimeInForce::FOK
                 {
                     order.status = OrderStatus::Cancelled;
-                    order.updated_at = timer.timestamp;
+                    order.updated_at = execution_timestamp;
                     log::warn!("{}", Self::cancelled_unfilled_ioc_fok_warning(order, event));
                     return Some(Event::ExecutionReport(order.clone(), None));
                 }
