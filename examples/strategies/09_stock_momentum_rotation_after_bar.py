@@ -1,4 +1,4 @@
-"""多股票轮动策略示例（on_daily_rebalance 版本）."""
+"""多股票轮动策略示例（on_daily_rebalance_after_bar 版本）."""
 
 import math
 from typing import Any
@@ -70,8 +70,8 @@ def rebalance_to_best_symbol(
     return best_symbol
 
 
-class DailyBoundaryMomentumRotationStrategy(Strategy):
-    """使用 on_daily_rebalance 执行前一快照语义的横截面轮动."""
+class AfterBarMomentumRotationStrategy(Strategy):
+    """使用 on_daily_rebalance_after_bar 执行当日可见语义的横截面轮动."""
 
     def __init__(self, lookback_period: int = 5, **kwargs: Any) -> None:
         """初始化策略参数."""
@@ -85,12 +85,18 @@ class DailyBoundaryMomentumRotationStrategy(Strategy):
         """策略启动时订阅轮动标的."""
         for symbol in self.symbols:
             self.subscribe(symbol)
-        self.log(f"on_start subscribe={self.symbols} lookback={self.lookback_period}")
+        self.log(
+            "on_start subscribe="
+            f"{self.symbols} "
+            f"lookback={self.lookback_period} "
+            "mode=after_bar"
+        )
 
-    def on_daily_rebalance(self, trading_date: Any, timestamp: int) -> None:
-        """交易日边界调仓回调."""
-        _ = timestamp
-        self.log(f"on_daily_rebalance date={trading_date}")
+    def on_daily_rebalance_after_bar(self, trading_date: Any, timestamp: int) -> None:
+        """完整切片后的调仓回调."""
+        self.log(
+            f"on_daily_rebalance_after_bar date={trading_date} timestamp={timestamp}"
+        )
         history_map = self.get_history_map(
             count=self.lookback_period,
             symbols=self.symbols,
@@ -111,21 +117,18 @@ class DailyBoundaryMomentumRotationStrategy(Strategy):
 
         ranking = sorted(scores.items(), key=lambda item: item[1], reverse=True)
         self.log(
-            "rebalance ranking="
+            "after_bar ranking="
             + ", ".join(f"{symbol}:{score:.2%}" for symbol, score in ranking)
         )
         best_symbol = rebalance_to_best_symbol(self, ranking, self.symbols)
-        self.log(f"action=rebalance selected={best_symbol}")
+        self.log(f"action=after_bar_rebalance selected={best_symbol}")
 
 
 if __name__ == "__main__":
-    symbols = ["AAA", "BBB"]
-    data_map = make_data()
-
     result = aq.run_backtest(
-        data=data_map,
-        strategy=DailyBoundaryMomentumRotationStrategy,
-        symbols=symbols,
+        data=make_data(),
+        strategy=AfterBarMomentumRotationStrategy,
+        symbols=["AAA", "BBB"],
         initial_cash=1_000_000.0,
         commission_rate=0.0003,
         stamp_tax_rate=0.001,

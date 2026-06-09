@@ -8,14 +8,14 @@ from .log import build_log_extra, get_logger
 from .strategy_framework_hooks import (
     call_user_callback,
     dispatch_boundary_timer,
-    dispatch_daily_rebalance_timer,
+    dispatch_daily_rebalance_after_bar_timer,
     dispatch_portfolio_update,
     dispatch_pre_open_timer,
     dispatch_time_hooks,
     ensure_framework_state,
     mark_portfolio_dirty,
     register_boundary_timers,
-    register_daily_rebalance_timers,
+    register_daily_rebalance_after_bar_timers,
     register_pre_open_timers,
 )
 from .strategy_ml import (
@@ -50,7 +50,7 @@ def on_bar_event(strategy: Any, bar: Bar, ctx: StrategyContext) -> None:
     strategy.ctx = ctx
     flush_pending_schedules(strategy)
     register_boundary_timers(strategy)
-    register_daily_rebalance_timers(strategy)
+    register_daily_rebalance_after_bar_timers(strategy)
     register_pre_open_timers(strategy)
     strategy._last_event_type = "bar"
 
@@ -134,7 +134,7 @@ def on_tick_event(strategy: Any, tick: Tick, ctx: StrategyContext) -> None:
     strategy.ctx = ctx
     flush_pending_schedules(strategy)
     register_boundary_timers(strategy)
-    register_daily_rebalance_timers(strategy)
+    register_daily_rebalance_after_bar_timers(strategy)
     register_pre_open_timers(strategy)
     strategy._last_event_type = "tick"
     strategy._check_order_events()
@@ -163,7 +163,7 @@ def on_timer_event(strategy: Any, payload: str, ctx: StrategyContext) -> None:
     strategy.ctx = ctx
     flush_pending_schedules(strategy)
     register_boundary_timers(strategy)
-    register_daily_rebalance_timers(strategy)
+    register_daily_rebalance_after_bar_timers(strategy)
     register_pre_open_timers(strategy)
     strategy._check_order_events()
 
@@ -174,7 +174,7 @@ def on_timer_event(strategy: Any, payload: str, ctx: StrategyContext) -> None:
     dispatch_time_hooks(strategy)
     dispatch_portfolio_update(strategy)
 
-    if dispatch_daily_rebalance_timer(strategy, payload):
+    if dispatch_daily_rebalance_after_bar_timer(strategy, payload):
         _flush_indicator_snapshots(strategy)
         return
 

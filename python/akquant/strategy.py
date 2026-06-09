@@ -350,9 +350,10 @@ class Strategy:
     _framework_current_callback: Optional[str]
     _framework_current_order: Optional[Any]
     _framework_current_trade: Optional[Any]
-    _framework_daily_rebalance_timers_registered: bool
+    _framework_daily_rebalance_after_bar_done_date: Optional[dt.date]
+    _framework_daily_rebalance_after_bar_timers_registered: bool
     _trading_day_bounds: Dict[str, Tuple[int, int]]
-    _trading_day_rebalance_timestamps: Dict[str, int]
+    _trading_day_after_bar_rebalance_timestamps: Dict[str, int]
     _oco_groups: Dict[str, set[str]]
     _oco_order_to_group: Dict[str, str]
     _use_engine_oco: bool
@@ -492,9 +493,10 @@ class Strategy:
         instance._framework_current_callback = None
         instance._framework_current_order = None
         instance._framework_current_trade = None
-        instance._framework_daily_rebalance_timers_registered = False
+        instance._framework_daily_rebalance_after_bar_done_date = None
+        instance._framework_daily_rebalance_after_bar_timers_registered = False
         instance._trading_day_bounds = {}
-        instance._trading_day_rebalance_timestamps = {}
+        instance._trading_day_after_bar_rebalance_timestamps = {}
         instance._oco_groups = {}
         instance._oco_order_to_group = {}
         instance._use_engine_oco = False
@@ -1435,6 +1437,12 @@ class Strategy:
 
     def on_daily_rebalance(self, trading_date: dt.date, timestamp: int) -> None:
         """交易日调仓回调（每天最多一次）."""
+        pass
+
+    def on_daily_rebalance_after_bar(
+        self, trading_date: dt.date, timestamp: int
+    ) -> None:
+        """完整时间片后的交易日调仓回调（每天最多一次）."""
         pass
 
     def on_after_trading(self, trading_date: dt.date, timestamp: int) -> None:

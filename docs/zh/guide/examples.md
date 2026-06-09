@@ -9,6 +9,8 @@
 *   [简单的均线策略 (SMA Strategy)](strategy.md#class-based): 展示了如何使用类风格编写策略，并在 `on_bar` 中进行简单的交易逻辑。
 *   [到期结算回调示例](https://github.com/akfamily/akquant/blob/main/examples/49_on_expiry_demo.py): 演示 `on_expiry(event)` 与流式 `expiry` 事件，适合验证期货/期权到期后的策略通知链路。
 *   [框架钩子示例](https://github.com/akfamily/akquant/blob/main/examples/50_framework_hooks_demo.py): 演示 `on_session_start/on_session_end/on_before_trading/on_after_trading/on_portfolio_update/on_reject` 的触发顺序与典型用途。
+*   [日边界调仓示例](https://github.com/akfamily/akquant/blob/main/examples/strategies/05_stock_momentum_rotation_timer.py): 演示 `on_daily_rebalance` 的前一快照语义，适合基于前一交易日信息做统一调仓。
+*   [完整切片后调仓示例](https://github.com/akfamily/akquant/blob/main/examples/strategies/09_stock_momentum_rotation_after_bar.py): 演示 `on_daily_rebalance_after_bar` 如何在见到当日首个完整横截面后做同周期调仓。
 *   [盘前开盘语义示例](https://github.com/akfamily/akquant/blob/main/examples/52_pre_open_demo.py): 演示 `on_pre_open(event)` 如何表达“盘前决策，本次 open 成交”。
 *   [前一日定时准备到次日盘前执行示例](https://github.com/akfamily/akquant/blob/main/examples/53_timer_to_pre_open_demo.py): 演示“前一交易日更晚的 `on_timer` 准备，下一交易日 `on_pre_open` 下单”的双阶段写法。
 *   [函数式盘前开盘语义示例](https://github.com/akfamily/akquant/blob/main/examples/54_functional_pre_open_demo.py): 演示函数式 `on_pre_open(ctx, event)` 如何表达“盘前决策，本次 open 成交”。

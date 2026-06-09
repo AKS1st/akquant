@@ -43,6 +43,7 @@ def run_backtest(
     on_before_trading: Optional[Callable[[Any, Any, int], None]] = None,
     on_after_trading: Optional[Callable[[Any, Any, int], None]] = None,
     on_daily_rebalance: Optional[Callable[[Any, Any, int], None]] = None,
+    on_daily_rebalance_after_bar: Optional[Callable[[Any, Any, int], None]] = None,
     on_portfolio_update: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
     on_error: Optional[Callable[[Any, Exception, str, Any], None]] = None,
     on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
@@ -93,7 +94,7 @@ def run_backtest(
 *   `strategy`: Strategy class or instance. Also supports passing an `on_bar` function (functional style).
 *   `strategy_source` / `strategy_loader` / `strategy_loader_options`: Dynamic strategy loading entry points. When `strategy=None`, the framework can build the strategy from source, a path, or a custom loader.
 *   `initialize` / `on_start` / `on_resume` / `on_stop`: Functional-strategy lifecycle callbacks for initialization, start, resume, and stop stages.
-*   `on_tick` / `on_order` / `on_trade` / `on_reject` / `on_session_start` / `on_session_end` / `on_before_trading` / `on_after_trading` / `on_daily_rebalance` / `on_portfolio_update` / `on_error` / `on_expiry` / `on_pre_open` / `on_timer` / `on_train_signal`: Functional event callbacks. `on_expiry(ctx, event)` fires only after the engine actually executes expiry settlement/removal.
+*   `on_tick` / `on_order` / `on_trade` / `on_reject` / `on_session_start` / `on_session_end` / `on_before_trading` / `on_after_trading` / `on_daily_rebalance` / `on_daily_rebalance_after_bar` / `on_portfolio_update` / `on_error` / `on_expiry` / `on_pre_open` / `on_timer` / `on_train_signal`: Functional event callbacks. `on_expiry(ctx, event)` fires only after the engine actually executes expiry settlement/removal.
 *   `symbols`: Preferred parameter. Symbol or list of symbols.
 *   `initial_cash`: Initial cash. If omitted, it falls back to `StrategyConfig.initial_cash`, whose default is `100000.0`.
 *   Legacy price-basis parameter: Removed.
@@ -788,6 +789,7 @@ Strategy base class. Users should inherit from this class and override callback 
 *   `on_before_trading(trading_date, timestamp)`: Triggered once when the regular trading session starts each local day; on the default backtest path this session is usually exposed as `Continuous`. This callback follows a "previous trading day / previous snapshot only" visibility model.
 *   `on_pre_open(event: Dict[str, Any])`: Triggered once before the first regular event of each trading day. Use it for "pre-open decision, current open fill" workflows; default order semantics resolve to `price_basis=open, bar_offset=1, temporal=same_cycle`. See `examples/52_pre_open_demo.py`.
 *   `on_daily_rebalance(trading_date, timestamp)`: Daily rebalance hook, triggered at most once per trading day and in the same phase as `on_before_trading`. It also exposes only previous-trading-day / previous-snapshot information.
+*   `on_daily_rebalance_after_bar(trading_date, timestamp)`: Daily rebalance hook that runs after the first complete cross-symbol bar slice of the trading day. Unlike `on_daily_rebalance`, it can see the current day's bar history and current account snapshot, and is intended for same-cycle close-style rebalances.
 *   `on_after_trading(trading_date, timestamp)`: Triggered when leaving the regular trading session, or replayed on next event after day rollover.
 *   `on_portfolio_update(snapshot)`: Triggered when cash/equity/position snapshot changes.
 *   `on_error(error, source, payload=None)`: Triggered when user callback raises, then exception is re-raised by default.

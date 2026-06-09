@@ -86,11 +86,7 @@ impl TradeTracker {
         }
     }
 
-    pub fn get_unrealized_pnl(
-        &self,
-        symbol: &str,
-        current_price: Decimal,
-    ) -> Decimal {
+    pub fn get_unrealized_pnl(&self, symbol: &str, current_price: Decimal) -> Decimal {
         let mut pnl = Decimal::ZERO;
 
         // Long positions: (Price - Entry) * Qty * Multiplier
@@ -144,8 +140,7 @@ impl TradeTracker {
                             (match_entry.price - price) * covered_qty * match_entry.multiplier;
                         self.total_pnl += pnl;
 
-                        let entry_val =
-                            match_entry.price * covered_qty * match_entry.multiplier;
+                        let entry_val = match_entry.price * covered_qty * match_entry.multiplier;
                         let ret_pct = if !entry_val.is_zero() {
                             pnl / entry_val
                         } else {
@@ -369,8 +364,7 @@ impl TradeTracker {
                             (price - match_entry.price) * covered_qty * match_entry.multiplier;
                         self.total_pnl += pnl;
 
-                        let entry_val =
-                            match_entry.price * covered_qty * match_entry.multiplier;
+                        let entry_val = match_entry.price * covered_qty * match_entry.multiplier;
                         let ret_pct = if !entry_val.is_zero() {
                             pnl / entry_val
                         } else {

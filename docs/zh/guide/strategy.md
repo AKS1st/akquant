@@ -32,7 +32,8 @@
 * `on_session_start` / `on_session_end`: 会话切换时触发。
 * `on_before_trading` / `on_after_trading`: 交易日级钩子。
 * `on_pre_open`: 开盘前最后一个合法决策点，适合“盘前信号，本次 open 成交”。
-* `on_daily_rebalance`: 交易日调仓钩子（每天最多一次，适合横截面轮动）。
+* `on_daily_rebalance`: 交易日调仓钩子（每天最多一次，沿用前一交易日/前一快照可见语义）。
+* `on_daily_rebalance_after_bar`: 日内完整切片后的交易日调仓钩子（适合基于当日 bar/账户快照做同周期调仓）。
 * `on_portfolio_update`: 账户快照变化时触发。
 * `on_error`: 用户回调抛异常时触发，默认触发后继续抛出异常。
 * `on_timer`: 定时器触发时调用 (需手动注册)。
@@ -54,7 +55,8 @@
 | `on_session_end` | 会话切换结束时 | 收盘后清理、session 结束打点 | `examples/50_framework_hooks_demo.py` |
 | `on_before_trading` | 本地交易日首次进入 `Normal` 会话 | 盘前检查、生成交易日级信号 | `examples/50_framework_hooks_demo.py` |
 | `on_pre_open` | 每个交易日首个常规行情事件前，由框架定时器抢先触发 | 盘前信号与“本次 open 成交”语义钩子；可用于表达集合竞价前的最后决策点，但不等同于券商柜台已支持集合竞价专用委托 | `examples/52_pre_open_demo.py` |
-| `on_daily_rebalance` | 每个交易日最多一次，与 `on_before_trading` 同阶段 | 横截面选股、统一调仓 | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_daily_rebalance` | 每个交易日最多一次，与 `on_before_trading` 同阶段 | 基于前一交易日信息的横截面准备与统一调仓 | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_daily_rebalance_after_bar` | 当日首个跨标的完整 bar 切片之后 | 基于当日 bar/账户快照的同周期调仓 | `examples/strategies/09_stock_momentum_rotation_after_bar.py` |
 | `on_after_trading` | 离开 `Normal` 会话时，必要时下一事件补发 | 日终统计、收盘后清理与归档 | `examples/50_framework_hooks_demo.py` |
 | `on_portfolio_update` | 账户快照变化时增量触发 | 监控现金/权益变化、推送 UI 或告警 | `examples/50_framework_hooks_demo.py` |
 | `on_error` | 任一用户回调抛异常时 | 记录异常源、决定继续/中断策略 | `examples/22_strategy_runtime_config_demo.py` |
@@ -84,6 +86,7 @@
 * `on_pre_open` 在每个交易日的首个常规行情事件前，由框架预注册 timer 先触发一次。
 * `on_daily_rebalance` 与 `on_before_trading` 同一阶段触发，每个交易日最多触发一次。
 * `on_before_trading` / `on_daily_rebalance` 始终按“前一交易日/前一时点信息可见”的语义工作；在这些回调里，`get_history()`、`get_account()`、`get_portfolio_value()` 不应看到当日新 bar 或当日更新后的账户视图。
+* `on_daily_rebalance_after_bar` 会在框架见到当日首个“跨标的完整切片”后触发；在该回调里，可以看到当日历史和当前账户快照。
 * `on_after_trading` 在离开常规交易会话时触发；若先跨日再收到事件，会在下一事件补发上一交易日的 `on_after_trading`。
 * `on_pre_open` 内若直接调用 `buy/sell/order_target_*` 且未显式传 `fill_policy`，框架会自动解析为 `price_basis=open, bar_offset=1, temporal=same_cycle`。
 * 这里表达的是框架侧“盘前决策，本次 open 成交”的时序语义，不等同于交易所或券商柜台已经实现了集合竞价专用报单、撤单窗口控制或专有价格类型。
@@ -482,7 +485,7 @@ class CrossSectionStrategy(Strategy):
         )
 ```
 
-完整示例见：`examples/strategies/05_stock_momentum_rotation_timer.py`（on_daily_rebalance）与 `examples/strategies/07_stock_momentum_rotation_on_timer.py`（on_timer 固定时点）。
+完整示例见：`examples/strategies/05_stock_momentum_rotation_timer.py`（`on_daily_rebalance`）、`examples/strategies/09_stock_momentum_rotation_after_bar.py`（`on_daily_rebalance_after_bar`）以及 `examples/strategies/07_stock_momentum_rotation_on_timer.py`（`on_timer` 固定时点版本）。
 
 ### 3.5 横截面方案 B：收齐同 timestamp 后执行
 
@@ -583,7 +586,8 @@ AKQuant 提供了两种风格的策略开发接口：
 | `on_session_end(self, session, timestamp)` | `on_session_end(ctx, session, timestamp)` | 会话边界钩子，两种风格都支持 | `examples/50_framework_hooks_demo.py` |
 | `on_before_trading(self, trading_date, timestamp)` | `on_before_trading(ctx, trading_date, timestamp)` | 交易日前边界钩子，两种风格都支持 | `examples/50_framework_hooks_demo.py` |
 | `on_after_trading(self, trading_date, timestamp)` | `on_after_trading(ctx, trading_date, timestamp)` | 交易日后边界钩子，两种风格都支持 | `examples/50_framework_hooks_demo.py` |
-| `on_daily_rebalance(self, trading_date, timestamp)` | `on_daily_rebalance(ctx, trading_date, timestamp)` | 交易日调仓钩子，两种风格都支持 | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_daily_rebalance(self, trading_date, timestamp)` | `on_daily_rebalance(ctx, trading_date, timestamp)` | 前一快照语义的交易日调仓钩子，两种风格都支持 | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_daily_rebalance_after_bar(self, trading_date, timestamp)` | `on_daily_rebalance_after_bar(ctx, trading_date, timestamp)` | 当日可见语义的交易日调仓钩子，两种风格都支持 | `examples/strategies/09_stock_momentum_rotation_after_bar.py` |
 | `on_portfolio_update(self, snapshot)` | `on_portfolio_update(ctx, snapshot)` | 账户快照回调，两种风格都支持 | `examples/50_framework_hooks_demo.py` |
 | `on_error(self, error, source, payload)` | `on_error(ctx, error, source, payload)` | 用户异常回调，两种风格都支持 | `examples/22_strategy_runtime_config_demo.py` |
 | `on_train_signal(self, context)` | `on_train_signal(ctx)` | ML 滚动训练钩子，两种风格都支持；仅在 ML 滚动训练窗口触发时调用 | `examples/10_ml_walk_forward.py`、`examples/55_functional_ml_walk_forward.py` |
@@ -594,7 +598,7 @@ AKQuant 提供了两种风格的策略开发接口：
 *   如果你的目标是“盘前信号，本次 open 成交”，函数式入口现在也可以直接使用 `on_pre_open(ctx, event)`。
 *   如果你使用 checkpoint 热启动，函数式入口现在也支持 `on_resume(ctx)`，适合恢复外部连接或非持久化资源，参考 `examples/56_functional_warm_start_demo.py`。
 *   如果你做 ML walk-forward，函数式入口现在也支持 `on_train_signal(ctx)`，可用于自定义训练或仅记录训练窗口，参考 `examples/55_functional_ml_walk_forward.py`。
-*   如果你偏好脚本式策略，函数式入口现在也支持 `on_reject/on_session_*/on_before_trading/on_after_trading/on_daily_rebalance/on_portfolio_update` 这批框架级钩子。
+*   如果你偏好脚本式策略，函数式入口现在也支持 `on_reject/on_session_*/on_before_trading/on_after_trading/on_daily_rebalance/on_daily_rebalance_after_bar/on_portfolio_update` 这批框架级钩子。
 
 ### 5.3 相关示例
 

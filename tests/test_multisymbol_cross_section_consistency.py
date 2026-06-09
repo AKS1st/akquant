@@ -548,8 +548,8 @@ class SellThenBuySameCycleStrategy(Strategy):
         self.step += 1
 
 
-class DailyRebalanceSellThenBuySameCycleStrategy(Strategy):
-    """Validate day-rebalance callbacks also observe terminal same-cycle fills."""
+class DailyRebalanceAfterBarSellThenBuySameCycleStrategy(Strategy):
+    """Validate after-bar rebalance callbacks observe terminal same-cycle fills."""
 
     def __init__(self) -> None:
         """Initialize staged rebalance state and callback logs."""
@@ -558,8 +558,10 @@ class DailyRebalanceSellThenBuySameCycleStrategy(Strategy):
         self.order_events: list[tuple[str, str, str]] = []
         self.trade_events: list[tuple[str, str]] = []
 
-    def on_daily_rebalance(self, trading_date: object, timestamp: int) -> None:
-        """Rotate from AAA to BBB during the framework rebalance hook."""
+    def on_daily_rebalance_after_bar(
+        self, trading_date: object, timestamp: int
+    ) -> None:
+        """Rotate from AAA to BBB during the after-bar rebalance hook."""
         _ = (trading_date, timestamp)
         if self.step == 1:
             self.order_target_percent(symbol="AAA", target_percent=0.95)
@@ -588,8 +590,8 @@ class DailyRebalanceSellThenBuySameCycleStrategy(Strategy):
         )
 
 
-class DailyRebalanceCrossSymbolCarryoverStrategy(Strategy):
-    """Cover cross-symbol daily rebalance with retained positions and price drift."""
+class DailyRebalanceAfterBarCrossSymbolCarryoverStrategy(Strategy):
+    """Cover after-bar rebalance with retained positions and price drift."""
 
     def __init__(self) -> None:
         """Initialize staged rebalance state and reject capture."""
@@ -597,7 +599,9 @@ class DailyRebalanceCrossSymbolCarryoverStrategy(Strategy):
         self.step = 0
         self.rejected_reasons: list[str] = []
 
-    def on_daily_rebalance(self, trading_date: object, timestamp: int) -> None:
+    def on_daily_rebalance_after_bar(
+        self, trading_date: object, timestamp: int
+    ) -> None:
         """Rotate targets across days while retaining one drifting position."""
         _ = (trading_date, timestamp)
         if self.step == 0:
@@ -691,7 +695,7 @@ def test_same_cycle_sell_then_buy_uses_post_sell_cash_for_sizing() -> None:
     assert float(final_positions.get("BBB", 0.0)) >= 499.0
 
 
-def test_daily_rebalance_same_cycle_terminal_fill_emits_callbacks() -> None:
+def test_daily_rebalance_after_bar_same_cycle_terminal_fill_emits_callbacks() -> None:
     """Last-timestamp same-cycle fills should still reach order/trade callbacks."""
     timestamps = [
         pd.Timestamp("2023-01-02 10:00:00", tz="Asia/Shanghai"),
@@ -703,7 +707,7 @@ def test_daily_rebalance_same_cycle_terminal_fill_emits_callbacks() -> None:
         "BBB": _build_symbol_df("BBB", timestamps, [10.0, 10.0, 10.0]),
     }
 
-    strategy = DailyRebalanceSellThenBuySameCycleStrategy()
+    strategy = DailyRebalanceAfterBarSellThenBuySameCycleStrategy()
     result = run_backtest(
         data=data_map,
         strategy=strategy,
@@ -726,9 +730,7 @@ def test_daily_rebalance_same_cycle_terminal_fill_emits_callbacks() -> None:
     assert ("BBB", "buy") in strategy.trade_events
 
 
-def test_daily_rebalance_same_cycle_terminal_fill_preserves_all_order_callbacks() -> (
-    None
-):
+def test_after_bar_same_cycle_fill_preserves_all_order_callbacks() -> None:
     """Immediate same-step fills should preserve the full on_order lifecycle."""
     timestamps = [
         pd.Timestamp("2023-01-02 10:00:00", tz="Asia/Shanghai"),
@@ -740,7 +742,7 @@ def test_daily_rebalance_same_cycle_terminal_fill_preserves_all_order_callbacks(
         "BBB": _build_symbol_df("BBB", timestamps, [10.0, 10.0, 10.0]),
     }
 
-    strategy = DailyRebalanceSellThenBuySameCycleStrategy()
+    strategy = DailyRebalanceAfterBarSellThenBuySameCycleStrategy()
     run_backtest(
         data=data_map,
         strategy=strategy,
@@ -774,8 +776,8 @@ def test_daily_rebalance_same_cycle_terminal_fill_preserves_all_order_callbacks(
     )
 
 
-def test_daily_rebalance_same_cycle_terminal_fill_preserves_result_views() -> None:
-    """Daily rebalance same-cycle rotation should keep result views complete."""
+def test_after_bar_same_cycle_fill_preserves_result_views() -> None:
+    """After-bar same-cycle rotation should keep result views complete."""
     timestamps = [
         pd.Timestamp("2023-01-02 10:00:00", tz="Asia/Shanghai"),
         pd.Timestamp("2023-01-03 10:00:00", tz="Asia/Shanghai"),
@@ -788,7 +790,7 @@ def test_daily_rebalance_same_cycle_terminal_fill_preserves_result_views() -> No
 
     result = run_backtest(
         data=data_map,
-        strategy=DailyRebalanceSellThenBuySameCycleStrategy,
+        strategy=DailyRebalanceAfterBarSellThenBuySameCycleStrategy,
         symbols=["AAA", "BBB"],
         initial_cash=100000.0,
         commission_rate=0.0,
@@ -867,10 +869,8 @@ def test_daily_rebalance_same_cycle_terminal_fill_preserves_result_views() -> No
     assert trades_df.iloc[0]["exit_time"] == timestamps[2]
 
 
-def test_daily_rebalance_uses_complete_timestamp_prices_for_cross_symbol_targets() -> (
-    None
-):
-    """Daily rebalance should wait for a complete slice before sizing target weights."""
+def test_after_bar_uses_complete_timestamp_prices_for_cross_symbol_targets() -> None:
+    """After-bar rebalance should wait for a complete slice before sizing."""
     timestamps = [
         pd.Timestamp("2022-12-30 10:00:00", tz="Asia/Shanghai"),
         pd.Timestamp("2023-01-01 10:00:00", tz="Asia/Shanghai"),
@@ -885,7 +885,7 @@ def test_daily_rebalance_uses_complete_timestamp_prices_for_cross_symbol_targets
         "CCC": _build_symbol_df("CCC", timestamps, [1.02, 0.98, 1.0, 1.0, 1.0, 1.0]),
     }
 
-    strategy = DailyRebalanceCrossSymbolCarryoverStrategy()
+    strategy = DailyRebalanceAfterBarCrossSymbolCarryoverStrategy()
     result = run_backtest(
         data=data_map,
         strategy=strategy,

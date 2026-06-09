@@ -470,8 +470,13 @@ impl OrderManager {
             )
             .equity;
 
-            self.trade_tracker
-                .process_trade(&trade, multiplier, order_tag, symbol_history, portfolio_value);
+            self.trade_tracker.process_trade(
+                &trade,
+                multiplier,
+                order_tag,
+                symbol_history,
+                portfolio_value,
+            );
 
             // 6. Record Trade
             self.trades.push(trade.clone());
