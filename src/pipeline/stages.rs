@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub struct ChannelProcessor;
 
 fn process_order_request(engine: &mut Engine, py: Python<'_>, mut order: Order) {
-    let current_time = engine.clock.timestamp().unwrap_or(0);
+    let current_time = engine.context_timestamp();
     engine.maybe_reset_risk_budget_usage(current_time);
     let mut strategy_limit_err = engine.check_strategy_risk_cooldown_mode(&order);
     let mut triggers_risk_fallback = false;
@@ -60,7 +60,7 @@ fn process_order_request(engine: &mut Engine, py: Python<'_>, mut order: Order) 
             market_model: engine.market_manager.model.as_ref(),
             execution_policy_core: engine.execution_policy_core(),
             bar_index: engine.bar_count,
-            current_time: engine.clock.timestamp().unwrap_or(0),
+            current_time,
             session: engine.clock.session,
             active_orders: &engine.state.order_manager.active_orders,
             risk_config: &engine.risk_manager.config,
@@ -72,7 +72,7 @@ fn process_order_request(engine: &mut Engine, py: Python<'_>, mut order: Order) 
     if let Err(err) = check_result {
         order.status = OrderStatus::Rejected;
         order.reject_reason = err.to_string();
-        order.updated_at = engine.clock.timestamp().unwrap_or(0);
+        order.updated_at = current_time;
 
         let mut risk_payload = HashMap::new();
         risk_payload.insert("order_id", order.id.clone());
@@ -144,7 +144,8 @@ fn should_run_phase_for_current_event(
                 Some(Event::Bar(_) | Event::Tick(_)) => true,
                 Some(Event::Timer(timer)) => {
                     matches!(policy.temporal, TemporalPolicy::SameCycle)
-                        && !timer.payload.starts_with("__framework_")
+                        && (!timer.payload.starts_with("__framework_")
+                            || timer.payload.starts_with("__framework_rebalance__|"))
                 }
                 _ => false,
             }
@@ -188,7 +189,7 @@ fn emit_execution_reports_for_current_event(engine: &mut Engine) {
         market_model: engine.market_manager.model.as_ref(),
         execution_policy_core: engine.execution_policy_core(),
         bar_index: engine.bar_count,
-        current_time: engine.clock.timestamp().unwrap_or(0),
+        current_time: engine.context_timestamp(),
         session: engine.clock.session,
         active_orders: &engine.state.order_manager.active_orders,
         risk_config: &engine.risk_manager.config,
@@ -1089,7 +1090,7 @@ impl Processor for ExecutionProcessor {
                         market_model: engine.market_manager.model.as_ref(),
                         execution_policy_core: engine.execution_policy_core(),
                         bar_index: engine.bar_count,
-                        current_time: engine.clock.timestamp().unwrap_or(0),
+                        current_time: engine.context_timestamp(),
                         session: engine.clock.session,
                         active_orders: &engine.state.order_manager.active_orders,
                         risk_config: &engine.risk_manager.config,

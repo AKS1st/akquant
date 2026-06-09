@@ -15,6 +15,7 @@ from .strategy_framework_hooks import (
     ensure_framework_state,
     mark_portfolio_dirty,
     register_boundary_timers,
+    register_daily_rebalance_timers,
     register_pre_open_timers,
 )
 from .strategy_ml import (
@@ -49,6 +50,7 @@ def on_bar_event(strategy: Any, bar: Bar, ctx: StrategyContext) -> None:
     strategy.ctx = ctx
     flush_pending_schedules(strategy)
     register_boundary_timers(strategy)
+    register_daily_rebalance_timers(strategy)
     register_pre_open_timers(strategy)
     strategy._last_event_type = "bar"
 
@@ -132,6 +134,7 @@ def on_tick_event(strategy: Any, tick: Tick, ctx: StrategyContext) -> None:
     strategy.ctx = ctx
     flush_pending_schedules(strategy)
     register_boundary_timers(strategy)
+    register_daily_rebalance_timers(strategy)
     register_pre_open_timers(strategy)
     strategy._last_event_type = "tick"
     strategy._check_order_events()
@@ -160,6 +163,7 @@ def on_timer_event(strategy: Any, payload: str, ctx: StrategyContext) -> None:
     strategy.ctx = ctx
     flush_pending_schedules(strategy)
     register_boundary_timers(strategy)
+    register_daily_rebalance_timers(strategy)
     register_pre_open_timers(strategy)
     strategy._check_order_events()
 

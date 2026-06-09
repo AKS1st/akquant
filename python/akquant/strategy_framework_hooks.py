@@ -137,6 +137,40 @@ def collect_boundary_timer_entries(strategy: Any) -> List[Tuple[int, str]]:
     return entries
 
 
+def collect_daily_rebalance_timer_entries(strategy: Any) -> List[Tuple[int, str]]:
+    """Collect framework daily rebalance timers aligned to complete price slices."""
+    if not _strategy_overrides_callback(strategy, "on_daily_rebalance"):
+        return []
+
+    rebalance_timestamps = getattr(strategy, "_trading_day_rebalance_timestamps", None)
+    if not rebalance_timestamps:
+        return []
+
+    entries: List[Tuple[int, str]] = []
+    for day_key, source_timestamp in rebalance_timestamps.items():
+        try:
+            source_ts = int(source_timestamp)
+        except (TypeError, ValueError):
+            continue
+        if source_ts <= 0:
+            continue
+        entries.append(
+            (source_ts + 1, f"__framework_rebalance__|{day_key}|{source_ts}")
+        )
+    return entries
+
+
+def _has_timer_driven_daily_rebalance(strategy: Any, trading_date: Any) -> bool:
+    rebalance_timestamps = getattr(strategy, "_trading_day_rebalance_timestamps", None)
+    if not isinstance(rebalance_timestamps, dict) or not rebalance_timestamps:
+        return False
+    if hasattr(trading_date, "isoformat"):
+        day_key = trading_date.isoformat()
+    else:
+        day_key = str(trading_date)
+    return day_key in rebalance_timestamps
+
+
 def _should_reraise_on_error(strategy: Any) -> bool:
     mode = str(_runtime_option(strategy, "error_mode")).strip().lower()
     if mode == "raise":
@@ -336,6 +370,7 @@ def dispatch_time_hooks(strategy: Any) -> None:
         and _is_normal_session(current_session)
         and getattr(strategy, "_framework_daily_rebalance_done_date", None)
         != current_date
+        and not _has_timer_driven_daily_rebalance(strategy, current_date)
     ):
         _dispatch_daily_rebalance_if_needed(strategy, current_date, current_time)
 
@@ -398,6 +433,27 @@ def register_boundary_timers(strategy: Any) -> None:
     strategy._framework_boundary_timers_registered = True
 
 
+def register_daily_rebalance_timers(strategy: Any) -> None:
+    """注册框架级每日调仓定时器，在完整时间片结束后触发."""
+    if strategy.ctx is None:
+        return
+    if getattr(strategy, "_framework_daily_rebalance_timers_registered", False):
+        return
+
+    entries = collect_daily_rebalance_timer_entries(strategy)
+    if not entries:
+        strategy._framework_daily_rebalance_timers_registered = True
+        return
+
+    current_time = int(getattr(strategy.ctx, "current_time", 0))
+    for trigger_ts, payload in entries:
+        if current_time > 0 and trigger_ts <= current_time:
+            continue
+        strategy.ctx.schedule(trigger_ts, payload)
+
+    strategy._framework_daily_rebalance_timers_registered = True
+
+
 def dispatch_boundary_timer(strategy: Any, payload: str) -> bool:
     """处理框架级边界定时器，返回是否已消费该 payload."""
     if strategy.ctx is None:
@@ -430,7 +486,9 @@ def dispatch_boundary_timer(strategy: Any, payload: str) -> bool:
                 payload={"trading_date": day, "timestamp": current_time},
             )
             strategy._framework_before_trading_done_date = day
-        if getattr(strategy, "_framework_daily_rebalance_done_date", None) != day:
+        if getattr(
+            strategy, "_framework_daily_rebalance_done_date", None
+        ) != day and not _has_timer_driven_daily_rebalance(strategy, day):
             _run_in_framework_phase(
                 strategy,
                 "daily_rebalance",
@@ -696,3 +754,7 @@ def ensure_framework_state(strategy: Any) -> None:
         strategy._framework_boundary_timers_registered = False
     if not hasattr(strategy, "_trading_day_bounds"):
         strategy._trading_day_bounds = {}
+    if not hasattr(strategy, "_trading_day_rebalance_timestamps"):
+        strategy._trading_day_rebalance_timestamps = {}
+    if not hasattr(strategy, "_framework_daily_rebalance_timers_registered"):
+        strategy._framework_daily_rebalance_timers_registered = False
