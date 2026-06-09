@@ -631,6 +631,9 @@ class Engine:
         """
         ...
 
+    def use_simple_market_policy(
+        self, commission_type: str, commission_value: float
+    ) -> None: ...
     def use_china_market(self) -> None:
         r"""启用 ChinaMarket (支持 T+1/T+0, 印花税, 过户费, 交易时段等)."""
         ...
@@ -688,6 +691,14 @@ class Engine:
         """
         ...
 
+    def set_stock_fee_policy(
+        self,
+        commission_type: str,
+        commission_value: float,
+        stamp_tax: float,
+        transfer_fee: float,
+        min_commission: float,
+    ) -> None: ...
     def set_futures_fee_rules(self, commission_rate: float) -> None:
         r"""
         设置期货费率规则.

@@ -359,6 +359,7 @@ impl OrderManager {
                 if let Some((override_type, override_value)) = order_override {
                     trade.commission = match override_type.as_str() {
                         "fixed" => override_value,
+                        "per_unit" => trade.quantity * override_value,
                         "percent" => {
                             let turnover = trade.price * trade.quantity * instr.multiplier();
                             turnover * override_value

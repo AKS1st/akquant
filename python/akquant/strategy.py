@@ -380,6 +380,7 @@ class Strategy:
 
     # Fee rates
     commission_rate: float
+    commission_policy: Dict[str, Any]
     min_commission: float
     stamp_tax_rate: float
     transfer_fee_rate: float
@@ -465,6 +466,7 @@ class Strategy:
 
         # 默认费率配置
         instance.commission_rate = 0.0
+        instance.commission_policy = {"type": "percent", "value": 0.0}
         instance.min_commission = 0.0
         instance.stamp_tax_rate = 0.0
         instance.transfer_fee_rate = 0.0

@@ -21,6 +21,7 @@ def run_backtest(
     strategy_loader_options: Optional[Dict[str, Any]] = None,
     symbols: Union[str, List[str], Tuple[str, ...], set[str]] = "BENCHMARK",
     initial_cash: Optional[float] = None,
+    commission_policy: Optional[CommissionPolicy] = None,
     commission_rate: Optional[float] = None,
     stamp_tax_rate: Optional[float] = None,
     transfer_fee_rate: Optional[float] = None,
@@ -162,6 +163,7 @@ def run_warm_start(
     data: Optional[BacktestDataInput] = None,
     show_progress: bool = True,
     symbols: Union[str, List[str], Tuple[str, ...], set[str]] = "BENCHMARK",
+    commission_policy: Optional[CommissionPolicy] = None,
     strategy_runtime_config: Optional[Union[StrategyRuntimeConfig, Dict[str, Any]]] = None,
     runtime_config_override: bool = True,
     strategy_id: Optional[str] = None,
@@ -199,6 +201,11 @@ def run_warm_start(
 *   `on_tick` / `on_order` / `on_trade` / `on_reject` / `on_session_start` / `on_session_end` / `on_before_trading` / `on_after_trading` / `on_daily_rebalance` / `on_daily_rebalance_after_bar` / `on_portfolio_update` / `on_error` / `on_expiry` / `on_pre_open` / `on_timer` / `on_train_signal`: 函数式策略事件回调；其中 `on_expiry(ctx, event)` 在引擎实际执行到期结算后触发，`on_pre_open(ctx, event)` 在每个交易日首个常规行情事件前触发，适合“盘前决策，本次 open 成交”；`on_error(ctx, error, source, payload)` 会在其他用户回调抛出异常时触发；`on_train_signal(ctx)` 仅在 ML 滚动训练窗口触发。
 *   `symbols`: 标的代码或代码列表。
 *   `initial_cash`: 初始资金。未显式传入时会回落到 `StrategyConfig.initial_cash`，其默认值为 `100000.0`。
+*   `commission_policy`: 运行级默认佣金策略。支持三种模式：
+    *   `{"type": "percent", "value": 0.0003}`: 按成交额比例收费。
+    *   `{"type": "fixed", "value": 3.0}`: 每次成交固定收取 3 元。
+    *   `{"type": "per_unit", "value": 0.01}`: 按成交数量线性收费，即 `fill_quantity * 0.01`。
+    *   若显式提供，优先级高于 `commission_rate`；`commission_rate` 仍保留为兼容入口。
 *   legacy 价格基准参数：已移除。
 *   legacy 时序参数：已移除。
 *   `fill_policy`: 统一成交语义配置。
@@ -229,6 +236,15 @@ def run_warm_start(
     下单时优先级：订单级 `slippage` > `strategy_slippage[strategy_id]` > 运行级 `slippage`。
 *   `strategy_commission`: 可选策略级默认佣金映射（`strategy_id -> commission`）。
     下单时优先级：订单级 `commission` > `strategy_commission[strategy_id]` > 运行级佣金模型。
+*   `commission` / `strategy_commission` 中的 `CommissionPolicy` 与运行级 `commission_policy` 共享同一结构：
+
+```python
+{"type": "percent" | "fixed" | "per_unit", "value": non_negative_number}
+```
+
+    *   `percent`: 按成交额比例收费。
+    *   `fixed`: 每次成交固定金额，不随成交数量变化。
+    *   `per_unit`: 按成交数量收费，适合“每股/每手/每份”线性收费场景。
 *   配置分层（推荐心智模型）：
     1) 订单级（`buy/sell/submit_order` 传参）；
     2) 策略映射级（`strategy_*`，按 `strategy_id/slot`）；
@@ -423,6 +439,7 @@ class BacktestConfig:
 class StrategyConfig:
     initial_cash: float = 100000.0
     commission_rate: float = 0.0
+    commission_policy: Optional[Dict[str, Any]] = None
     stamp_tax_rate: float = 0.0
     transfer_fee_rate: float = 0.0
     min_commission: float = 0.0
@@ -559,7 +576,7 @@ AKQuant 提供了灵活的配置系统，允许用户通过多种方式设置回
 BacktestConfig (回测场景)
 ├── StrategyConfig (策略与账户)
 │   ├── initial_cash (初始资金)
-│   ├── commission_rate (默认佣金)
+│   ├── commission_policy / commission_rate (默认佣金)
 │   ├── slippage (默认滑点)
 │   └── RiskConfig (风控规则)
 │       ├── safety_margin (安全垫)
@@ -603,7 +620,7 @@ BacktestConfig (回测场景)
 | 配置项 | 高优先级 | 中优先级 | 默认值 |
 |---|---|---|---|
 | 合约参数（乘数/保证金/tick/手数） | `InstrumentConfig` 显式字段 | `instrument_templates_by_symbol_prefix` | `run_backtest` 默认参数 |
-| 品种费率 | `fee_by_symbol_prefix` | 模板 `commission_rate` | `StrategyConfig.commission_rate` |
+| 品种费率 | `fee_by_symbol_prefix` | 模板 `commission_rate` | `StrategyConfig.commission_policy` 或 `StrategyConfig.commission_rate` |
 | 品种校验开关 | `validation_by_symbol_prefix` | 模板 `enforce_tick_size / enforce_lot_size` | 全局 `ChinaFuturesConfig.enforce_*` |
 | 交易时段 | `china_futures.sessions` 显式配置 | `session_profile` 模板 | ChinaMarket 默认会话 |
 | 市场路由 | `use_china_futures_market=False` 或混合资产回落 | `use_china_futures_market=True` 且纯期货 | `use_simple_market` |
@@ -632,7 +649,7 @@ BacktestConfig (回测场景)
 | 能力维度 | 中国期货（`china_futures`） | 中国期权（`china_options`） |
 |---|---|---|
 | 路由开关 | `use_china_futures_market` | `use_china_market` |
-| 全局费率 | `StrategyConfig.commission_rate` 或模板费率 | `fee_per_contract` |
+| 全局费率 | `StrategyConfig.commission_policy` / `StrategyConfig.commission_rate` 或模板费率 | `fee_per_contract` |
 | 前缀费率覆盖 | `fee_by_symbol_prefix` | `fee_by_symbol_prefix` |
 | 合约参数模板 | 支持（乘数/保证金/tick/手数） | 不支持 |
 | 撮合校验开关 | 支持（tick/手数，含前缀覆盖） | 不支持 |
@@ -643,7 +660,7 @@ BacktestConfig (回测场景)
 
 | 配置项 | 高优先级 | 中优先级 | 默认值 |
 |---|---|---|---|
-| 股票费率（佣金/印花税/过户费/最低佣金） | `InstrumentConfig` 单标的费率字段 | `StrategyConfig` 全局费率字段 | `run_backtest` 内置默认值 |
+| 股票费率（佣金/印花税/过户费/最低佣金） | `InstrumentConfig` 单标的费率字段 | `StrategyConfig` 全局费率字段（含 `commission_policy` / `commission_rate`） | `run_backtest` 内置默认值 |
 | 交易单位（`lot_size`） | `InstrumentConfig.lot_size`（显式设置） | `run_backtest(lot_size=...)` 全局设置 | `1` |
 | 市场制度（T+1） | `run_backtest(t_plus_one=...)` 显式参数 | `Engine.set_t_plus_one(...)` 引擎设置 | `False` |
 | 市场模型 | `use_china_market()` | `use_simple_market()` | 引擎默认市场配置 |
@@ -976,10 +993,12 @@ runner = LiveRunner(
 
 **市场与费率配置:**
 
-*   `use_simple_market()`: 启用简单市场。
+*   `use_simple_market()`: 启用简单市场（按比例佣金兼容入口）。
+*   `use_simple_market_policy(type, value)`: 启用简单市场并显式设置佣金模式。
 *   `use_china_market()`: 启用中国市场 (股票)。
 *   `use_china_futures_market()`: 启用中国期货市场。
 *   `set_stock_fee_rules(commission, stamp_tax, transfer_fee, min_commission)`: 设置股票费率。
+*   `set_stock_fee_policy(type, value, stamp_tax, transfer_fee, min_commission)`: 设置股票佣金模式与费率。
 *   `set_futures_fee_rules(commission_rate)`: 设置期货费率。
 *   `set_futures_fee_rules_by_prefix(symbol_prefix, commission_rate)`: 设置期货品种前缀费率。
 *   `set_futures_validation_options(enforce_tick_size, enforce_lot_size)`: 设置期货撮合前校验开关。

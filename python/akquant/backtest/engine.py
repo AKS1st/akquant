@@ -126,6 +126,28 @@ class CommissionPolicy(TypedDict, total=False):
     value: float
 
 
+def _normalize_commission_policy(
+    commission_policy: Optional[Dict[str, Any]],
+    *,
+    scope: str,
+) -> Optional[CommissionPolicy]:
+    if commission_policy is None:
+        return None
+    if not isinstance(commission_policy, dict):
+        raise TypeError(f"{scope} must be a dict when provided")
+    raw_type = str(commission_policy.get("type", "percent")).strip().lower()
+    if raw_type not in {"percent", "fixed", "per_unit"}:
+        raise ValueError(f"{scope}.type must be one of: percent, fixed, per_unit")
+    raw_value = commission_policy.get("value", 0.0)
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{scope}.value must be a number >= 0") from None
+    if value < 0:
+        raise ValueError(f"{scope}.value must be >= 0")
+    return {"type": raw_type, "value": value}
+
+
 def make_fill_policy(
     *,
     price_basis: str,
@@ -937,22 +959,36 @@ def _resolve_broker_profile(profile: Optional[str]) -> Dict[str, Any]:
 
 def _resolve_stock_fee_rules(
     *,
+    commission_policy: Optional[CommissionPolicy],
     commission_rate: Optional[float],
     stamp_tax_rate: Optional[float],
     transfer_fee_rate: Optional[float],
     min_commission: Optional[float],
     broker_profile_values: Dict[str, Any],
     strategy_config: Optional[Any],
-) -> Tuple[float, float, float, float]:
-    resolved_commission_rate = commission_rate
+) -> Tuple[CommissionPolicy, float, float, float]:
+    resolved_commission_policy = _normalize_commission_policy(
+        cast(Optional[Dict[str, Any]], commission_policy),
+        scope="commission_policy",
+    )
+    if resolved_commission_policy is None and commission_rate is not None:
+        resolved_commission_policy = {
+            "type": "percent",
+            "value": float(commission_rate),
+        }
     resolved_stamp_tax_rate = stamp_tax_rate
     resolved_transfer_fee_rate = transfer_fee_rate
     resolved_min_commission = min_commission
 
-    if resolved_commission_rate is None:
-        resolved_commission_rate = cast(
+    if resolved_commission_policy is None:
+        profile_commission_rate = cast(
             Optional[float], broker_profile_values.get("commission_rate")
         )
+        if profile_commission_rate is not None:
+            resolved_commission_policy = {
+                "type": "percent",
+                "value": float(profile_commission_rate),
+            }
     if resolved_stamp_tax_rate is None:
         resolved_stamp_tax_rate = cast(
             Optional[float], broker_profile_values.get("stamp_tax_rate")
@@ -967,10 +1003,23 @@ def _resolve_stock_fee_rules(
         )
 
     if strategy_config is not None:
-        if resolved_commission_rate is None:
-            resolved_commission_rate = cast(
+        if resolved_commission_policy is None:
+            resolved_commission_policy = _normalize_commission_policy(
+                cast(
+                    Optional[Dict[str, Any]],
+                    getattr(strategy_config, "commission_policy", None),
+                ),
+                scope="strategy_config.commission_policy",
+            )
+        if resolved_commission_policy is None:
+            config_commission_rate = cast(
                 Optional[float], getattr(strategy_config, "commission_rate", None)
             )
+            if config_commission_rate is not None:
+                resolved_commission_policy = {
+                    "type": "percent",
+                    "value": float(config_commission_rate),
+                }
         if resolved_stamp_tax_rate is None:
             resolved_stamp_tax_rate = cast(
                 Optional[float], getattr(strategy_config, "stamp_tax_rate", None)
@@ -984,10 +1033,11 @@ def _resolve_stock_fee_rules(
                 Optional[float], getattr(strategy_config, "min_commission", None)
             )
 
+    if resolved_commission_policy is None:
+        resolved_commission_policy = {"type": "percent", "value": 0.0}
+
     return (
-        float(
-            resolved_commission_rate if resolved_commission_rate is not None else 0.0
-        ),
+        resolved_commission_policy,
         float(resolved_stamp_tax_rate if resolved_stamp_tax_rate is not None else 0.0),
         float(resolved_transfer_fee_rate or 0.0),
         float(resolved_min_commission or 0.0),
@@ -1327,24 +1377,15 @@ def _normalize_strategy_commission_map(
                 f"strategy_commission[{strategy_key_str}] must be a dict "
                 "CommissionPolicy"
             )
-        raw_type = str(raw_commission.get("type", "percent")).strip().lower()
-        if raw_type not in {"percent", "fixed"}:
+        normalized_commission = _normalize_commission_policy(
+            cast(Dict[str, Any], raw_commission),
+            scope=f"strategy_commission[{strategy_key_str}]",
+        )
+        if normalized_commission is None:
             raise ValueError(
-                f"strategy_commission[{strategy_key_str}].type must be one of: "
-                "percent, fixed"
+                f"strategy_commission[{strategy_key_str}] must not be empty"
             )
-        raw_value = raw_commission.get("value", 0.0)
-        try:
-            value = float(raw_value)
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"strategy_commission[{strategy_key_str}].value must be a number >= 0"
-            ) from None
-        if value < 0:
-            raise ValueError(
-                f"strategy_commission[{strategy_key_str}].value must be >= 0"
-            )
-        normalized[strategy_key_str] = {"type": raw_type, "value": value}
+        normalized[strategy_key_str] = normalized_commission
     unknown_keys = sorted(set(normalized.keys()).difference(set(configured_slot_ids)))
     if unknown_keys:
         raise ValueError(
@@ -2115,6 +2156,7 @@ def run_backtest(
     strategy_loader_options: Optional[Dict[str, Any]] = None,
     symbols: Union[str, List[str], Tuple[str, ...], set[str]] = "BENCHMARK",
     initial_cash: Optional[float] = None,
+    commission_policy: Optional[CommissionPolicy] = None,
     commission_rate: Optional[float] = None,
     stamp_tax_rate: Optional[float] = None,
     transfer_fee_rate: Optional[float] = None,
@@ -2207,6 +2249,11 @@ def run_backtest(
                                     {"decrypt_and_load": callable}
     :param symbols: 标的代码或代码列表
     :param initial_cash: 初始资金 (默认 100,000.0)
+    :param commission_policy: 佣金策略 (可选)，格式如
+                              {"type": "percent", "value": 0.0003}、
+                              {"type": "fixed", "value": 3.0}、
+                              {"type": "per_unit", "value": 0.01}。
+                              显式传入时优先级高于 commission_rate。
     :param commission_rate: 佣金率 (默认 0.0)
     :param stamp_tax_rate: 印花税率 (仅卖出, 默认 0.0)
     :param transfer_fee_rate: 过户费率 (默认 0.0)
@@ -2450,27 +2497,26 @@ def run_backtest(
         else:
             initial_cash = DEFAULT_INITIAL_CASH
 
-    # Resolve Commission Rate
-    if commission_rate is None:
-        if config and config.strategy_config:
-            commission_rate = config.strategy_config.commission_rate
-        else:
-            commission_rate = DEFAULT_COMMISSION_RATE
-
-    # Resolve Other Fees (if not passed as args, check config)
-    if config and config.strategy_config:
-        if stamp_tax_rate is None:
-            stamp_tax_rate = config.strategy_config.stamp_tax_rate
-        if transfer_fee_rate is None:
-            transfer_fee_rate = config.strategy_config.transfer_fee_rate
-        if min_commission is None:
-            min_commission = config.strategy_config.min_commission
-    if stamp_tax_rate is None:
-        stamp_tax_rate = 0.0
-    if transfer_fee_rate is None:
-        transfer_fee_rate = 0.0
-    if min_commission is None:
-        min_commission = 0.0
+    (
+        resolved_commission_policy,
+        stamp_tax_rate,
+        transfer_fee_rate,
+        min_commission,
+    ) = _resolve_stock_fee_rules(
+        commission_policy=commission_policy,
+        commission_rate=commission_rate,
+        stamp_tax_rate=stamp_tax_rate,
+        transfer_fee_rate=transfer_fee_rate,
+        min_commission=min_commission,
+        broker_profile_values=broker_profile_values,
+        strategy_config=strategy_config,
+    )
+    commission_policy = resolved_commission_policy
+    commission_rate = (
+        float(commission_policy["value"])
+        if commission_policy["type"] == "percent"
+        else DEFAULT_COMMISSION_RATE
+    )
 
     # Resolve Slippage & Volume Limit
     if slippage is None:
@@ -2722,6 +2768,8 @@ def run_backtest(
     for current_strategy in all_strategy_instances:
         if hasattr(current_strategy, "commission_rate"):
             current_strategy.commission_rate = commission_rate
+        if hasattr(current_strategy, "commission_policy"):
+            current_strategy.commission_policy = dict(commission_policy)
         if hasattr(current_strategy, "min_commission"):
             current_strategy.min_commission = min_commission
         if hasattr(current_strategy, "stamp_tax_rate"):
@@ -3620,23 +3668,42 @@ def run_backtest(
         if china_options_config.use_china_market:
             engine.use_china_market()
         else:
-            engine.use_simple_market(commission_rate)
+            if hasattr(engine, "use_simple_market_policy"):
+                cast(Any, engine).use_simple_market_policy(
+                    commission_policy["type"], float(commission_policy["value"])
+                )
+            else:
+                engine.use_simple_market(commission_rate)
         if t_plus_one:
             engine.set_t_plus_one(True)
     elif t_plus_one:
         engine.use_china_market()
         engine.set_t_plus_one(True)
     else:
-        engine.use_simple_market(commission_rate)
+        if hasattr(engine, "use_simple_market_policy"):
+            cast(Any, engine).use_simple_market_policy(
+                commission_policy["type"], float(commission_policy["value"])
+            )
+        else:
+            engine.use_simple_market(commission_rate)
 
     force_session_continuous = True
     if china_futures_config and has_futures_instruments:
         force_session_continuous = not china_futures_config.enforce_sessions
     engine.set_force_session_continuous(force_session_continuous)
-    # 无论使用 SimpleMarket 还是 ChinaMarket，set_stock_fee_rules 都能正确配置费率
-    engine.set_stock_fee_rules(
-        commission_rate, stamp_tax_rate, transfer_fee_rate, min_commission
-    )
+    # 无论使用 SimpleMarket 还是 ChinaMarket，都尝试使用统一佣金策略接口。
+    if hasattr(engine, "set_stock_fee_policy"):
+        cast(Any, engine).set_stock_fee_policy(
+            commission_policy["type"],
+            float(commission_policy["value"]),
+            stamp_tax_rate,
+            transfer_fee_rate,
+            min_commission,
+        )
+    else:
+        engine.set_stock_fee_rules(
+            commission_rate, stamp_tax_rate, transfer_fee_rate, min_commission
+        )
 
     # Configure Execution parameters
     if (
@@ -4360,6 +4427,7 @@ def run_warm_start(
     data: Optional[BacktestDataInput] = None,
     show_progress: bool = True,
     symbols: Union[str, List[str], Tuple[str, ...], set[str]] = "BENCHMARK",
+    commission_policy: Optional[CommissionPolicy] = None,
     strategy_runtime_config: Optional[
         Union[StrategyRuntimeConfig, Dict[str, Any]]
     ] = None,
@@ -5408,6 +5476,10 @@ def run_warm_start(
     broker_profile_values = _resolve_broker_profile(
         cast(Optional[str], kwargs.get("broker_profile"))
     )
+    if commission_policy is None:
+        commission_policy = cast(
+            Optional[CommissionPolicy], kwargs.get("commission_policy")
+        )
     commission_rate_value = cast(Optional[float], kwargs.get("commission_rate"))
     stamp_tax_rate_value = cast(
         Optional[float], kwargs.get("stamp_tax_rate", kwargs.get("stamp_tax"))
@@ -5417,11 +5489,12 @@ def run_warm_start(
     )
     min_commission_value = cast(Optional[float], kwargs.get("min_commission"))
     (
-        commission,
+        resolved_commission_policy,
         stamp_tax,
         transfer_fee,
         min_commission,
     ) = _resolve_stock_fee_rules(
+        commission_policy=commission_policy,
         commission_rate=commission_rate_value,
         stamp_tax_rate=stamp_tax_rate_value,
         transfer_fee_rate=transfer_fee_rate_value,
@@ -5436,14 +5509,43 @@ def run_warm_start(
         engine.use_china_market()
     else:
         # SimpleMarket implies T+0
-        engine.use_simple_market(commission)
+        if hasattr(engine, "use_simple_market_policy"):
+            cast(Any, engine).use_simple_market_policy(
+                resolved_commission_policy["type"],
+                float(resolved_commission_policy["value"]),
+            )
+        else:
+            commission = (
+                float(resolved_commission_policy["value"])
+                if resolved_commission_policy["type"] == "percent"
+                else 0.0
+            )
+            engine.use_simple_market(commission)
 
     # Apply fee rules if engine supports it
     # (and if not ChinaMarket which has fixed rules?)
     # ChinaMarket usually has hardcoded rules or defaults,
     # but set_stock_fee_rules overrides them?
     # Let's just set it.
-    if hasattr(engine, "set_stock_fee_rules"):
+    if hasattr(engine, "set_stock_fee_policy"):
+        cast(Any, engine).set_stock_fee_policy(
+            resolved_commission_policy["type"],
+            float(resolved_commission_policy["value"]),
+            stamp_tax,
+            transfer_fee,
+            min_commission,
+        )
+        logger.info(
+            "Re-configured market fees: commission_policy=%s, stamp=%s",
+            resolved_commission_policy,
+            stamp_tax,
+        )
+    elif hasattr(engine, "set_stock_fee_rules"):
+        commission = (
+            float(resolved_commission_policy["value"])
+            if resolved_commission_policy["type"] == "percent"
+            else 0.0
+        )
         engine.set_stock_fee_rules(commission, stamp_tax, transfer_fee, min_commission)
         logger.info(f"Re-configured market fees: comm={commission}, stamp={stamp_tax}")
     restored_initial_market_value = float(restored_cash)

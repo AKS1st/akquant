@@ -21,6 +21,7 @@ def run_backtest(
     strategy_loader_options: Optional[Dict[str, Any]] = None,
     symbols: Union[str, List[str], Tuple[str, ...], set[str]] = "BENCHMARK",
     initial_cash: Optional[float] = None,
+    commission_policy: Optional[CommissionPolicy] = None,
     commission_rate: Optional[float] = None,
     stamp_tax_rate: Optional[float] = None,
     transfer_fee_rate: Optional[float] = None,
@@ -97,6 +98,11 @@ def run_backtest(
 *   `on_tick` / `on_order` / `on_trade` / `on_reject` / `on_session_start` / `on_session_end` / `on_before_trading` / `on_after_trading` / `on_daily_rebalance` / `on_daily_rebalance_after_bar` / `on_portfolio_update` / `on_error` / `on_expiry` / `on_pre_open` / `on_timer` / `on_train_signal`: Functional event callbacks. `on_expiry(ctx, event)` fires only after the engine actually executes expiry settlement/removal.
 *   `symbols`: Preferred parameter. Symbol or list of symbols.
 *   `initial_cash`: Initial cash. If omitted, it falls back to `StrategyConfig.initial_cash`, whose default is `100000.0`.
+*   `commission_policy`: Run-level default commission policy. Supported modes:
+    *   `{"type": "percent", "value": 0.0003}`: commission as a percentage of turnover.
+    *   `{"type": "fixed", "value": 3.0}`: a fixed amount charged on each fill.
+    *   `{"type": "per_unit", "value": 0.01}`: charged linearly by filled quantity, i.e. `fill_quantity * 0.01`.
+    *   When explicitly provided, it takes precedence over `commission_rate`; `commission_rate` remains as a backward-compatible shorthand for percent mode.
 *   Legacy price-basis parameter: Removed.
 *   Legacy timer-temporal parameter: Removed.
 *   `fill_policy`: Unified fill semantics.
@@ -130,6 +136,15 @@ def run_backtest(
     Resolution order at submit time: order-level `slippage` > `strategy_slippage[strategy_id]` > run-level `slippage`.
 *   `strategy_commission`: Optional strategy-level default commission map keyed by strategy id.
     Resolution order at submit time: order-level `commission` > `strategy_commission[strategy_id]` > run-level commission model.
+*   `commission` / `strategy_commission` use the same `CommissionPolicy` payload as run-level `commission_policy`:
+
+```python
+{"type": "percent" | "fixed" | "per_unit", "value": non_negative_number}
+```
+
+    *   `percent`: percentage of turnover.
+    *   `fixed`: fixed amount per fill.
+    *   `per_unit`: linear by filled quantity, suitable for per-share / per-lot / per-unit fee models.
 *   Configuration layers (recommended mental model):
     1) order-level (`buy/sell/submit_order` args);
     2) strategy-map level (`strategy_*`, keyed by `strategy_id/slot`);
@@ -250,6 +265,7 @@ def run_warm_start(
     data: Optional[BacktestDataInput] = None,
     show_progress: bool = True,
     symbols: Union[str, List[str], Tuple[str, ...], set[str]] = "BENCHMARK",
+    commission_policy: Optional[CommissionPolicy] = None,
     strategy_runtime_config: Optional[Union[StrategyRuntimeConfig, Dict[str, Any]]] = None,
     runtime_config_override: bool = True,
     strategy_id: Optional[str] = None,
@@ -430,6 +446,7 @@ Configuration at the strategy level, including capital, fees, and risk.
 class StrategyConfig:
     initial_cash: float = 100000.0
     commission_rate: float = 0.0
+    commission_policy: Optional[Dict[str, Any]] = None
     stamp_tax_rate: float = 0.0
     transfer_fee_rate: float = 0.0
     min_commission: float = 0.0
@@ -573,7 +590,7 @@ Configuration objects are organized in a tree structure, with `BacktestConfig` a
 BacktestConfig (Simulation Scenario)
 ├── StrategyConfig (Strategy & Account)
 │   ├── initial_cash
-│   ├── commission_rate (Default)
+│   ├── commission_policy / commission_rate (Default commission)
 │   ├── slippage (Default)
 │   └── RiskConfig (Risk Rules)
 │       ├── safety_margin
@@ -938,9 +955,11 @@ The main entry point for the backtesting engine (usually used implicitly via `ru
 
 **Market & Fee Configuration:**
 
-*   `use_simple_market()`: Enable simple market.
+*   `use_simple_market()`: Enable simple market (legacy percent-commission shorthand).
+*   `use_simple_market_policy(type, value)`: Enable simple market with an explicit commission mode.
 *   `use_china_market()`: Enable China market.
 *   `set_stock_fee_rules(commission, stamp_tax, transfer_fee, min_commission)`: Set fee rules.
+*   `set_stock_fee_policy(type, value, stamp_tax, transfer_fee, min_commission)`: Set stock commission mode and fee rules.
 
 ### `akquant.DataFeed`
 

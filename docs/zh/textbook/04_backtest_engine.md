@@ -189,6 +189,7 @@ graph TD
 
 3.  **StrategyConfig (策略配置)**：定义**账户与执行**。
     *   **Capital**: `initial_cash`
+    *   **Cost**: `commission_policy` / `commission_rate`
     *   **Execution**: `slippage` (全局滑点), `volume_limit_pct` (成交量限制)
     *   **Risk**: `risk` (风控配置)
 
@@ -206,6 +207,7 @@ risk = RiskConfig(max_position_pct=0.1, stop_loss_threshold=0.8)
 # 2. 定义策略账户
 strategy_conf = StrategyConfig(
     initial_cash=1_000_000,
+    commission_policy={"type": "per_unit", "value": 0.01},  # 每股 0.01 元
     slippage=0.0002,  # 万2滑点
     risk=risk
 )
@@ -240,6 +242,23 @@ config = BacktestConfig(
 3.  **模拟实盘**：每天收盘后保存状态，第二天开盘前加载状态并接入实时行情。
 
 详细使用方法请参考 [高级指南：热启动](../advanced/warm_start.md)。
+
+### 4.4.3 佣金策略分层
+
+AKQuant 当前支持三种公开佣金模式：
+
+*   `percent`: 按成交额比例收费，适合传统“万三佣金”。
+*   `fixed`: 每次成交固定金额，适合“每笔固定收 3 元”。
+*   `per_unit`: 按成交数量线性收费，适合“每股/每手/每份收固定费用”。
+
+推荐优先级如下：
+
+1.  订单级 `commission={"type": ..., "value": ...}`。
+2.  策略级 `strategy_commission[strategy_id]`。
+3.  运行级 `commission_policy`。
+4.  兼容入口 `commission_rate` 与市场默认值。
+
+其中 `commission_rate` 仍保留，但它只表示 `percent` 模式的简写。如果你要表达按笔固定收费或按数量收费，推荐显式使用 `commission_policy`。
 
 
 

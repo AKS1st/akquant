@@ -268,9 +268,9 @@ fn parse_order_commission_override(
         .unwrap_or_else(|| "percent".to_string())
         .trim()
         .to_ascii_lowercase();
-    if raw_type != "percent" && raw_type != "fixed" {
+    if raw_type != "percent" && raw_type != "fixed" && raw_type != "per_unit" {
         return Err(PyValueError::new_err(
-            "commission.type must be one of: percent, fixed",
+            "commission.type must be one of: percent, fixed, per_unit",
         ));
     }
     let value = match commission_value {

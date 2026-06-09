@@ -3,8 +3,16 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
 use std::collections::HashMap;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CommissionMode {
+    Percent,
+    Fixed,
+    PerUnit,
+}
+
 #[derive(Clone, Debug)]
 pub struct StockConfig {
+    pub commission_mode: CommissionMode,
     pub commission_rate: Decimal,
     pub stamp_tax: Decimal,
     pub transfer_fee: Decimal,
@@ -15,6 +23,7 @@ pub struct StockConfig {
 impl Default for StockConfig {
     fn default() -> Self {
         Self {
+            commission_mode: CommissionMode::Percent,
             commission_rate: Decimal::from_str("0.0003").unwrap(),
             stamp_tax: Decimal::from_str("0.0005").unwrap(),
             transfer_fee: Decimal::from_str("0.00001").unwrap(),
@@ -37,7 +46,11 @@ pub fn calculate_commission(
     let mut commission = Decimal::ZERO;
 
     // 1. 佣金
-    let mut brokerage = transaction_value * config.commission_rate;
+    let mut brokerage = match config.commission_mode {
+        CommissionMode::Percent => transaction_value * config.commission_rate,
+        CommissionMode::Fixed => config.commission_rate,
+        CommissionMode::PerUnit => quantity * config.commission_rate,
+    };
     if brokerage < config.min_commission {
         brokerage = config.min_commission;
     }

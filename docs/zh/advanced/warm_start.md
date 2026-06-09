@@ -113,7 +113,7 @@ AKQuant 内置的指标（如 `SMA`, `EMA`）已经支持 Pickle 序列化。如
 ## 4. 注意事项
 
 1.  **Instrument 需重新注册**：`run_warm_start` 会尝试自动为新数据中的 Symbol 注册默认 Instrument。如果你的策略依赖特定的 `lot_size` 或 `multiplier`，建议在 `on_start` 中手动检查并调用 `self.ctx.engine.add_instrument(...)`。
-2.  **MarketModel 重置**：费用设置（佣金、印花税）和交易规则（T+1）不会保存在快照中。务必在 `run_warm_start` 参数中重新传入正确配置（可通过显式参数或 `config.strategy_config`），优先使用 `stamp_tax_rate`、`transfer_fee_rate`（`stamp_tax`、`transfer_fee` 仍兼容）。
+2.  **MarketModel 重置**：费用设置（佣金、印花税）和交易规则（T+1）不会保存在快照中。务必在 `run_warm_start` 参数中重新传入正确配置（可通过显式参数或 `config.strategy_config`），包括 `commission_policy` / `commission_rate`、`stamp_tax_rate`、`transfer_fee_rate`（`stamp_tax`、`transfer_fee` 仍兼容）。
 3.  **初始资金显示**：`result2.metrics.initial_cash` 会自动调整为恢复时的资金，确保收益率计算是基于第二阶段的实际起始资金，而不是账户的历史初始资金。
 4.  **数据连续性**：确保 Phase 1 的结束时间与 Phase 2 的开始时间是连续的。如果中间有长时间中断，指标计算可能会出现跳跃。
 5.  **`get_history()` 连续性**：新版本快照会一并保存并恢复历史缓冲，因此 `run_warm_start` 恢复后，`get_history()`、`get_history_map()` 等接口会延续 Phase 1 的历史窗口；正常续跑时不再需要额外手工拼接 lookback 数据。

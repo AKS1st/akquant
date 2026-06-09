@@ -167,6 +167,11 @@ Follows standard PnL calculation: `Gross PnL`, `Net PnL`, `Commission`.
 
 ### 3.2 Order Lifecycle
 
+Fee-model note:
+
+*   Public commission semantics now include `percent`, `fixed`, and `per_unit`.
+*   Stock and `SimpleMarket` default commission models can therefore represent turnover-based, fixed-per-fill, and linear-per-quantity fees without changing the meaning of existing `fixed` policies.
+
 Signal -> Creation -> Submission -> Risk Check (Rust) -> Matching (Rust) -> Settlement (Rust) -> Reporting.
 
 ## 4. Extension Development Guide

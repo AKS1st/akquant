@@ -7,6 +7,7 @@ use crate::market::{
     ChinaMarketConfig, MarketConfig, MarketModel, SessionRange, SimpleMarketConfig, fund, futures,
     option, stock,
 };
+use crate::market::stock::CommissionMode;
 use crate::model::{Instrument, TradingSession};
 
 /// 市场管理器
@@ -41,6 +42,16 @@ impl MarketManager {
     pub fn use_simple_market(&mut self, commission_rate: f64) {
         let config = SimpleMarketConfig {
             commission_rate: Decimal::from_f64(commission_rate).unwrap_or(Decimal::ZERO),
+            ..Default::default()
+        };
+        self.config = MarketConfig::Simple(config);
+        self.model = self.config.create_model();
+    }
+
+    pub fn use_simple_market_policy(&mut self, commission_type: String, commission_value: f64) {
+        let config = SimpleMarketConfig {
+            commission_mode: parse_commission_mode(&commission_type),
+            commission_rate: Decimal::from_f64(commission_value).unwrap_or(Decimal::ZERO),
             ..Default::default()
         };
         self.config = MarketConfig::Simple(config);
@@ -101,16 +112,36 @@ impl MarketManager {
         transfer_fee: f64,
         min_commission: f64,
     ) {
+        self.set_stock_fee_policy(
+            "percent".to_string(),
+            commission_rate,
+            stamp_tax,
+            transfer_fee,
+            min_commission,
+        );
+    }
+
+    pub fn set_stock_fee_policy(
+        &mut self,
+        commission_type: String,
+        commission_value: f64,
+        stamp_tax: f64,
+        transfer_fee: f64,
+        min_commission: f64,
+    ) {
+        let commission_mode = parse_commission_mode(&commission_type);
         match &mut self.config {
             MarketConfig::China(c) => {
                 let stock = c.stock.get_or_insert_with(stock::StockConfig::default);
-                stock.commission_rate = Decimal::from_f64(commission_rate).unwrap_or(Decimal::ZERO);
+                stock.commission_mode = commission_mode.clone();
+                stock.commission_rate = Decimal::from_f64(commission_value).unwrap_or(Decimal::ZERO);
                 stock.stamp_tax = Decimal::from_f64(stamp_tax).unwrap_or(Decimal::ZERO);
                 stock.transfer_fee = Decimal::from_f64(transfer_fee).unwrap_or(Decimal::ZERO);
                 stock.min_commission = Decimal::from_f64(min_commission).unwrap_or(Decimal::ZERO);
             }
             MarketConfig::Simple(c) => {
-                c.commission_rate = Decimal::from_f64(commission_rate).unwrap_or(Decimal::ZERO);
+                c.commission_mode = commission_mode;
+                c.commission_rate = Decimal::from_f64(commission_value).unwrap_or(Decimal::ZERO);
                 c.stamp_tax = Decimal::from_f64(stamp_tax).unwrap_or(Decimal::ZERO);
                 c.transfer_fee = Decimal::from_f64(transfer_fee).unwrap_or(Decimal::ZERO);
                 c.min_commission = Decimal::from_f64(min_commission).unwrap_or(Decimal::ZERO);
@@ -251,6 +282,14 @@ impl MarketManager {
     ) {
         self.model
             .on_day_close(positions, available_positions, instruments);
+    }
+}
+
+fn parse_commission_mode(raw_type: &str) -> CommissionMode {
+    match raw_type.trim().to_ascii_lowercase().as_str() {
+        "fixed" => CommissionMode::Fixed,
+        "per_unit" => CommissionMode::PerUnit,
+        _ => CommissionMode::Percent,
     }
 }
 

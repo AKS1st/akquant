@@ -5,10 +5,12 @@ use rust_decimal::prelude::*;
 use std::collections::HashMap;
 
 use super::core::MarketModel;
+use super::stock::CommissionMode;
 
 /// 简单市场配置
 #[derive(Clone, Debug)]
 pub struct SimpleMarketConfig {
+    pub commission_mode: CommissionMode,
     pub commission_rate: Decimal,
     pub stamp_tax: Decimal,
     pub transfer_fee: Decimal,
@@ -18,6 +20,7 @@ pub struct SimpleMarketConfig {
 impl Default for SimpleMarketConfig {
     fn default() -> Self {
         Self {
+            commission_mode: CommissionMode::Percent,
             commission_rate: Decimal::from_str("0.0003").unwrap(),
             stamp_tax: Decimal::ZERO,
             transfer_fee: Decimal::ZERO,
@@ -50,7 +53,11 @@ impl MarketModel for SimpleMarket {
         quantity: Decimal,
     ) -> Decimal {
         let turnover = price * quantity * instrument.multiplier();
-        let mut commission = turnover * self.config.commission_rate;
+        let mut commission = match self.config.commission_mode {
+            CommissionMode::Percent => turnover * self.config.commission_rate,
+            CommissionMode::Fixed => self.config.commission_rate,
+            CommissionMode::PerUnit => quantity * self.config.commission_rate,
+        };
         if commission < self.config.min_commission {
             commission = self.config.min_commission;
         }

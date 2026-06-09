@@ -925,8 +925,8 @@ def _normalize_order_commission(
     if not isinstance(commission, dict):
         raise TypeError("commission must be a dict when provided")
     raw_type = str(commission.get("type", "percent")).strip().lower()
-    if raw_type not in {"percent", "fixed"}:
-        raise ValueError("commission.type must be one of: percent, fixed")
+    if raw_type not in {"percent", "fixed", "per_unit"}:
+        raise ValueError("commission.type must be one of: percent, fixed, per_unit")
     raw_value = commission.get("value", 0.0)
     try:
         value = float(raw_value)

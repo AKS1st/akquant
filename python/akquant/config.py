@@ -525,6 +525,10 @@ class StrategyConfig:
     **Capital & Costs:**
     :param initial_cash: Initial capital for the backtest. Default 100,000.0.
     :param commission_rate: Default commission rate (e.g., 0.0003).
+    :param commission_policy: Optional default commission policy dict.
+                              Supported types: `percent`, `fixed`, `per_unit`.
+                              When provided, it takes precedence over
+                              `commission_rate`.
     :param stamp_tax_rate: Default stamp tax rate (sell side).
     :param transfer_fee_rate: Default transfer fee rate.
     :param min_commission: Default minimum commission.
@@ -556,6 +560,7 @@ class StrategyConfig:
 
     # Fees & Commission (Default / Fallback)
     commission_rate: float = 0.0  # Commission rate (e.g. 0.0003 for 0.03%)
+    commission_policy: Optional[Dict[str, Any]] = None
     stamp_tax_rate: float = 0.0  # Stamp tax rate (e.g. 0.001, sell only)
     transfer_fee_rate: float = 0.0  # Transfer fee rate
     min_commission: float = 0.0  # Minimum commission per order (e.g. 5.0)

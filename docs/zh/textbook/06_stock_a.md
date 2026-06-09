@@ -143,7 +143,12 @@ python examples/textbook/ch06_stock_a.py
 
 *   **费率**：券商收取的交易费用，通常在 **0.01% - 0.03%** (万一到万三) 之间。
 *   **最低收费**：单笔交易最低 **5 元**。这意味着对于小资金（如 1 万元以下）的交易，佣金比例可能高达 0.1% 甚至更多。
-*   **引擎实现**：`commission = max(5.0, fill_price * fill_quantity * commission_rate)`
+*   **默认引擎实现**：`commission = max(min_commission, fill_price * fill_quantity * commission_rate)`
+*   **AKQuant 扩展模式**：
+    *   `percent`：按成交额比例收费，是股票默认口径。
+    *   `fixed`：每次成交固定金额，不随成交数量变化。
+    *   `per_unit`：按成交数量线性收费，即 `fill_quantity * unit_fee`。
+*   **实践建议**：A 股常规券商账户优先使用 `percent + min_commission`；只有在你的真实费用口径明确是“每股/每手线性收费”时，再切换到 `per_unit`。
 
 ### 6.4.3 过户费 (Transfer Fee)
 
