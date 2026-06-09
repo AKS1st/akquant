@@ -94,12 +94,18 @@ class ProfileCaptureStrategy(akquant.Strategy):
     def __init__(self) -> None:
         """Initialize captured snapshot container."""
         super().__init__()
-        self.snapshot: dict[str, float | int] = {}
+        self.snapshot: dict[str, float | int | str] = {}
 
     def on_start(self) -> None:
         """Capture strategy runtime fields after backtest startup."""
         self.snapshot = {
             "commission_rate": float(self.commission_rate),
+            "commission_policy_type": str(
+                getattr(self, "commission_policy", {}).get("type", "")
+            ),
+            "commission_policy_value": float(
+                getattr(self, "commission_policy", {}).get("value", 0.0)
+            ),
             "stamp_tax_rate": float(self.stamp_tax_rate),
             "transfer_fee_rate": float(self.transfer_fee_rate),
             "min_commission": float(self.min_commission),
@@ -3871,6 +3877,29 @@ def test_run_backtest_broker_profile_explicit_args_override_profile() -> None:
     assert strategy.snapshot["stamp_tax_rate"] == pytest.approx(0.0022, rel=1e-12)
     assert strategy.snapshot["min_commission"] == pytest.approx(1.5, rel=1e-12)
     assert strategy.snapshot["lot_size"] == 10
+
+
+def test_run_backtest_commission_policy_per_unit_overrides_rate_defaults() -> None:
+    """`commission_policy` should activate per-unit mode.
+
+    Legacy rate fields remain backward compatible.
+    """
+    result = akquant.run_backtest(
+        data=_build_regression_bars("PROFILE_POLICY"),
+        strategy=ProfileCaptureStrategy,
+        symbols="PROFILE_POLICY",
+        fill_policy={"price_basis": "close", "temporal": "same_cycle"},
+        commission_policy={"type": "per_unit", "value": 0.5},
+        stamp_tax_rate=0.0,
+        transfer_fee_rate=0.0,
+        min_commission=0.0,
+        show_progress=False,
+    )
+
+    strategy = cast(ProfileCaptureStrategy, result.strategy)
+    assert strategy.snapshot["commission_policy_type"] == "per_unit"
+    assert strategy.snapshot["commission_policy_value"] == pytest.approx(0.5, rel=1e-12)
+    assert strategy.snapshot["commission_rate"] == pytest.approx(0.0, rel=1e-12)
 
 
 def test_run_backtest_broker_profile_explicit_zero_values_are_preserved() -> None:

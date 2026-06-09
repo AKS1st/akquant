@@ -89,7 +89,7 @@ class SlippagePolicy(TypedDict, total=False):
 SlippagePolicyInput = Union[SlippagePolicy, Dict[str, Any]]
 
 class CommissionPolicy(TypedDict):
-    type: Literal["percent", "fixed"]
+    type: Literal["percent", "fixed", "per_unit"]
     value: float
 
 CommissionPolicyInput = Union[CommissionPolicy, Dict[str, Any]]
@@ -108,6 +108,7 @@ def run_backtest(
     strategy_loader_options: Optional[Dict[str, Any]] = ...,
     symbols: Union[str, List[str], Tuple[str, ...], set[str]] = ...,
     initial_cash: Optional[float] = ...,
+    commission_policy: Optional[CommissionPolicyInput] = ...,
     commission_rate: Optional[float] = ...,
     stamp_tax_rate: Optional[float] = ...,
     transfer_fee_rate: Optional[float] = ...,
@@ -181,6 +182,7 @@ def run_warm_start(
     data: Optional[BacktestDataInput] = ...,
     show_progress: bool = ...,
     symbols: Union[str, List[str], Tuple[str, ...], set[str]] = ...,
+    commission_policy: Optional[CommissionPolicyInput] = ...,
     strategy_runtime_config: Optional[
         Union[StrategyRuntimeConfig, Dict[str, Any]]
     ] = ...,

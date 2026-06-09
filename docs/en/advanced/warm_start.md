@@ -105,7 +105,7 @@ Built-in indicators (`SMA`, `EMA`, etc.) support pickle serialization. For custo
 ## 4. Notes
 
 1. **Instrument re-registration**: `run_warm_start` auto-registers default instrument info for symbols in new data. If your strategy depends on custom `lot_size` or `multiplier`, verify and override in `on_start`.
-2. **MarketModel reset**: Fee settings and trading rules (for example T+1) are not persisted in snapshots. Re-pass them via explicit args or `config.strategy_config` on resume.
+2. **MarketModel reset**: Fee settings and trading rules (for example T+1) are not persisted in snapshots. Re-pass them via explicit args or `config.strategy_config` on resume, including `commission_policy` / `commission_rate`, taxes, and transfer-fee settings.
 3. **Initial cash display**: `result2.metrics.initial_cash` is adjusted to resumed-phase starting cash, so phase-2 return metrics remain interpretable.
 4. **Data continuity**: Keep phase-1 end and phase-2 start continuous to avoid indicator jumps.
 5. **`get_history()` continuity**: New snapshots also persist the history buffer, so `get_history()` and `get_history_map()` resume with the phase-1 rolling window intact. In the normal warm-start path you no longer need to manually prepend extra lookback bars.

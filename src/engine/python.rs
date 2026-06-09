@@ -841,6 +841,11 @@ impl Engine {
         self.market_manager.use_simple_market(commission_rate);
     }
 
+    fn use_simple_market_policy(&mut self, commission_type: String, commission_value: f64) {
+        self.market_manager
+            .use_simple_market_policy(commission_type, commission_value);
+    }
+
     /// 启用 ChinaMarket (支持 T+1/T+0, 印花税, 过户费, 交易时段等)
     fn use_china_market(&mut self) {
         self.market_manager.use_china_market();
@@ -895,6 +900,23 @@ impl Engine {
     ) {
         self.market_manager.set_stock_fee_rules(
             commission_rate,
+            stamp_tax,
+            transfer_fee,
+            min_commission,
+        );
+    }
+
+    pub fn set_stock_fee_policy(
+        &mut self,
+        commission_type: String,
+        commission_value: f64,
+        stamp_tax: f64,
+        transfer_fee: f64,
+        min_commission: f64,
+    ) {
+        self.market_manager.set_stock_fee_policy(
+            commission_type,
+            commission_value,
             stamp_tax,
             transfer_fee,
             min_commission,

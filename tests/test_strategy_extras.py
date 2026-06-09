@@ -5891,6 +5891,18 @@ class _OrderLevelCommissionStrategy(Strategy):
             },
             commission={"type": "percent", "value": 0.01},
         )
+        self.submit_order(
+            symbol=bar.symbol,
+            side="Buy",
+            quantity=3.0,
+            tag="commission-per-unit",
+            fill_policy={
+                "price_basis": "open",
+                "bar_offset": 1,
+                "temporal": "same_cycle",
+            },
+            commission={"type": "per_unit", "value": 0.5},
+        )
 
 
 def test_order_level_commission_overrides_market_model() -> None:
@@ -5919,8 +5931,10 @@ def test_order_level_commission_overrides_market_model() -> None:
     ]
     fixed_row = filled_orders[filled_orders["tag"] == "commission-fixed"].iloc[0]
     percent_row = filled_orders[filled_orders["tag"] == "commission-percent"].iloc[0]
+    per_unit_row = filled_orders[filled_orders["tag"] == "commission-per-unit"].iloc[0]
     assert float(fixed_row["commission"]) == pytest.approx(3.0)
     assert float(percent_row["commission"]) == pytest.approx(0.2)
+    assert float(per_unit_row["commission"]) == pytest.approx(1.5)
 
 
 class _StrategyLevelCommissionStrategy(Strategy):
@@ -5955,6 +5969,40 @@ def test_strategy_level_commission_applies_when_order_commission_missing() -> No
         initial_cash=100000.0,
         show_progress=False,
         strategy_commission={"_default": {"type": "fixed", "value": 0.5}},
+    )
+    filled_orders = result.orders_df[
+        result.orders_df["status"].astype(str).str.lower() == "filled"
+    ]
+    row = filled_orders[filled_orders["tag"] == "strategy-commission"].iloc[0]
+    assert float(row["commission"]) == pytest.approx(0.5)
+
+
+def test_strategy_level_per_unit_commission_applies_when_order_commission_missing() -> (
+    None
+):
+    """Strategy-level per-unit commission should apply.
+
+    Existing fixed semantics remain unchanged.
+    """
+    register_logger(console=False, level="INFO")
+    data = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2023-01-01", periods=3, freq="D", tz="UTC"),
+            "open": [10.0, 20.0, 30.0],
+            "high": [11.0, 21.0, 31.0],
+            "low": [9.0, 19.0, 29.0],
+            "close": [100.0, 200.0, 300.0],
+            "volume": [10000.0, 10000.0, 10000.0],
+            "symbol": ["AAPL", "AAPL", "AAPL"],
+        }
+    )
+    result = run_backtest(
+        data=data,
+        strategy=_StrategyLevelCommissionStrategy,
+        symbols="AAPL",
+        initial_cash=100000.0,
+        show_progress=False,
+        strategy_commission={"_default": {"type": "per_unit", "value": 0.5}},
     )
     filled_orders = result.orders_df[
         result.orders_df["status"].astype(str).str.lower() == "filled"
