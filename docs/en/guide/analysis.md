@@ -17,7 +17,7 @@ result.report(
     filename="report.html",
     show=True,  # Set to True to open in browser automatically (default is False)
     compact_currency=True,  # Format amount columns as K/M/B in report tables
-    curve_freq="raw",  # "raw" keeps all bars, "D" uses end-of-day points
+    curve_freq="D",  # Default uses end-of-day points; "raw" keeps all bars
 )
 ```
 

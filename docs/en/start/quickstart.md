@@ -285,7 +285,7 @@ result.report(
     show=True,
     filename="report.html",
     compact_currency=True,
-    curve_freq="raw",
+    curve_freq="D",
 )
 
 result.report(

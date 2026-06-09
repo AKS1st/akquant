@@ -695,7 +695,7 @@ def _build_benchmark_sections(
     }
 
 
-def _build_summary_context(result: Any, curve_freq: str = "raw") -> dict[str, str]:
+def _build_summary_context(result: Any, curve_freq: str = "D") -> dict[str, str]:
     """Build summary text values for report header."""
     equity_curve = _resolve_equity_curve(result, curve_freq)
     start_date = "N/A"
@@ -979,7 +979,7 @@ def _build_chart_html_sections(
     indicator_symbol: Optional[str] = None,
     indicator_include_warmup: bool = True,
     benchmark: Optional[Union[str, pd.Series]] = None,
-    curve_freq: str = "raw",
+    curve_freq: str = "D",
 ) -> dict[str, str]:
     """Build chart HTML sections from plot figures."""
     config = {"responsive": True}
@@ -1179,15 +1179,16 @@ def _build_chart_html_sections(
         else pd.DataFrame()
     )
     top_reasons_df = (
-        result.top_reject_reasons(top_n=8)
-        if hasattr(result, "top_reject_reasons")
+        result.top_reject_reason_types(top_n=8)
+        if hasattr(result, "top_reject_reason_types")
         else pd.DataFrame()
     )
     if not top_reasons_df.empty:
         top_reasons_view = _rename_table_columns(
             top_reasons_df,
             {
-                "reject_reason": "拒单原因 (Reject Reason)",
+                "reject_reason_type": "拒单类型 (Reject Type)",
+                "sample_reject_reason": "示例详情 (Sample Detail)",
                 "count": "拒单数 (Count)",
                 "ratio": "占比 (Ratio)",
             },
@@ -1948,7 +1949,7 @@ def plot_report(
     indicator_symbol: Optional[str] = None,
     indicator_include_warmup: bool = True,
     benchmark: Optional[Union[str, pd.Series]] = None,
-    curve_freq: str = "raw",
+    curve_freq: str = "D",
 ) -> None:
     """
     生成类似 QuantStats 的整合版 HTML 报告 (中文优化版).
@@ -1964,7 +1965,7 @@ def plot_report(
     :param indicator_symbol: 可选标的过滤，仅展示指定标的指标
     :param indicator_include_warmup: 是否在指标报告区块中保留预热点
     :param benchmark: 基准收益序列 (pd.Series) 或基准标识字符串
-    :param curve_freq: 曲线频率，"raw" 为原始频率，"D" 为日频末值
+    :param curve_freq: 曲线频率，默认 "D" 为日频末值，"raw" 为原始频率
     """
     if not check_plotly():
         return
