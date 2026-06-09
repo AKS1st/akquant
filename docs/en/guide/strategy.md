@@ -53,7 +53,8 @@ A strategy goes through the following stages from start to finish:
 | `on_session_end` | When session transition ends | End-of-session cleanup and logging | `examples/50_framework_hooks_demo.py` |
 | `on_before_trading` | First entry into `Normal` session each local trading day | Pre-market checks, trading-date level signal preparation | `examples/50_framework_hooks_demo.py` |
 | `on_pre_open` | Triggered by a framework timer before the first regular event of each trading day | Auction/pre-open signal generation with default next-open order semantics | `examples/52_pre_open_demo.py` |
-| `on_daily_rebalance` | At most once per trading day, same phase as `on_before_trading` | Cross-sectional ranking and one-shot rebalance | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_daily_rebalance` | At most once per trading day, same phase as `on_before_trading` | Previous-day-aware ranking and day-boundary preparation | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_daily_rebalance_after_bar` | After the first complete cross-symbol bar slice of the trading day | Same-cycle close rebalance using current-day bars/account state | `examples/strategies/09_stock_momentum_rotation_after_bar.py` |
 | `on_after_trading` | When leaving the regular trading session, or replayed on the next event if needed | End-of-day summaries, post-close cleanup, archiving | `examples/50_framework_hooks_demo.py` |
 | `on_portfolio_update` | Incrementally when portfolio snapshot changes | Monitor cash/equity changes, push UI or alerts | `examples/50_framework_hooks_demo.py` |
 | `on_error` | When any user callback raises | Record callback source and choose continue vs fail-fast | `examples/22_strategy_runtime_config_demo.py` |
@@ -81,6 +82,7 @@ Notes:
 * `on_pre_open` is emitted once per trading day before the first regular bar/tick callback of that day.
 * `on_before_trading` is emitted once per local trading date when the regular trading session starts; on the default backtest path this session is usually exposed as `Continuous`.
 * `on_before_trading` / `on_daily_rebalance` always use a "previous trading day / previous snapshot only" visibility model; inside these callbacks, `get_history()`, `get_account()`, and `get_portfolio_value()` must not expose the current day's new bar or the current day's updated account view.
+* `on_daily_rebalance_after_bar` runs after the framework has seen the first complete cross-symbol slice for the trading day; inside this callback, current-day history and the current account snapshot are visible.
 * `on_after_trading` is emitted once per local trading date when leaving the regular trading session, or on the next event if day rollover occurs first.
 * Inside `on_pre_open`, plain `buy/sell/order_target_*` calls automatically resolve to `price_basis=open, bar_offset=1, temporal=same_cycle` unless an explicit `fill_policy` is provided.
 * Set `self.enable_precise_day_boundary_hooks = True` to enable boundary-timer based precise day hooks; this switch changes trigger precision only, not the history/account visibility window seen inside day-boundary callbacks.
@@ -108,6 +110,7 @@ sequenceDiagram
     FW->>Strategy: on_session_start / on_session_end
     FW->>Strategy: on_before_trading / on_after_trading
     FW->>Strategy: on_daily_rebalance
+    FW->>Strategy: on_daily_rebalance_after_bar
     FW->>Strategy: on_portfolio_update
     alt current event is Bar
         FW->>Strategy: on_bar(bar)
@@ -337,7 +340,7 @@ class CrossSectionStrategy(Strategy):
         self.order_target_percent(target_percent=0.95, symbol=best)
 ```
 
-Full runnable sample: `examples/strategies/05_stock_momentum_rotation_timer.py`.
+Full runnable samples: `examples/strategies/05_stock_momentum_rotation_timer.py` for `on_daily_rebalance`, `examples/strategies/09_stock_momentum_rotation_after_bar.py` for `on_daily_rebalance_after_bar`, or `examples/strategies/07_stock_momentum_rotation_on_timer.py` for a fixed-time `on_timer` variant.
 
 ### 3.5 Cross-Section Plan B: Execute After Collecting One Timestamp
 
@@ -433,17 +436,18 @@ For style selection guidance, see [Strategy Style Decision Guide](../advanced/st
 | `on_reject(self, order)` | Not supported | Reject callback, currently class-style only | `examples/08_event_callbacks.py`, `examples/50_framework_hooks_demo.py` |
 | `on_session_start(self, session, timestamp)` | Not supported | Session boundary hook, currently class-style only | `examples/50_framework_hooks_demo.py` |
 | `on_session_end(self, session, timestamp)` | Not supported | Session boundary hook, currently class-style only | `examples/50_framework_hooks_demo.py` |
-| `on_before_trading(self, trading_date, timestamp)` | Not supported | Trading-day boundary hook, currently class-style only | `examples/50_framework_hooks_demo.py` |
-| `on_after_trading(self, trading_date, timestamp)` | Not supported | Trading-day boundary hook, currently class-style only | `examples/50_framework_hooks_demo.py` |
-| `on_daily_rebalance(self, trading_date, timestamp)` | Not supported | Daily rebalance hook, currently class-style only | `examples/strategies/05_stock_momentum_rotation_timer.py` |
-| `on_portfolio_update(self, snapshot)` | Not supported | Portfolio snapshot callback, currently class-style only | `examples/50_framework_hooks_demo.py` |
-| `on_error(self, error, source, payload)` | Not supported | User exception callback, currently class-style only | `examples/22_strategy_runtime_config_demo.py` |
-| `on_train_signal(self, context)` | Not supported | ML rolling-train hook, currently class-style only | `examples/10_ml_walk_forward.py` |
+| `on_before_trading(self, trading_date, timestamp)` | `on_before_trading(ctx, trading_date, timestamp)` | Trading-day boundary hook, supported by both styles | `examples/50_framework_hooks_demo.py` |
+| `on_after_trading(self, trading_date, timestamp)` | `on_after_trading(ctx, trading_date, timestamp)` | Trading-day boundary hook, supported by both styles | `examples/50_framework_hooks_demo.py` |
+| `on_daily_rebalance(self, trading_date, timestamp)` | `on_daily_rebalance(ctx, trading_date, timestamp)` | Previous-snapshot daily rebalance hook, supported by both styles | `examples/strategies/05_stock_momentum_rotation_timer.py` |
+| `on_daily_rebalance_after_bar(self, trading_date, timestamp)` | `on_daily_rebalance_after_bar(ctx, trading_date, timestamp)` | Current-day-aware daily rebalance hook, supported by both styles | `examples/strategies/09_stock_momentum_rotation_after_bar.py` |
+| `on_portfolio_update(self, snapshot)` | `on_portfolio_update(ctx, snapshot)` | Portfolio snapshot callback, supported by both styles | `examples/50_framework_hooks_demo.py` |
+| `on_error(self, error, source, payload)` | `on_error(ctx, error, source, payload)` | User exception callback, supported by both styles | `examples/22_strategy_runtime_config_demo.py` |
+| `on_train_signal(self, context)` | `on_train_signal(ctx)` | ML rolling-train hook, supported by both styles | `examples/10_ml_walk_forward.py` |
 
 Recommendations:
 
-*   Choose class-based style when you need framework hooks such as `on_session_*`, `on_before_trading`, `on_after_trading`, `on_portfolio_update`, or `on_error`.
-*   Choose function-style when you mainly need `on_bar/on_tick/on_order/on_trade/on_timer` for fast prototyping.
+*   Choose class-based style when you want the most discoverable place to organize many framework hooks in one strategy object.
+*   Choose function-style when you prefer lightweight scripting; it also supports framework hooks such as `on_session_*`, `on_before_trading`, `on_after_trading`, `on_daily_rebalance`, `on_daily_rebalance_after_bar`, `on_portfolio_update`, and `on_error`.
 
 ### 4.3 Related Examples
 

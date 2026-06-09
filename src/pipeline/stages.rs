@@ -145,7 +145,9 @@ fn should_run_phase_for_current_event(
                 Some(Event::Timer(timer)) => {
                     matches!(policy.temporal, TemporalPolicy::SameCycle)
                         && (!timer.payload.starts_with("__framework_")
-                            || timer.payload.starts_with("__framework_rebalance__|"))
+                            || timer
+                                .payload
+                                .starts_with("__framework_after_bar_rebalance__|"))
                 }
                 _ => false,
             }
@@ -607,7 +609,10 @@ impl Processor for DataProcessor {
             }
             FeedAction::Timer(_timestamp) => {
                 if let Some(timer) = engine.timers.pop() {
-                    if timer.payload.starts_with("__framework_rebalance__|") {
+                    if timer
+                        .payload
+                        .starts_with("__framework_after_bar_rebalance__|")
+                    {
                         self.finalize_current_timestamp(engine, py);
                     }
                     let local_time = engine.local_time_from_ns(timer.timestamp);

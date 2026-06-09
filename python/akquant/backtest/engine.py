@@ -60,7 +60,7 @@ from ..strategy_framework_hooks import (
     collect_boundary_timer_entries as _collect_boundary_timer_entries_impl,
 )
 from ..strategy_framework_hooks import (
-    collect_daily_rebalance_timer_entries as _collect_daily_rebalance_entries_impl,
+    collect_daily_rebalance_after_bar_timer_entries,
 )
 from ..strategy_framework_hooks import (
     collect_pre_open_timer_entries as _collect_pre_open_timer_entries_impl,
@@ -71,6 +71,9 @@ from ..utils.inspector import infer_warmup_period
 from .result import BacktestResult
 
 _RUNTIME_CONFIG_FIELDS = {f.name for f in fields(StrategyRuntimeConfig)}
+_collect_after_bar_rebalance_entries_impl = (
+    collect_daily_rebalance_after_bar_timer_entries
+)
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 _RUNTIME_EXECUTION_MODE = getattr(cast(Any, _akquant_module), "ExecutionMode", None)
 _RUNTIME_MODE_NEXT_OPEN = getattr(_RUNTIME_EXECUTION_MODE, "NextOpen", "next_open")
@@ -226,19 +229,21 @@ def _prime_framework_boundary_timers(
         add_timer(timestamp_ns, payload)
 
 
-def _prime_framework_daily_rebalance_timers(
+def _prime_framework_daily_rebalance_after_bar_timers(
     strategies: Sequence[Strategy], engine: Any
 ) -> None:
-    """Prime daily rebalance timers before the event loop starts."""
+    """Prime daily after-bar rebalance timers before the event loop starts."""
     add_timer = getattr(engine, "add_timer", None)
     if not callable(add_timer):
         return
 
     unique_timers: dict[str, int] = {}
     for current_strategy in strategies:
-        entries = _collect_daily_rebalance_entries_impl(current_strategy)
+        entries = _collect_after_bar_rebalance_entries_impl(current_strategy)
         if entries:
-            current_strategy._framework_daily_rebalance_timers_registered = True
+            current_strategy._framework_daily_rebalance_after_bar_timers_registered = (
+                True
+            )
         for timestamp_ns, payload in entries:
             unique_timers[payload] = int(timestamp_ns)
 
@@ -497,8 +502,7 @@ def _build_trading_day_metadata(
     """Build sorted trading days, per-day bounds, and rebalance timestamps."""
     all_dates: set[pd.Timestamp] = set()
     day_bounds: Dict[str, Tuple[int, int]] = {}
-    day_symbols: Dict[str, set[str]] = {}
-    day_timestamp_symbol_count: Dict[str, Dict[int, int]] = {}
+    day_first_symbol_timestamps: Dict[str, Dict[str, int]] = {}
 
     for symbol, df in data_map_for_indicators.items():
         if df.empty or not isinstance(df.index, pd.DatetimeIndex):
@@ -515,15 +519,7 @@ def _build_trading_day_metadata(
             day_key = pd.Timestamp(day_ts).date().isoformat()
             start_ns = int(day_df.index.min().value)
             end_ns = int(day_df.index.max().value)
-            day_symbols.setdefault(day_key, set()).add(str(symbol))
-            seen_timestamps = {
-                int(ts.value) for ts in cast(pd.DatetimeIndex, day_df.index).unique()
-            }
-            timestamp_counts = day_timestamp_symbol_count.setdefault(day_key, {})
-            for timestamp_ns in seen_timestamps:
-                timestamp_counts[timestamp_ns] = (
-                    timestamp_counts.get(timestamp_ns, 0) + 1
-                )
+            day_first_symbol_timestamps.setdefault(day_key, {})[str(symbol)] = start_ns
             if day_key in day_bounds:
                 prev_start, prev_end = day_bounds[day_key]
                 day_bounds[day_key] = (
@@ -534,20 +530,12 @@ def _build_trading_day_metadata(
                 day_bounds[day_key] = (start_ns, end_ns)
 
     day_rebalance_timestamps: Dict[str, int] = {}
-    for day_key, timestamp_counts in day_timestamp_symbol_count.items():
-        symbol_count = len(day_symbols.get(day_key, set()))
-        if symbol_count <= 0:
+    for day_key, symbol_timestamps in day_first_symbol_timestamps.items():
+        if not symbol_timestamps:
             continue
-        first_complete_timestamp = min(
-            (
-                timestamp_ns
-                for timestamp_ns, count in timestamp_counts.items()
-                if int(count) >= symbol_count
-            ),
-            default=None,
+        day_rebalance_timestamps[day_key] = max(
+            int(timestamp_ns) for timestamp_ns in symbol_timestamps.values()
         )
-        if first_complete_timestamp is not None:
-            day_rebalance_timestamps[day_key] = int(first_complete_timestamp)
 
     return sorted(all_dates), day_bounds, day_rebalance_timestamps
 
@@ -1628,6 +1616,7 @@ def _build_strategy_instance(
     on_before_trading: Optional[Callable[[Any, Any, int], None]],
     on_after_trading: Optional[Callable[[Any, Any, int], None]],
     on_daily_rebalance: Optional[Callable[[Any, Any, int], None]],
+    on_daily_rebalance_after_bar: Optional[Callable[[Any, Any, int], None]],
     on_portfolio_update: Optional[Callable[[Any, Dict[str, Any]], None]],
     on_error: Optional[Callable[[Any, Exception, str, Any], None]],
     on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]],
@@ -1686,6 +1675,7 @@ def _build_strategy_instance(
             on_before_trading=on_before_trading,
             on_after_trading=on_after_trading,
             on_daily_rebalance=on_daily_rebalance,
+            on_daily_rebalance_after_bar=on_daily_rebalance_after_bar,
             on_portfolio_update=on_portfolio_update,
             on_error=on_error,
             on_expiry=on_expiry,
@@ -1718,6 +1708,7 @@ class FunctionalStrategy(Strategy):
         on_before_trading: Optional[Callable[[Any, Any, int], None]] = None,
         on_after_trading: Optional[Callable[[Any, Any, int], None]] = None,
         on_daily_rebalance: Optional[Callable[[Any, Any, int], None]] = None,
+        on_daily_rebalance_after_bar: Optional[Callable[[Any, Any, int], None]] = None,
         on_portfolio_update: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
         on_error: Optional[Callable[[Any, Exception, str, Any], None]] = None,
         on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
@@ -1742,6 +1733,7 @@ class FunctionalStrategy(Strategy):
         self._on_before_trading_func = on_before_trading
         self._on_after_trading_func = on_after_trading
         self._on_daily_rebalance_func = on_daily_rebalance
+        self._on_daily_rebalance_after_bar_func = on_daily_rebalance_after_bar
         self._on_portfolio_update_func = on_portfolio_update
         self._on_error_func = on_error
         self._on_expiry_func = on_expiry
@@ -1827,6 +1819,11 @@ class FunctionalStrategy(Strategy):
         """Delegate on_daily_rebalance event to the user-provided function."""
         if self._on_daily_rebalance_func is not None:
             self._on_daily_rebalance_func(self, trading_date, timestamp)
+
+    def on_daily_rebalance_after_bar(self, trading_date: Any, timestamp: int) -> None:
+        """Delegate on_daily_rebalance_after_bar to the user-provided function."""
+        if self._on_daily_rebalance_after_bar_func is not None:
+            self._on_daily_rebalance_after_bar_func(self, trading_date, timestamp)
 
     def on_portfolio_update(self, snapshot: Dict[str, Any]) -> None:
         """Delegate on_portfolio_update event to the user-provided function."""
@@ -2140,6 +2137,7 @@ def run_backtest(
     on_before_trading: Optional[Callable[[Any, Any, int], None]] = None,
     on_after_trading: Optional[Callable[[Any, Any, int], None]] = None,
     on_daily_rebalance: Optional[Callable[[Any, Any, int], None]] = None,
+    on_daily_rebalance_after_bar: Optional[Callable[[Any, Any, int], None]] = None,
     on_portfolio_update: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
     on_error: Optional[Callable[[Any, Exception, str, Any], None]] = None,
     on_expiry: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
@@ -2588,6 +2586,7 @@ def run_backtest(
         on_before_trading,
         on_after_trading,
         on_daily_rebalance,
+        on_daily_rebalance_after_bar,
         on_portfolio_update,
         on_error,
         on_expiry,
@@ -2631,6 +2630,7 @@ def run_backtest(
                 on_before_trading,
                 on_after_trading,
                 on_daily_rebalance,
+                on_daily_rebalance_after_bar,
                 on_portfolio_update,
                 on_error,
                 on_expiry,
@@ -3217,18 +3217,20 @@ def run_backtest(
     # Inject trading days to strategy (for add_daily_timer)
     all_strategy_instances = [strategy_instance, *slot_strategy_instances.values()]
     if data_map_for_indicators:
-        all_dates, day_bounds, day_rebalance_timestamps = _build_trading_day_metadata(
-            data_map_for_indicators, timezone
-        )
+        (
+            all_dates,
+            day_bounds,
+            day_after_bar_rebalance_timestamps,
+        ) = _build_trading_day_metadata(data_map_for_indicators, timezone)
 
         for current_strategy in all_strategy_instances:
             if hasattr(current_strategy, "_trading_days") and all_dates:
                 current_strategy._trading_days = all_dates
             if hasattr(current_strategy, "_trading_day_bounds"):
                 current_strategy._trading_day_bounds = day_bounds
-            if hasattr(current_strategy, "_trading_day_rebalance_timestamps"):
-                current_strategy._trading_day_rebalance_timestamps = (
-                    day_rebalance_timestamps
+            if hasattr(current_strategy, "_trading_day_after_bar_rebalance_timestamps"):
+                current_strategy._trading_day_after_bar_rebalance_timestamps = (
+                    day_after_bar_rebalance_timestamps
                 )
 
     # 4. 配置引擎
@@ -3237,7 +3239,7 @@ def run_backtest(
     for current_strategy in all_strategy_instances:
         setattr(current_strategy, "_engine", engine)
     _prime_framework_boundary_timers(all_strategy_instances, engine)
-    _prime_framework_daily_rebalance_timers(all_strategy_instances, engine)
+    _prime_framework_daily_rebalance_after_bar_timers(all_strategy_instances, engine)
     _prime_framework_pre_open_timers(all_strategy_instances, engine)
     if analyzer_manager.plugins:
         try:
@@ -4695,6 +4697,7 @@ def run_warm_start(
                 on_before_trading=None,
                 on_after_trading=None,
                 on_daily_rebalance=None,
+                on_daily_rebalance_after_bar=None,
                 on_portfolio_update=None,
                 on_error=None,
                 on_expiry=None,
@@ -5033,18 +5036,20 @@ def run_warm_start(
         warnings.warn(warning_message, RuntimeWarning, stacklevel=2)
         logger.warning(warning_message)
     if data_map_for_indicators:
-        all_dates, day_bounds, day_rebalance_timestamps = _build_trading_day_metadata(
-            data_map_for_indicators, timezone_name
-        )
+        (
+            all_dates,
+            day_bounds,
+            day_after_bar_rebalance_timestamps,
+        ) = _build_trading_day_metadata(data_map_for_indicators, timezone_name)
 
         for current_strategy in all_strategy_instances:
             if all_dates and hasattr(current_strategy, "_trading_days"):
                 current_strategy._trading_days = all_dates
             if hasattr(current_strategy, "_trading_day_bounds"):
                 current_strategy._trading_day_bounds = day_bounds
-            if hasattr(current_strategy, "_trading_day_rebalance_timestamps"):
-                current_strategy._trading_day_rebalance_timestamps = (
-                    day_rebalance_timestamps
+            if hasattr(current_strategy, "_trading_day_after_bar_rebalance_timestamps"):
+                current_strategy._trading_day_after_bar_rebalance_timestamps = (
+                    day_after_bar_rebalance_timestamps
                 )
             setattr(current_strategy, "_engine", engine)
 
@@ -5479,7 +5484,7 @@ def run_warm_start(
             stream_mode,
         )
     _prime_framework_boundary_timers(all_strategy_instances, engine)
-    _prime_framework_daily_rebalance_timers(all_strategy_instances, engine)
+    _prime_framework_daily_rebalance_after_bar_timers(all_strategy_instances, engine)
     _prime_framework_pre_open_timers(all_strategy_instances, engine)
 
     if hasattr(strategy_instance, "_on_start_internal"):

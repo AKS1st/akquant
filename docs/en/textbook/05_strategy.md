@@ -8,6 +8,8 @@ This chapter is currently maintained in Chinese first.
   - Primary example: [examples/textbook/ch05_strategy.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch05_strategy.py)
   - Extended example: [examples/23_functional_callbacks_demo.py](https://github.com/akfamily/akquant/blob/main/examples/23_functional_callbacks_demo.py)
   - Framework hooks example: [examples/50_framework_hooks_demo.py](https://github.com/akfamily/akquant/blob/main/examples/50_framework_hooks_demo.py)
+- Day-boundary rebalance example: [examples/strategies/05_stock_momentum_rotation_timer.py](https://github.com/akfamily/akquant/blob/main/examples/strategies/05_stock_momentum_rotation_timer.py)
+- After-bar rebalance example: [examples/strategies/09_stock_momentum_rotation_after_bar.py](https://github.com/akfamily/akquant/blob/main/examples/strategies/09_stock_momentum_rotation_after_bar.py)
   - Class-style tick callback example: [examples/51_class_tick_callbacks_demo.py](https://github.com/akfamily/akquant/blob/main/examples/51_class_tick_callbacks_demo.py)
   - Pre-open execution example: [examples/52_pre_open_demo.py](https://github.com/akfamily/akquant/blob/main/examples/52_pre_open_demo.py)
   - Staged next-day pre-open example: [examples/53_timer_to_pre_open_demo.py](https://github.com/akfamily/akquant/blob/main/examples/53_timer_to_pre_open_demo.py)

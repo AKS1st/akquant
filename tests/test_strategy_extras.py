@@ -1258,7 +1258,7 @@ def _functional_warm_beta_on_bar(ctx: Any, bar: Bar) -> None:
 
 
 class DeferredDailyRebalanceStrategy(Strategy):
-    """Regression strategy for daily rebalance timing determinism."""
+    """Regression strategy for after-bar rebalance timing determinism."""
 
     def __init__(
         self,
@@ -1278,7 +1278,7 @@ class DeferredDailyRebalanceStrategy(Strategy):
         for symbol in self.all_symbols:
             self.subscribe(symbol)
 
-    def on_daily_rebalance(self, trading_date: Any, timestamp: int) -> None:
+    def on_daily_rebalance_after_bar(self, trading_date: Any, timestamp: int) -> None:
         """Select the strongest two-bar momentum symbol on the target day."""
         if trading_date not in self.date2symbols:
             return
@@ -1322,8 +1322,10 @@ def _make_order_sensitive_multisymbol_bars(day3_order: list[str]) -> list[Bar]:
     return bars
 
 
-def test_run_backtest_daily_rebalance_same_timestamp_order_insensitive() -> None:
-    """Daily rebalance should see a complete same-timestamp cross section."""
+def test_run_backtest_daily_rebalance_after_bar_same_timestamp_order_insensitive() -> (
+    None
+):
+    """After-bar rebalance should see a complete same-timestamp cross section."""
     target_day = pd.Timestamp("2023-01-03", tz="Asia/Shanghai").date()
     date2symbols = {target_day: {"AAA", "BBB"}}
     first_capture: dict[str, Any] = {}
@@ -4291,7 +4293,7 @@ def test_precise_boundary_hooks_delay_after_trading_until_day_end() -> None:
     day1_before = ("before", pd.Timestamp("2023-01-03").date(), day1_open)
     day1_rebalance = ("rebalance", pd.Timestamp("2023-01-03").date(), day1_open)
     day1_last_bar = ("bar", "HOOKS_DEMO", day1_close)
-    day1_after = ("after", pd.Timestamp("2023-01-03").date(), day1_close + 1)
+    day1_after = ("after", pd.Timestamp("2023-01-03").date(), day1_close)
 
     assert day1_before in strategy.events
     assert day1_rebalance in strategy.events
@@ -4523,6 +4525,131 @@ def test_day_boundary_hooks_use_previous_account_snapshot(
     assert strategy.rebalance_equities == [1000.0, 1000.0, 1001.0]
     assert strategy.before_portfolio_values == [1000.0, 1000.0, 1001.0]
     assert strategy.rebalance_portfolio_values == [1000.0, 1000.0, 1001.0]
+
+
+@pytest.mark.parametrize("precise_boundaries", [False, True])
+def test_daily_rebalance_after_bar_sees_current_day_history_and_runs_after_bar(
+    precise_boundaries: bool,
+) -> None:
+    """After-bar rebalance should observe the current completed slice."""
+
+    class AfterBarHistoryVisibilityStrategy(Strategy):
+        def __init__(self) -> None:
+            self.enable_precise_day_boundary_hooks = precise_boundaries
+            self.after_bar_histories: list[np.ndarray] = []
+            self.after_bar_current_bar_states: list[bool] = []
+            self.events: list[tuple[str, int]] = []
+            self.set_history_depth(1)
+
+        def on_start(self) -> None:
+            self.subscribe("HOOKS_DEMO")
+
+        def on_daily_rebalance_after_bar(
+            self, trading_date: object, timestamp: int
+        ) -> None:
+            self.after_bar_histories.append(self.get_history(1, "HOOKS_DEMO"))
+            self.after_bar_current_bar_states.append(self.current_bar is None)
+            self.events.append(("after_bar", int(timestamp)))
+
+        def on_bar(self, bar: Bar) -> None:
+            self.events.append(("bar", int(bar.timestamp)))
+
+    bars = [
+        Bar(
+            timestamp=pd.Timestamp(day_text, tz="Asia/Shanghai").value,
+            open=close,
+            high=close + 0.2,
+            low=close - 0.2,
+            close=close,
+            volume=1000.0,
+            symbol="HOOKS_DEMO",
+        )
+        for day_text, close in [
+            ("2023-01-03", 10.0),
+            ("2023-01-04", 10.5),
+            ("2023-01-05", 10.8),
+        ]
+    ]
+
+    strategy = AfterBarHistoryVisibilityStrategy()
+    run_backtest(
+        data=bars,
+        strategy=strategy,
+        symbols=["HOOKS_DEMO"],
+        initial_cash=1000.0,
+        show_progress=False,
+        fill_policy={"price_basis": "close", "bar_offset": 0, "temporal": "same_cycle"},
+    )
+
+    assert [float(history[0]) for history in strategy.after_bar_histories] == [
+        10.0,
+        10.5,
+        10.8,
+    ]
+    assert strategy.after_bar_current_bar_states == [True, True, True]
+    assert strategy.events[:2] == [
+        ("bar", bars[0].timestamp),
+        ("after_bar", bars[0].timestamp),
+    ]
+
+
+@pytest.mark.parametrize("precise_boundaries", [False, True])
+def test_daily_rebalance_after_bar_uses_current_account_snapshot(
+    precise_boundaries: bool,
+) -> None:
+    """After-bar rebalance should see the current-day marked account view."""
+
+    class AfterBarAccountVisibilityStrategy(Strategy):
+        def __init__(self) -> None:
+            self.enable_precise_day_boundary_hooks = precise_boundaries
+            self.after_bar_equities: list[float] = []
+            self.after_bar_portfolio_values: list[float] = []
+            self.has_bought = False
+
+        def on_start(self) -> None:
+            self.subscribe("HOOKS_DEMO")
+
+        def on_daily_rebalance_after_bar(
+            self, trading_date: object, timestamp: int
+        ) -> None:
+            account = self.get_account()
+            self.after_bar_equities.append(float(account["equity"]))
+            self.after_bar_portfolio_values.append(float(self.get_portfolio_value()))
+
+        def on_bar(self, bar: Bar) -> None:
+            if not self.has_bought:
+                self.buy(bar.symbol, 1.0)
+                self.has_bought = True
+
+    bars = [
+        Bar(
+            timestamp=pd.Timestamp(day_text, tz="Asia/Shanghai").value,
+            open=close,
+            high=close,
+            low=close,
+            close=close,
+            volume=1000.0,
+            symbol="HOOKS_DEMO",
+        )
+        for day_text, close in [
+            ("2023-01-03", 10.0),
+            ("2023-01-04", 11.0),
+            ("2023-01-05", 12.0),
+        ]
+    ]
+
+    strategy = AfterBarAccountVisibilityStrategy()
+    run_backtest(
+        data=bars,
+        strategy=strategy,
+        symbols=["HOOKS_DEMO"],
+        initial_cash=1000.0,
+        show_progress=False,
+        fill_policy={"price_basis": "close", "bar_offset": 0, "temporal": "same_cycle"},
+    )
+
+    assert strategy.after_bar_equities == [1000.0, 1001.0, 1002.0]
+    assert strategy.after_bar_portfolio_values == [1000.0, 1001.0, 1002.0]
 
 
 def test_get_account_uses_previous_cash_when_framework_snapshot_enabled() -> None:

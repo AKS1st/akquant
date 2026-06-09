@@ -48,13 +48,13 @@
     - 跨标的动量比较与换仓逻辑.
     - `order_target_percent` 的正确使用。
 
-### 5. [05_stock_momentum_rotation_timer.py](./05_stock_momentum_rotation_timer.py) - 定时触发横截面轮动
-- **目标**: 演示在单事件流模型下，用 `on_timer` 实现稳定的横截面轮动。
-- **策略**: 定时调仓动量轮动策略。
+### 5. [05_stock_momentum_rotation_timer.py](./05_stock_momentum_rotation_timer.py) - `on_daily_rebalance` 横截面轮动
+- **目标**: 演示 `on_daily_rebalance` 的前一快照语义。
+- **策略**: 交易日边界触发的动量轮动策略。
 - **核心点**:
-    - 在 `on_start` 注册每日定时器。
-    - 在 `on_timer` 中统一完成跨标的打分与调仓。
-    - 避免依赖“最后一个 symbol”触发时机。
+    - 每个交易日最多触发一次。
+    - 回调内只看到前一交易日 / 前一账户快照。
+    - 适合作为日边界准备和统一调仓入口。
 
 ### 6. [06_stock_momentum_rotation_bucket.py](./06_stock_momentum_rotation_bucket.py) - 收齐时间片后横截面轮动
 - **目标**: 演示不使用定时器时，如何在 `on_bar` 中收齐同一 `timestamp` 后再执行一次横截面逻辑。
@@ -79,6 +79,14 @@
     - `order_target_positions()` 支持正负目标仓位。
     - `allow_short=True` 与 `RiskConfig(account_mode="margin", enable_short_sell=True)` 的配合。
     - `get_last_target_positions_plan()` 用于解释最近一次调仓计划。
+
+### 9. [09_stock_momentum_rotation_after_bar.py](./09_stock_momentum_rotation_after_bar.py) - `on_daily_rebalance_after_bar` 横截面轮动
+- **目标**: 演示 `on_daily_rebalance_after_bar` 的当日可见语义。
+- **策略**: 首个跨标的完整 bar 切片后的动量轮动策略。
+- **核心点**:
+    - 框架会在当日首个完整切片后触发一次。
+    - 回调内可见当日历史和当前账户快照。
+    - 适合收盘价同周期调仓或依赖当日完整横截面的场景。
 
 ## 使用方法
 

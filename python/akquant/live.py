@@ -125,6 +125,7 @@ class LiveRunner:
         on_before_trading: Optional[Callable[[Any, Any, int], None]] = None,
         on_after_trading: Optional[Callable[[Any, Any, int], None]] = None,
         on_daily_rebalance: Optional[Callable[[Any, Any, int], None]] = None,
+        on_daily_rebalance_after_bar: Optional[Callable[[Any, Any, int], None]] = None,
         on_portfolio_update: Optional[Callable[[Any, Dict[str, Any]], None]] = None,
         on_error: Optional[Callable[[Any, Exception, str, Any], None]] = None,
         on_timer: Optional[Callable[[Any, str], None]] = None,
@@ -171,6 +172,8 @@ class LiveRunner:
         :param on_before_trading: Optional function-style on_before_trading callback.
         :param on_after_trading: Optional function-style on_after_trading callback.
         :param on_daily_rebalance: Optional function-style on_daily_rebalance callback.
+        :param on_daily_rebalance_after_bar:
+            Optional function-style on_daily_rebalance_after_bar callback.
         :param on_portfolio_update:
             Optional function-style on_portfolio_update callback.
         :param on_error: Optional function-style on_error callback.
@@ -217,6 +220,7 @@ class LiveRunner:
         self.on_before_trading = on_before_trading
         self.on_after_trading = on_after_trading
         self.on_daily_rebalance = on_daily_rebalance
+        self.on_daily_rebalance_after_bar = on_daily_rebalance_after_bar
         self.on_portfolio_update = on_portfolio_update
         self.on_error = on_error
         self.on_timer = on_timer
@@ -404,6 +408,9 @@ class LiveRunner:
                 on_before_trading=getattr(self, "on_before_trading", None),
                 on_after_trading=getattr(self, "on_after_trading", None),
                 on_daily_rebalance=getattr(self, "on_daily_rebalance", None),
+                on_daily_rebalance_after_bar=getattr(
+                    self, "on_daily_rebalance_after_bar", None
+                ),
                 on_portfolio_update=getattr(self, "on_portfolio_update", None),
                 on_error=getattr(self, "on_error", None),
                 on_timer=getattr(self, "on_timer", None),
