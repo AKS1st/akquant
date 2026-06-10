@@ -1,6 +1,17 @@
 # 第 4 章：事件驱动回测原理 (Event-Driven Architecture)
 
-在第 1 章中，我们运行了一个简单的策略；在第 3 章中，我们准备好了数据。现在，让我们揭开 `akquant` 引擎盖下的秘密，从软件工程的角度深入理解**事件驱动 (Event-Driven)** 架构的设计原理。
+在第 1 章中，我们运行了一个简单的策略；在第 3 章中，我们准备好了数据。现在，让我们揭开 `AKQuant` 引擎盖下的秘密，从软件工程的角度深入理解**事件驱动 (Event-Driven)** 架构的设计原理。
+
+## 学习目标
+
+- 理解向量化回测与事件驱动回测的建模差异与适用边界。
+- 掌握 AKQuant 引擎的核心组件、事件循环、撮合与风控框架。
+- 建立时间推进、订单状态与回测可信度检查的系统视角。
+
+## 前置知识
+
+- 已完成前 1 到 3 章，对数据与首个策略有基本感知。
+- 能读懂简单的类、配置对象与伪代码。
 
 ## 本章实践入口
 
@@ -20,7 +31,20 @@ python examples/textbook/ch04_comparison.py
 2. 可以对比三种范式的执行速度与回测指标差异。
 3. 能解释为何事件驱动更贴近真实交易状态机。
 
-## 4.1 回测系统的两种范式
+## 本章地图：先抓主线，再读扩展
+
+如果你是第一次系统学习回测引擎，建议按下面顺序阅读，而不是从头到尾平均用力：
+
+1. **第一遍只读主线必学**：4.1 -> 4.2 -> 4.3 -> 4.5 -> 4.7 -> 4.8 -> 4.9 -> 4.14
+   这一遍的目标只有一个：建立“事件如何流动、订单如何成交、风控如何拦截”的完整心智模型。
+2. **第二遍补读进阶选读**：4.4 -> 4.6 -> 4.10 -> 4.11 -> 4.12 -> 4.13 -> 4.15
+   这一遍再去理解热启动、冲击成本、多标的时间流、盈亏口径和性能优化。
+
+如果你在阅读时感觉信息量过大，优先记住一句话：
+
+> **事件驱动回测 = 时间推进 + 状态更新 + 订单撮合 + 风控拦截。**
+
+## 4.1 [主线必学] 回测系统的两种范式
 
 量化回测系统主要分为两大类：**向量化回测 (Vectorized Backtesting)** 和 **事件驱动回测 (Event-Driven Backtesting)**。
 
@@ -105,23 +129,23 @@ class AKQuantSmaStrategy(Strategy):
 python examples/textbook/ch04_comparison.py
 ```
 
-## 4.2 AKQuant 架构深度解析 (Architecture Deep Dive)
+## 4.2 [主线必学] AKQuant 架构深度解析 (Architecture Deep Dive)
 
-`akquant` 采用了一种独特的**混合架构 (Hybrid Architecture)**，旨在结合 Python 的易用性和 Rust 的高性能。
+`AKQuant` 采用了一种独特的**混合架构 (Hybrid Architecture)**，旨在结合 Python 的易用性和 Rust 的高性能。
 
 ### 4.2.1 核心设计理念：Rust Core + Python API
 
 整个系统分为两个清晰的层级：
 
 1.  **Rust Core (核心层)**：负责所有计算密集型任务。
-    *   **Engine**: 维护全局状态、资金、持仓、订单簿。
-    *   **DataFeed**: 高效的数据流管理。
-    *   **Matching Engine**: 订单撮合逻辑。
-    *   **Risk Manager**: 实时风控检查。
+    *   **Engine**：维护全局状态、资金、持仓、订单簿。
+    *   **DataFeed**：高效的数据流管理。
+    *   **Matching Engine**：订单撮合逻辑。
+    *   **Risk Manager**：实时风控检查。
 2.  **Python API (应用层)**：负责用户交互和策略逻辑。
-    *   **Strategy**: 用户编写策略的基类。
-    *   **Indicator**: 技术指标计算。
-    *   **Plotting**: 结果可视化。
+    *   **Strategy**：用户编写策略的基类。
+    *   **Indicator**：技术指标计算。
+    *   **Plotting**：结果可视化。
 
 这两层通过 **PyO3** 进行零开销绑定。当你在 Python 中调用 `self.buy()` 时，实际上直接触发了 Rust 层的函数调用，没有任何中间序列化成本。
 
@@ -155,7 +179,7 @@ graph TD
 ### 4.2.3 关键组件详解
 
 #### 1. Engine (引擎)
-引擎是系统的调度中心 (Dispatcher)。它维护着全局时钟 (Global Clock) 和事件优先队列 (Priority Queue)。在 `akquant` 中，`Engine` 是一个 Rust 结构体，它完全接管了 Python 的控制流。
+引擎是系统的调度中心 (Dispatcher)。它维护着全局时钟 (Global Clock) 和事件优先队列 (Priority Queue)。在 `AKQuant` 中，`Engine` 是一个 Rust 结构体，它完全接管了 Python 的控制流。
 
 *   **职责**：推进时间、分发事件、触发回调。
 *   **特性**：单线程极速循环，避免了 Python GIL 的锁竞争。
@@ -172,29 +196,29 @@ graph TD
 *   **数据共享**：`StrategyContext` 在 Rust 中持有对 Portfolio 和 Orders 的引用，并通过 PyO3 暴露给 Python。
 *   **零拷贝访问**：当你访问 `self.ctx.positions` 时，你实际上是直接读取 Rust 的内存，没有数据复制。
 
-## 4.3 配置系统详解 (The Configuration System)
+## 4.3 [主线必学] 配置系统详解 (The Configuration System)
 
-`akquant` 拥有一个结构化的配置系统，旨在清晰地定义回测的“何时 (When)”、“何地 (Where)”、“何物 (What)”以及“如何 (How)”。
+`AKQuant` 拥有一个结构化的配置系统，旨在清晰地定义回测的“何时 (When)”、“何地 (Where)”、“何物 (What)”以及“如何 (How)”。
 
 ### 4.3.1 四大配置支柱
 
 1.  **BacktestConfig (回测配置)**：定义**宏观场景**。
-    *   **When**: `start_time`, `end_time`
-    *   **What**: `instruments` (交易标的列表)
-    *   **How**: `strategy_config` (策略配置)
+    *   **When**：`start_time`, `end_time`
+    *   **What**：`instruments` (交易标的列表)
+    *   **How**：`strategy_config` (策略配置)
 
 2.  **InstrumentConfig (标的配置)**：定义**资产属性**。
-    *   **What**: `symbol`, `multiplier` (合约乘数), `margin_ratio` (保证金率)
-    *   **Cost**: `commission_rate`, `slippage` (标的特有滑点)
+    *   **What**：`symbol`, `multiplier` (合约乘数), `margin_ratio` (保证金率)
+    *   **Cost**：`commission_rate`, `slippage` (标的特有滑点)
 
 3.  **StrategyConfig (策略配置)**：定义**账户与执行**。
-    *   **Capital**: `initial_cash`
-    *   **Cost**: `commission_policy` / `commission_rate`
-    *   **Execution**: `slippage` (全局滑点), `volume_limit_pct` (成交量限制)
-    *   **Risk**: `risk` (风控配置)
+    *   **Capital**：`initial_cash`
+    *   **Cost**：`commission_policy` / `commission_rate`
+    *   **Execution**：`slippage` (全局滑点), `volume_limit_pct` (成交量限制)
+    *   **Risk**：`risk` (风控配置)
 
 4.  **RiskConfig (风控配置)**：定义**安全边界**。
-    *   **Constraints**: `max_position_pct`, `max_drawdown`
+    *   **Constraints**：`max_position_pct`, `max_drawdown`
 
 ### 4.3.2 配置示例
 
@@ -225,7 +249,9 @@ config = BacktestConfig(
 )
 ```
 
-## 4.4 高级特性：状态快照与热启动 (State Snapshot & Warm Start)
+## 4.4 [进阶选读] 状态快照与热启动 (State Snapshot & Warm Start)
+
+这一节更偏向长周期回测、滚动训练和准实盘恢复。第一次阅读本章时，如果你还在建立“事件驱动回测到底怎么工作”的基础认知，可以先跳过，等理解 4.7 到 4.9 后再回来读。
 
 作为事件驱动架构的一大优势，AKQuant 能够随时暂停并保存整个引擎的状态（Memory Dump），并在之后完全恢复。这种能力被称为**热启动 (Warm Start)**。
 
@@ -262,7 +288,7 @@ AKQuant 当前支持三种公开佣金模式：
 
 
 
-## 4.5 撮合引擎揭秘 (Matching Engine Internals)
+## 4.5 [主线必学] 撮合引擎揭秘 (Matching Engine Internals)
 
 回测引擎的核心在于**撮合 (Matching)**：如何根据历史行情判断你的订单是否成交，以及以什么价格成交。
 
@@ -292,7 +318,9 @@ AKQuant 当前支持三种公开佣金模式：
 
 当前版本的 `AKQuant` 默认撮合逻辑**不会维护一套随市场制度动态变化的涨跌停规则表**。如果你的数据源已经提供了涨停/跌停或可买/可卖标记，建议通过 `Bar.extra` 等扩展字段把这些信息一并带入数据，再在策略或后续扩展撮合逻辑中消费这些字段。
 
-## 4.6 滑点与冲击成本模型 (Slippage & Impact Models)
+## 4.6 [进阶选读] 滑点与冲击成本模型 (Slippage & Impact Models)
+
+这一节适合已经完成基础回测后，再进一步提高结果可信度时阅读。对第一次上手的读者来说，先理解“能不能成交”，再理解“以多差的价格成交”，学习顺序会更自然。
 
 真实交易中，你的买入行为会推高价格，卖出行为会压低价格。这种**冲击成本 (Market Impact)** 是大资金回测必须考虑的。
 
@@ -318,9 +346,9 @@ $$ \text{Cost} \propto \sigma \times \sqrt{\frac{Q}{V}} $$
 
 这表明：**冲击成本与交易量的平方根成正比**。如果你想把交易量翻倍，冲击成本只会增加 $\sqrt{2} \approx 1.414$ 倍，而不是 2 倍。这为大资金拆单提供了理论依据。
 
-## 4.7 事件循环伪代码 (Event Loop Pseudo-code)
+## 4.7 [主线必学] 事件循环伪代码 (Event Loop Pseudo-code)
 
-为了更清晰地理解 `akquant` 的运行机制，我们可以用伪代码描述其主循环：
+为了更清晰地理解 `AKQuant` 的运行机制，我们可以用伪代码描述其主循环：
 
 ```python
 def run_backtest():
@@ -360,9 +388,9 @@ result = aq.run_backtest(
 
 这个入口与策略类风格、函数式风格兼容，可以把策略逻辑与可观测性解耦。
 
-## 4.8 风控引擎 (Risk Engine)
+## 4.8 [主线必学] 风控引擎 (Risk Engine)
 
-在真实的交易系统中，**风控 (Risk Management)** 是最后一道防线。`akquant` 引擎内置了一个强大的预交易风控模块 (`RiskManager`)，它独立于策略逻辑之外，直接在引擎层面拦截不合规的订单。
+在真实的交易系统中，**风控 (Risk Management)** 是最后一道防线。`AKQuant` 引擎内置了一个强大的预交易风控模块 (`RiskManager`)，它独立于策略逻辑之外，直接在引擎层面拦截不合规的订单。
 
 ### 4.8.1 为什么要预交易风控？
 
@@ -372,7 +400,7 @@ result = aq.run_backtest(
 
 ### 4.8.2 内置风控规则
 
-`akquant` 的风控能力通常通过 `RiskConfig` 与策略级参数映射启用，常见约束包括：
+`AKQuant` 的风控能力通常通过 `RiskConfig` 与策略级参数映射启用，常见约束包括：
 
 1.  **单笔限制**：`max_order_size` / `max_order_value`。
 2.  **持仓限制**：`max_position_size` / `max_position_pct`。
@@ -413,9 +441,7 @@ result = aq.run_backtest(
 
 ---
 
-**本章小结**：
-
-## 4.9 订单生命周期与状态机 (Order Lifecycle)
+## 4.9 [主线必学] 订单生命周期与状态机 (Order Lifecycle)
 
 在事件驱动系统中，理解订单的状态流转至关重要。一个订单从产生到最终成交，会经历严格的状态机变换。
 
@@ -439,51 +465,53 @@ stateDiagram-v2
 
 ### 4.9.1 关键状态解析
 
-1.  **New (新建)**:
+1.  **New (新建)**：
     *   策略调用 `self.buy()` 后，订单对象被创建，但在风控检查通过前，状态为 `New`。
     *   此时订单尚未进入撮合队列。
 
-2.  **Submitted (已提交)**:
+2.  **Submitted (已提交)**：
     *   订单通过了客户端风控（如资金检查），已发送到交易所（或模拟撮合引擎）。
     *   在实盘中，这代表网络请求已发出。
 
-3.  **Accepted (已受理)**:
-    *   交易所确认收到订单。在 `akquant` 的回测模式中，通常 `Submitted` 后立即转为 `Accepted`（除非模拟了网络延迟）。
+3.  **Accepted (已受理)**：
+    *   交易所确认收到订单。在 `AKQuant` 的回测模式中，通常 `Submitted` 后立即转为 `Accepted`（除非模拟了网络延迟）。
 
-4.  **Filled (全部成交)**:
+4.  **Filled (全部成交)**：
     *   订单的所有数量都已成交。此时会触发 `on_trade` 回调，并且持仓和资金会相应更新。
 
-5.  **Rejected (已拒绝)**:
+5.  **Rejected (已拒绝)**：
     *   订单因某些原因被拒绝。常见原因：
-        *   **资金不足 (Insufficient Margin)**: 可用资金不足以支付保证金或全额。
-        *   **非法数量 (Invalid Quantity)**: 例如 A 股买入必须是 100 的整数倍。
-        *   **废单**: 价格超过涨跌停板。
+        *   **资金不足 (Insufficient Margin)**：可用资金不足以支付保证金或全额。
+        *   **非法数量 (Invalid Quantity)**：例如 A 股买入必须是 100 的整数倍。
+        *   **废单**：价格超过涨跌停板。
 
-## 4.10 撮合引擎机制 (Matching Engine Mechanics)
+## 4.10 [进阶选读] 撮合引擎机制 (Matching Engine Mechanics)
 
-`akquant` 的模拟撮合引擎 (`SimulatedExecutionClient`) 旨在尽可能逼真地模拟真实交易所的撮合逻辑。
+如果 4.5 已经帮助你理解了“撮合是什么”，这一节就是把它进一步展开成更接近真实系统的实现细节。它适合作为回测精细化阶段的补充，而不是第一次阅读时的入口。
+
+`AKQuant` 的模拟撮合引擎 (`SimulatedExecutionClient`) 旨在尽可能逼真地模拟真实交易所的撮合逻辑。
 
 ### 4.10.1 撮合逻辑 (Matching Logic)
 
 对于每一根新的 Bar (或 Tick)，引擎会遍历所有活跃订单进行撮合：
 
-1.  **市价单 (Market Order)**:
-    *   **成交价**: 取决于 `fill_policy` 三轴（见下文）。
-    *   **成交量**: 尽可能全部成交，除非受限于当根 Bar 的成交量（Volume Limit）。
+1.  **市价单 (Market Order)**：
+    *   **成交价**：取决于 `fill_policy` 三轴（见下文）。
+    *   **成交量**：尽可能全部成交，除非受限于当根 Bar 的成交量（Volume Limit）。
 
-2.  **限价单 (Limit Order)**:
-    *   **买入单**: 当 `Low Price <= Limit Price` 时成交。
+2.  **限价单 (Limit Order)**：
+    *   **买入单**：当 `Low Price <= Limit Price` 时成交。
         *   *价格优化*: 如果 `Open Price < Limit Price`，则以 `Open Price` 成交（模拟开盘撮合）。
-    *   **卖出单**: 当 `High Price >= Limit Price` 时成交。
-    *   **成交价**: 也就是常说的“价格优先”。
+    *   **卖出单**：当 `High Price >= Limit Price` 时成交。
+    *   **成交价**：也就是常说的“价格优先”。
 
-3.  **止损单 (Stop Order)**:
+3.  **止损单 (Stop Order)**：
     *   当市场价格突破触发价 (`Trigger Price`) 时，止损单会转化为市价单或限价单。
-    *   `akquant` 支持**穿透检查 (Gap Detection)**：例如，昨日收盘 100，今日跳空低开 90，如果你有 95 的止损卖单，引擎会正确地在 90 成交（而不是 95），真实模拟跳空风险。
+    *   `AKQuant` 支持**穿透检查 (Gap Detection)**：例如，昨日收盘 100，今日跳空低开 90，如果你有 95 的止损卖单，引擎会正确地在 90 成交（而不是 95），真实模拟跳空风险。
 
 ### 4.10.2 三轴成交语义 (Three-Axis Fill Policy)
 
-为了平衡回测的严谨性和灵活性，`akquant` 使用三轴成交策略：
+为了平衡回测的严谨性和灵活性，`AKQuant` 使用三轴成交策略：
 
 | 维度 | 取值 | 描述 |
 | :--- | :--- | :--- |
@@ -512,18 +540,18 @@ result = akquant.run_backtest(
 
 ### 4.10.4 滑点与冲击成本 (Slippage & Impact)
 
-回测中最容易高估收益的因素是忽略了交易成本。`akquant` 支持配置滑点模型：
+回测中最容易高估收益的因素是忽略了交易成本。`AKQuant` 支持配置滑点模型：
 
 $$ \text{Final Price} = \text{Execution Price} \times (1 \pm \text{Slippage Rate}) $$
 
-*   **买入**: 价格向上滑动（买得更贵）。
-*   **卖出**: 价格向下滑动（卖得更便宜）。
+*   **买入**：价格向上滑动（买得更贵）。
+*   **卖出**：价格向下滑动（卖得更便宜）。
 
 此外，你还可以设置 **Volume Limit**（例如 10%），限制策略在单根 Bar 上的成交量不超过市场总成交量的 10%，以模拟流动性限制。
 
 ### 4.10.5 配置分层与覆盖优先级
 
-`akquant` 在成交相关参数上采用统一的四层覆盖模型（从高到低）：
+`AKQuant` 在成交相关参数上采用统一的四层覆盖模型（从高到低）：
 
 1.  **订单级**：`buy/sell/submit_order` 传入 `fill_policy/slippage/commission`。
 2.  **策略映射级**：`strategy_fill_policy/strategy_slippage/strategy_commission`（按 `strategy_id/slot`）。
@@ -534,25 +562,25 @@ $$ \text{Final Price} = \text{Execution Price} \times (1 \pm \text{Slippage Rate
 *   单策略场景可先用运行级，局部例外再用订单级覆盖。
 *   多策略槽位场景优先使用 `strategy_*`，避免不同策略互相覆盖全局参数。
 
-## 4.11 资金与风控管理 (Portfolio & Risk)
+## 4.11 [进阶选读] 资金与风控管理 (Portfolio & Risk)
 
 ### 4.11.1 资金校验 (Pre-trade Check)
 
 在订单提交前，Rust 层的 `RiskManager` 会进行严格的资金校验：
 
-1.  **计算成本**:
+1.  **计算成本**：
     *   股票: `Price * Quantity`
     *   期货: `Price * Quantity * Multiplier * MarginRatio`
-2.  **计算费用**: 预估佣金、印花税等。
-3.  **比较**: `Total Cost > Free Cash` ?
+2.  **计算费用**：预估佣金、印花税等。
+3.  **比较**：`Total Cost > Free Cash` ?
     *   如果资金不足，订单会被**自动拒绝 (Rejected)**，或者根据配置**自动缩减数量 (Auto-resize)** 以适应剩余资金。
 
 ### 4.11.2 T+1 制度模拟
 
-对于 A 股市场，`akquant` 内置了 T+1 规则支持：
+对于 A 股市场，`AKQuant` 内置了 T+1 规则支持：
 
-*   **可用持仓 (Available Position)**: 当日买入的股票，在当日的 `available_positions` 中为 0，只有到下一个交易日才会释放。
-*   **卖出检查**: 卖出时检查 `available_positions` 而非总持仓。
+*   **可用持仓 (Available Position)**：当日买入的股票，在当日的 `available_positions` 中为 0，只有到下一个交易日才会释放。
+*   **卖出检查**：卖出时检查 `available_positions` 而非总持仓。
 
 这意味着如果你在 T 日买入，尝试在 T 日卖出，订单会被拒绝，错误信息提示 "Insufficient available position"。
 
@@ -560,11 +588,13 @@ $$ \text{Final Price} = \text{Execution Price} \times (1 \pm \text{Slippage Rate
 *   `t_plus_one` 是**运行级/市场级**开关，不是按 `strategy_id` 的分层参数。
 *   即使启用了多策略槽位，不同策略仍共享同一市场制度与可用持仓结算口径。
 
-## 4.12 多标的与时间流 (Time Flow & Multi-Asset)
+## 4.12 [进阶选读] 多标的与时间流 (Time Flow & Multi-Asset)
+
+这部分是从“单标的事件驱动”迈向“多标的统一时间流”的关键一步。若你当前只在做单标的策略，可以先知道结论，后续做全市场选股时再回来细读。
 
 在回测多个标的（例如全市场选股）时，时间的同步至关重要。
 
-`akquant` 的 `DataFeed` 实现了一个**全局优先队列 (Global Priority Queue)**。无论你加载了多少个 CSV 文件或 DataFrame，引擎都会将它们的数据打散并重新排序。
+`AKQuant` 的 `DataFeed` 实现了一个**全局优先队列 (Global Priority Queue)**。无论你加载了多少个 CSV 文件或 DataFrame，引擎都会将它们的数据打散并重新排序。
 
 **工作流程**：
 
@@ -577,7 +607,7 @@ $$ \text{Final Price} = \text{Execution Price} \times (1 \pm \text{Slippage Rate
 
 ### 4.12.1 为什么 AKQuant 要统一用 UTC
 
-理解 `akquant` 的事件驱动架构时，有一个非常关键但很容易被忽略的点：
+理解 `AKQuant` 的事件驱动架构时，有一个非常关键但很容易被忽略的点：
 
 > **引擎排序和状态推进依赖 UTC，时区只是显示层语义。**
 
@@ -617,9 +647,9 @@ $$ \text{Final Price} = \text{Execution Price} \times (1 \pm \text{Slippage Rate
 
 > **UTC 负责让系统正确，本地时区负责让结果好读。**
 
-## 4.13 盈亏计算原理 (PnL Mathematics)
+## 4.13 [进阶选读] 盈亏计算原理 (PnL Mathematics)
 
-理解 `akquant` 的盈亏计算逻辑，对于分析策略表现至关重要。
+理解 `AKQuant` 的盈亏计算逻辑，对于分析策略表现至关重要。
 
 ### 4.13.1 浮动盈亏 (Unrealized PnL)
 
@@ -631,7 +661,7 @@ $$ \text{Unrealized PnL} = (\text{Current Price} - \text{Entry Price}) \times \t
 
 ### 4.13.2 平仓盈亏 (Realized PnL)
 
-当平仓发生时，浮动盈亏转化为平仓盈亏。`akquant` 采用 **FIFO (先进先出)** 原则进行结算。
+当平仓发生时，浮动盈亏转化为平仓盈亏。`AKQuant` 采用 **FIFO (先进先出)** 原则进行结算。
 
 **示例**：
 
@@ -652,7 +682,7 @@ $$ \text{Total Equity} = \text{Cash} + \sum (\text{Market Value of Positions}) $
 
 其中市值计算包含保证金占用（对于期货/期权）。
 
-## 4.14 常见问题排查 (Troubleshooting)
+## 4.14 [主线必学] 常见问题排查 (Troubleshooting)
 
 如果你的订单没有成交，请检查以下清单：
 
@@ -669,9 +699,9 @@ $$ \text{Total Equity} = \text{Cash} + \sum (\text{Market Value of Positions}) $
 5.  **时间窗口**：
     *   确保数据覆盖了订单产生的时间段。
 
-## 4.15 性能优化与内存管理
+## 4.15 [进阶选读] 性能优化与内存管理
 
-`akquant` 之所以快，除了 Rust 本身的高性能外，还做了大量内存优化：
+`AKQuant` 之所以快，除了 Rust 本身的高性能外，还做了大量内存优化：
 
 1.  **避免 DataFrame 碎片化**：历史数据在 Rust 中以连续内存块（Vector）存储，而不是 Python 的分散对象。
 2.  **按需计算**：指标（Indicator）通常是增量计算的（Streaming），而不是每次重算整个序列。
@@ -681,12 +711,35 @@ $$ \text{Total Equity} = \text{Cash} + \sum (\text{Market Value of Positions}) $
 
 ## 本章小结
 
-1. 回测范式上，事件驱动在真实交易仿真能力上显著优于纯向量化。
-2. `akquant` 的 Python/Rust 分层降低了策略开发门槛，同时保留高性能执行能力。
-3. 理解订单状态与撮合规则，是保证回测可信度的核心前提。
+### 必须掌握
+
+- 事件驱动回测在真实交易仿真能力上显著优于纯向量化回测。
+- 理解订单状态、撮合规则与风控约束，是保证回测可信度的前提。
+
+### 理解即可
+
+- AKQuant 的 Python/Rust 分层既是性能设计，也是职责分层设计。
+
+### 实践提醒
+
+- 阅读本章时先抓住事件流主线，再回头查撮合、UTC 和风控细节。
 
 ## 课后练习
 
+### 基础题
+
 1. 在主示例中修改滑点或手续费参数，比较收益与回撤变化。
-2. 记录三种回测范式的运行时长，并解释差异来源。
-3. 人工构造一笔“部分成交”场景，验证订单状态流转是否符合预期。
+
+### 应用题
+
+1. 记录三种回测范式的运行时长，并解释差异来源。
+
+### 综合题
+
+1. 人工构造一笔“部分成交”场景，验证订单状态流转是否符合预期。
+
+## 常见错误与排查
+
+1. 订单没有成交：优先检查价格是否触发、资金是否足够，以及是否受成交量限制。
+2. 结果好得异常：检查是否误用了未来数据，或忽略了滑点、手续费与市场制度。
+3. 多标的时间错位：确认数据是否统一为可排序时间戳，并检查时区显示与引擎排序的分层。
