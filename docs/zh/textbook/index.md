@@ -10,6 +10,18 @@
 *   **中国本土化**：专注于 A 股（T+1、涨跌停场景建模）、国内期货（CTP接口）与期权市场。
 *   **实战导向**：从数据清洗、策略回测到实盘交易的全链路覆盖，配套完整代码示例。
 
+## 贯穿式课程项目：从第一个信号到准实盘闭环
+
+为了避免“每章都学了，但很难串成一条主线”，建议把全书当作一个逐章升级的课程项目来学习。你可以围绕一套最小多均线/趋势过滤策略，按下面路径逐步扩展：
+
+1. **第 1 到 3 章**：完成环境搭建、数据获取与最小清洗，跑通第一个可复现回测。
+2. **第 4 到 5 章**：把策略改造成事件驱动版本，补上生命周期、下单接口、日志与风控。
+3. **第 6 到 9 章**：把同一主线分别放到 A 股、期货、期权与基金配置场景中，理解市场制度差异。
+4. **第 10 到 14 章**：为主线策略补上评价、优化、机器学习、可视化与因子研究能力。
+5. **第 15 到 16 章**：继续完善准实盘、监控与指标工程化使用，形成从研究到运行的完整闭环。
+
+如果你是第一次系统学习量化，强烈建议每读完一章，就把当前主线策略和实验记录保存为一个新版本，而不是只运行孤立示例。
+
 ## 学前提醒：先建立时间与时区心智模型
 
 为了避免在阅读日志、回测结果与 `timestamp_iso` 时产生困惑，建议先阅读以下两篇说明：
@@ -98,8 +110,9 @@
 ### 第六部分：指标工程与工具链 (Indicator Engineering)
 
 *   **[第 16 章：AKQuant 指标全景与工程化使用](16_rust_indicators.md)**
-    *   AKQuant 支持的 103 个指标分类、解释与 warmup 口径
-    *   指标词典与教学脚手架联动（见 [AKQuant 指标全量说明](../guide/rust_indicator_reference.md)）
+    *   使用输入/输出/warmup 模板理解 AKQuant 的 103 个指标
+    *   通过 `python -> rust` 迁移实验掌握指标工程化使用路径
+    *   指标词典与实验脚手架联动（见 [AKQuant 指标全量说明](../guide/rust_indicator_reference.md)）
 
 ## 章节示例映射（主示例 / 进阶示例 / 对应指南）
 
@@ -120,7 +133,7 @@
 | 第 13 章 | [ch13_visualization.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch13_visualization.py) | [11_plot_visualization.py](https://github.com/akfamily/akquant/blob/main/examples/11_plot_visualization.py) | [可视化指南](../guide/visualization.md) |
 | 第 14 章 | [ch14_factor.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch14_factor.py) | [16_adj_returns_signal.py](https://github.com/akfamily/akquant/blob/main/examples/16_adj_returns_signal.py) | [因子指南](../guide/factor.md) |
 | 第 15 章 | [ch15_live_trading.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch15_live_trading.py) | [ch15_strategy_loader.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch15_strategy_loader.py) | [实盘函数式指南](../advanced/live_functional_quickstart.md) |
-| 第 16 章 | 暂无独立脚本（以指标词典驱动） | [45_talib_indicator_playbook_demo.py](https://github.com/akfamily/akquant/blob/main/examples/45_talib_indicator_playbook_demo.py) | [AKQuant 指标全量说明](../guide/rust_indicator_reference.md) |
+| 第 16 章 | [45_talib_indicator_playbook_demo.py](https://github.com/akfamily/akquant/blob/main/examples/45_talib_indicator_playbook_demo.py) | [60_custom_indicator_demo.py](https://github.com/akfamily/akquant/blob/main/examples/60_custom_indicator_demo.py), [62_indicator_streaming_demo.py](https://github.com/akfamily/akquant/blob/main/examples/62_indicator_streaming_demo.py) | [AKQuant 指标全量说明](../guide/rust_indicator_reference.md) |
 
 ---
 

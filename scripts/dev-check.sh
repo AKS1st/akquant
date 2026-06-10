@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-uv run maturin develop
+uvx maturin develop
 uv run ruff check python/akquant tests
 uv run mypy python/akquant
 uv run pytest tests/test_engine.py -k "engine_oco_avoids_same_batch_double_fill"

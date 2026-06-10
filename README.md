@@ -294,7 +294,9 @@ AKQuant 采用严格的测试流程以确保回测引擎的准确性：
 uv sync
 
 # 2. 构建并绑定 Rust 扩展
-uv run maturin develop
+# 注意：不要使用 `uv run maturin develop`，它会先尝试安装当前项目，
+# 对于以 maturin 作为 build backend 的仓库可能卡在 Preparing packages。
+uvx maturin develop
 
 # 3. 运行所有测试
 uv run pytest

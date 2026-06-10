@@ -45,7 +45,9 @@
     uv pip install -e ".[dev,ml,plot]"
 
     # 编译 Rust 扩展 (开发模式)
-    uv run maturin develop
+    # 注意：不要使用 `uv run maturin develop`，它会先尝试安装当前项目，
+    # 对于以 maturin 作为 build backend 的仓库可能卡在 Preparing packages。
+    uvx maturin develop
     ```
 
 ### 3. 开始开发 (Coding)
@@ -161,7 +163,7 @@
 
 在提交 PR 之前，请检查：
 
-- [ ] 代码可以通过 `uv run maturin develop` 编译成功。
+- [ ] 代码可以通过 `uvx maturin develop` 编译成功。
 - [ ] 运行了 `uv run ruff check .` 和 `uv run mypy .` 没有报错。
 - [ ] 运行了 `uv run python scripts/check_docs_links.py` 且通过。
 - [ ] 运行了 `uv run python scripts/check_docs_api_examples.py` 且通过。
