@@ -113,22 +113,29 @@ plugins:
             Strategies: 第三部分：策略篇
             Advanced: 第四部分：高阶篇
             Live Trading: 第五部分：实盘篇
+            Indicator Engineering: 第六部分：指标工程篇
             01_Overview & Setup: 第1章：量化投资概述与环境搭建
-            02_Programming Guide: 第2章：编程生存指南 (Programming Survival Guide)
+            02_Programming Guide: 第2章：编程生存指南
             03_Data Acquisition: 第3章：金融数据获取与处理
-            04_Backtest Engine: 第4章：事件驱动回测原理 (Event-Driven Architecture)
-            05_Strategy & Order: 第5章：策略开发实战 (Strategy Implementation)
+            04_Backtest Engine: 第4章：事件驱动回测原理
+            05_Strategy & Order: 第5章：策略开发实战
             06_Stock A-Share: 第6章：A 股市场微观结构与策略实战
             07_Futures: 第7章：期货市场与衍生品策略
             08_Options & Derivatives: 第8章：期权定价与波动率策略
             09_Funds & Asset Allocation: 第9章：基金投资与资产配置理论
             10_Evaluation Metrics: 第10章：策略评价体系与风险指标
             11_Optimization: 第11章：参数优化与稳健性检验
-            12_Machine Learning: 第12章：机器学习在量化中的应用 (Machine Learning)
+            12_Machine Learning: 第12章：机器学习在量化中的应用
             13_Visualization: 第13章：策略可视化与报表分析
             14_Factor Expression: 第14章：高性能因子挖掘与表达式引擎
             15_Live Trading: 第15章：实盘交易系统与运维
             16_Indicator System: 第16章：AKQuant 指标全景与工程化使用
+            00_Glossary & Notation: 术语表与符号约定
+            Capstone Project: 课程项目：端到端实战
+            Appendix: 附录
+            A_Setup & Reproducibility: 附录 A：环境与复现
+            B_Citation & License: 附录 B：引用、许可与勘误
+            C_Common Pitfalls: 附录 C：常见误区对照表
         - locale: en
           name: English
           build: true
@@ -182,6 +189,7 @@ plugins:
             Strategies: Part 3 - Strategies
             Advanced: Part 4 - Advanced
             Live Trading: Part 5 - Live Trading
+            Indicator Engineering: Part 6 - Indicator Engineering
             01_Overview & Setup: Chap 1 - Quantitative Investment Overview and Environment Setup
             02_Programming Guide: Chap 2 - Programming Survival Guide
             03_Data Acquisition: Chap 3 - Financial Data Acquisition and Processing
@@ -198,6 +206,12 @@ plugins:
             14_Factor Expression: Chap 14 - High-Performance Factor Mining and Expression Engine
             15_Live Trading: Chap 15 - Live Trading Systems and Operations
             16_Indicator System: Chap 16 - AKQuant Indicator System and Practical Usage
+            00_Glossary & Notation: Glossary & Notation
+            Capstone Project: Capstone Project
+            Appendix: Appendix
+            A_Setup & Reproducibility: A - Setup & Reproducibility
+            B_Citation & License: B - Citation & License
+            C_Common Pitfalls: C - Common Pitfalls
 
 nav:
   - Home: index.md
@@ -222,9 +236,10 @@ nav:
           - 12_Machine Learning: textbook/12_ml.md
           - 13_Visualization: textbook/13_visualization.md
           - 14_Factor Expression: textbook/14_factor.md
-          - 16_Indicator System: textbook/16_rust_indicators.md
       - Live Trading:
           - 15_Live Trading: textbook/15_live_trading.md
+      - Indicator Engineering:
+          - 16_Indicator System: textbook/16_rust_indicators.md
       - Capstone Project: textbook/capstone.md
       - Appendix:
           - A_Setup & Reproducibility: textbook/appendix_setup.md
