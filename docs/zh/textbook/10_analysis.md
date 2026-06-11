@@ -83,8 +83,7 @@ $$ \sigma_d = \sqrt{\frac{1}{N} \sum_{i=1}^N \min(R_i - R_{target}, 0)^2} $$
 
 $$ \text{Sharpe} = \frac{E(R_p) - R_f}{\sigma_p} $$
 
-*   **评价标准**：> 1.0 为良好，> 2.0 为优秀，> 3.0 通常意味着过拟合或高频策略。
-*   **局限性**：假设收益率服从正态分布，且将上行波动也视为风险。
+在评价标准上，夏普比率 > 1.0 为良好，> 2.0 为优秀，而 > 3.0 通常意味着过拟合或高频策略。需要留意它的两点局限性：它假设收益率服从正态分布，且把上行波动也一并视为风险。
 
 ### 10.3.2 索提诺比率 (Sortino Ratio)
 
@@ -108,10 +107,7 @@ $$ \text{Calmar} = \frac{R_{annual}}{|MDD|} $$
 
 ### 10.4.1 胜率与盈亏比
 
-*   **胜率 (Win Rate)**：盈利交易次数 / 总交易次数。
-*   **盈亏比 (P/L Ratio)**：平均盈利金额 / 平均亏损金额。
-
-**凯利公式 (Kelly Criterion)** 揭示了二者与最佳仓位 ($f$) 的关系：
+刻画交易行为有两个互补的维度：**胜率 (Win Rate)** 是盈利交易次数与总交易次数之比，而**盈亏比 (P/L Ratio)** 是平均盈利金额与平均亏损金额之比。**凯利公式 (Kelly Criterion)** 则揭示了二者与最佳仓位 ($f$) 的关系：
 
 $$ f = \frac{p(b+1) - 1}{b} = p - \frac{q}{b} $$
 
@@ -122,8 +118,7 @@ $$ f = \frac{p(b+1) - 1}{b} = p - \frac{q}{b} $$
 
 ### 10.4.2 MAE 与 MFE
 
-*   **MAE (Maximum Adverse Excursion)**：最大不利偏离。持仓期间出现的最大浮亏。用于优化**止损**。
-*   **MFE (Maximum Favorable Excursion)**：最大有利偏离。持仓期间出现的最大浮盈。用于优化**止盈**。
+**MAE (Maximum Adverse Excursion)** 指最大不利偏离，即持仓期间出现的最大浮亏，常用于优化**止损**；与之相对，**MFE (Maximum Favorable Excursion)** 指最大有利偏离，即持仓期间出现的最大浮盈，常用于优化**止盈**。
 
 ## 10.5 AKQuant 结果解析
 
@@ -223,12 +218,11 @@ VaR 回答了一个直观的问题：**“在 95% 的置信度下，明天的最
 
 $$ P(L > VaR_{\alpha}) = 1 - \alpha $$
 
-*   **参数法 (Parametric VaR)**：假设收益率服从正态分布 $N(\mu, \sigma)$。
+估计 VaR 主要有三条路径。**参数法 (Parametric VaR)** 假设收益率服从正态分布 $N(\mu, \sigma)$，于是可直接由均值与标准差算出阈值：
 
-    $$ VaR_{95\%} = \mu - 1.65 \sigma $$
+$$ VaR_{95\%} = \mu - 1.65 \sigma $$
 
-*   **历史模拟法 (Historical Simulation)**：直接取历史收益率分布的分位数（如第 5% 分位数）。不假设分布形态，能捕捉肥尾风险。
-*   **蒙特卡洛模拟 (Monte Carlo)**：通过随机模拟生成成千上万条路径，计算亏损分布。
+**历史模拟法 (Historical Simulation)** 则不假设分布形态，而是直接取历史收益率分布的分位数（如第 5% 分位数），因此能捕捉正态假设所忽略的肥尾风险。**蒙特卡洛模拟 (Monte Carlo)** 更进一步，通过随机模拟生成成千上万条路径，再据此计算亏损分布。
 
 ### 10.7.2 条件在险价值 (CVaR / Expected Shortfall)
 
@@ -303,6 +297,30 @@ $$ Break\_even = \frac{Total\_Return}{2 \times Total\_Turnover} $$
 ### 实践提醒
 
 - 读报告时先看收益、回撤、换手与样本长度，再看更复杂的高级指标。
+
+## 主线推进
+
+贯穿全书的那条最小多均线 / 趋势策略，到本章迎来了从“能不能跑”到“好不好、可不可信”的关键一跃。前面各章已经把它打磨成事件驱动的标准策略类，并在第 9 章扩展到了多资产组合；但此前我们对它的判断，主要还停留在累计收益与最大回撤这类直观读数上。本章为这条主线装上了一整套体检仪表：用夏普、索提诺、卡玛把它的收益放回风险的尺度上重新称量，用 VaR / CVaR 估计它在极端行情下的尾部损失，用胜率、盈亏比、MAE/MFE 解剖它每一笔交易的行为特征，再用归因分析追问它的超额收益究竟来自择时、选股还是仅仅是风格暴露。更重要的是，本章用 PSR 与夏普 t 检验逼问一个此前被回避的问题——主线策略在样本里表现出的那点优势，到底是真实能力还是运气，以及在扣除交易成本与换手之后是否还站得住。至此，主线策略不再只是“一条资金曲线”，而成为一个可以被科学评价、被显著性检验、并据此决定是否进入后续优化与实盘的研究对象。
+
+## 延伸阅读
+
+**经典著作**
+
+- Bailey, D. H., & López de Prado, M. "The Sharpe Ratio Efficient Frontier," *The Journal of Risk*, 15(2), 2012, 3–44 —— 提出概率夏普比率 (PSR)，在非正态、样本长度有限的条件下评估真实夏普超过基准的概率，对应本章 10.8.2。
+- Bailey, D. H., & López de Prado, M. "The Deflated Sharpe Ratio: Correcting for Selection Bias, Backtest Overfitting, and Non-Normality," *The Journal of Portfolio Management*, 40(5), 2014, 94–107 —— 提出收缩夏普比率 (DSR)，校正多重检验下的选择偏差与非正态性，是 PSR 在“多次试验后才挑出最优策略”场景下的延伸，呼应本章 10.8（统计显著性）。
+- Rockafellar, R. T., & Uryasev, S. "Optimization of Conditional Value-at-Risk," *The Journal of Risk*, 2(3), 2000, 21–41 —— CVaR（条件在险价值 / 期望损失）优化的奠基论文，阐明其次可加等优良性质，对应本章 10.7.2。
+- Bacon, C. R. *Practical Portfolio Performance Measurement and Attribution*（第 3 版），John Wiley & Sons, 2023 —— 绩效测量与归因的实务权威，系统讲解 Brinson 归因、风险调整后收益与展示标准，对应本章 10.3、10.6。
+- López de Prado, M. *Advances in Financial Machine Learning*，John Wiley & Sons, 2018 —— 第 11–14 章系统讨论回测过拟合、PSR/DSR 与策略显著性检验，延伸本章 10.8。
+
+**官方文档与工具**
+
+- [AKQuant 分析指南](../guide/analysis.md) —— `BacktestResult`、`metrics_df`、`trades_df` 与 `benchmark_analysis` 等接口的权威说明，对应本章 10.5。
+- [AKShare 官方文档](https://akshare.akfamily.xyz/) —— 获取基准指数（如沪深300）收益序列用于超额收益归因的数据来源，对应本章 10.6。
+
+**本书相关**
+
+- [第 1 章：量化投资概述与环境搭建](01_foundations.md) —— 本章 10.1.2 的 Alpha/Beta 分解与第 1 章 1.1.2 的 CAPM 一脉相承。
+- [第 9 章：基金投资与资产配置理论](09_funds.md) —— 本章 10.3 的夏普、Calmar 等风险调整后指标，正是第 9 章组合优选与基金评价所依赖的度量。
 
 ## 课后练习
 

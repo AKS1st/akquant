@@ -67,8 +67,7 @@ python examples/textbook/ch05_strategy.py
 
 ### 5.2.1 `__init__` vs `on_start`
 
-*   `__init__`: 此时策略实例刚被创建，回测引擎尚未完全启动，你无法访问 `self.ctx` (Context) 或账户信息。只能做一些纯 Python 层面的变量初始化（如 `self.ma_window = 20`）。
-*   `on_start`: 此时引擎已就绪 (Ready State)。你可以安全地调用 `self.log()`, `self.get_position()` 等依赖引擎上下文的 API。
+这两个钩子的差别在于引擎所处的阶段。`__init__` 触发时，策略实例刚被创建，回测引擎尚未完全启动，因此你无法访问 `self.ctx` (Context) 或账户信息，只能做一些纯 Python 层面的变量初始化（如 `self.ma_window = 20`）。等到 `on_start` 触发时，引擎已就绪 (Ready State)，你才可以安全地调用 `self.log()`、`self.get_position()` 等依赖引擎上下文的 API。换句话说，凡是需要引擎上下文的初始化，都应推迟到 `on_start`，而不是写在 `__init__` 里。
 
 ### 5.2.2 `on_bar` 的执行流 (Execution Flow)
 
@@ -84,8 +83,7 @@ python examples/textbook/ch05_strategy.py
 
 `AKQuant` 同时支持两种策略入口：
 
-1.  **类风格**：`strategy=MyStrategy`，适合中长期维护、复杂状态管理。
-2.  **函数式**：`strategy=on_bar` + `initialize=...`，适合快速原型、脚本化调试。
+其一是**类风格**，以 `strategy=MyStrategy` 传入，适合中长期维护与复杂状态管理；其二是**函数式**，以 `strategy=on_bar` 搭配 `initialize=...` 传入，适合快速原型与脚本化调试。两者的取舍取决于你更看重可复用性还是轻量验证。
 
 函数式入口示例：
 
@@ -418,10 +416,7 @@ class FSMStrategy(Strategy):
 
 在 AKQuant 里，“自定义指标”通常有两条主路径：
 
-1.  **预计算指标（`precompute`）**：适合一次性对完整 `DataFrame` 做向量化计算。
-2.  **增量指标（`incremental`）**：适合在事件流里逐 Bar 更新状态，便于多标的、热启动和实时场景复用。
-
-两条路径都可以使用 `AKQuant` 的 `Indicator` 体系，但接入方式不同。
+一条是**预计算指标（`precompute`）**，适合一次性对完整 `DataFrame` 做向量化计算；另一条是**增量指标（`incremental`）**，适合在事件流里逐 Bar 更新状态，便于多标的、热启动和实时场景复用。两条路径都可以使用 `AKQuant` 的 `Indicator` 体系，区别只在于接入方式不同。
 
 ### 5.5.2 预计算：使用 `Indicator(name, fn, **kwargs)`
 
@@ -671,8 +666,7 @@ $$ f^* = \frac{bp - q}{b} = \frac{p(b+1) - 1}{b} $$
 
 $$ Weight_t = \frac{\text{Target Vol}}{\text{Realized Vol}_t} $$
 
-*   当市场波动率低时，加杠杆，提高资金利用率。
-*   当市场波动率高时，降仓位，控制风险暴露。
+其内在逻辑是用仓位去对冲波动：当市场波动率低时，就加杠杆以提高资金利用率；当市场波动率高时，则降仓位以控制风险暴露。这样一来，无论市场平静还是动荡，组合承担的风险都被拉回到同一水平。
 
 ```python
 # 示例：波动率目标仓位管理
@@ -806,6 +800,29 @@ result = aq.run_backtest(
 ### 实践提醒
 
 - 先把同一逻辑写进正确的 `on_xxx`，再追求更复杂的模式封装。
+
+## 主线推进
+
+回到贯穿全书的那条最小多均线 / 趋势策略主线：第 1 章把它跑成了一个能产出回测指标的 Hello World，第 4 章则讲清了它背后的事件驱动引擎与撮合、风控边界。本章把这条主线从“能跑”推进到“可工程化交易”——我们用 `on_start -> on_bar -> on_stop` 把它重写成标准策略类，给双均线加上了固定比例止损，让信号、持仓查询、下单接口与日志在正确的生命周期阶段各就各位。至此，主线策略不再只是一段脚本，而是一套结构清晰、风控成形、可继续替换指标与扩展回调的可维护组件，为后续章节把它接入多因子选股、参数优化与实盘切换打好了地基。
+
+## 延伸阅读
+
+**经典著作**
+
+- Chande, T. S. *Beyond Technical Analysis: How to Develop and Implement a Winning Trading System*（第 2 版），John Wiley & Sons, 2001 —— 系统讲解交易系统的设计、实现与评估流程，可与本章 5.1（策略类结构）、5.2（生命周期）对照阅读。
+- Vince, R. *The Mathematics of Money Management: Risk Analysis Techniques for Traders*，John Wiley & Sons, 1992 —— 凯利公式与最优下注比例（optimal f）的奠基性专著，延伸本章 5.6.1（凯利公式）。
+- Carver, R. *Systematic Trading: A Unique New Method for Designing Trading and Investing Systems*，Harriman House, 2015 —— 以波动率目标为核心的系统化交易框架，直接对应本章 5.6.2（波动率目标）与 5.6.3（止损逻辑）。
+
+**官方文档与工具**
+
+- [AKQuant 策略指南](../guide/strategy.md) —— 回调触发顺序、类风格与函数式能力差异的权威说明，对应本章 5.1、5.2、5.7。
+- [AKQuant 自定义指标指南](../guide/custom_indicator.md) —— 预计算与增量两种指标接入方式的完整文档，对应本章 5.5。
+- [AKQuant 指标组合实战手册](../guide/talib_indicator_playbook.md) —— `AKQuant.talib` 双后端与指标组合模板的实战说明，对应本章 5.5.5、5.5.6。
+
+**本书相关**
+
+- [第 4 章：事件驱动回测原理](04_backtest_engine.md) —— 本章策略层风控（5.6）与引擎层硬性风控的分工，承接第 4.8 节风控引擎。
+- [第 1 章：量化投资概述与环境搭建](01_foundations.md) —— 本章双均线策略骨架沿用第 1 章 Hello World 示例建立的回测全流程心智模型。
 
 ## 课后练习
 
