@@ -115,7 +115,7 @@ plugins:
             Live Trading: 第五部分：实盘篇
             Indicator Engineering: 第六部分：指标工程篇
             01_Overview & Setup: 第1章：量化投资概述与环境搭建
-            02_Programming Guide: 第2章：编程生存指南
+            02_Programming Guide: 第2章：量化编程基础
             03_Data Acquisition: 第3章：金融数据获取与处理
             04_Backtest Engine: 第4章：事件驱动回测原理
             05_Strategy & Order: 第5章：策略开发实战
@@ -129,7 +129,7 @@ plugins:
             13_Visualization: 第13章：策略可视化与报表分析
             14_Factor Expression: 第14章：高性能因子挖掘与表达式引擎
             15_Live Trading: 第15章：实盘交易系统与运维
-            16_Indicator System: 第16章：AKQuant 指标全景与工程化使用
+            16_Indicator System: 第16章：AKQuant 技术指标体系与应用
             00_Glossary & Notation: 术语表与符号约定
             Capstone Project: 课程项目：端到端实战
             Appendix: 附录
@@ -191,7 +191,7 @@ plugins:
             Live Trading: Part 5 - Live Trading
             Indicator Engineering: Part 6 - Indicator Engineering
             01_Overview & Setup: Chap 1 - Quantitative Investment Overview and Environment Setup
-            02_Programming Guide: Chap 2 - Programming Survival Guide
+            02_Programming Guide: Chap 2 - Quantitative Programming Basics
             03_Data Acquisition: Chap 3 - Financial Data Acquisition and Processing
             04_Backtest Engine: Chap 4 - Event-Driven Backtesting Principles
             05_Strategy & Order: Chap 5 - Strategy Development in Practice
@@ -205,7 +205,7 @@ plugins:
             13_Visualization: Chap 13 - Strategy Visualization and Report Analysis
             14_Factor Expression: Chap 14 - High-Performance Factor Mining and Expression Engine
             15_Live Trading: Chap 15 - Live Trading Systems and Operations
-            16_Indicator System: Chap 16 - AKQuant Indicator System and Practical Usage
+            16_Indicator System: Chap 16 - AKQuant Technical Indicator System and Application
             00_Glossary & Notation: Glossary & Notation
             Capstone Project: Capstone Project
             Appendix: Appendix

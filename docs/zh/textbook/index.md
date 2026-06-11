@@ -45,7 +45,7 @@
     *   量化投资发展史与 Alpha/Beta 理论
     *   AKQuant 架构简介 (Rust Core + Python Wrapper)
     *   环境配置与 Hello World ([examples/textbook/ch01_quickstart.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch01_quickstart.py))
-*   **[第 2 章：编程生存指南](02_programming.md)**
+*   **[第 2 章：量化编程基础](02_programming.md)**
     *   Python for Quant: Pandas, NumPy, Matplotlib
     *   Rust 概念入门：类型系统与内存安全
     *   案例：数据处理实战 ([examples/textbook/ch02_programming.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch02_programming.py))
@@ -113,7 +113,7 @@
 
 ### 第六部分：指标工程与工具链 (Indicator Engineering)
 
-*   **[第 16 章：AKQuant 指标全景与工程化使用](16_rust_indicators.md)**
+*   **[第 16 章：AKQuant 技术指标体系与应用](16_rust_indicators.md)**
     *   使用输入/输出/warmup 模板理解 AKQuant 的 103 个指标
     *   通过 `python -> rust` 迁移实验掌握指标工程化使用路径
     *   案例：指标三课演示（读/用/迁移）([examples/textbook/ch16_indicators.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch16_indicators.py)）
