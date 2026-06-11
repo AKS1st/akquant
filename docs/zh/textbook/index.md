@@ -35,7 +35,9 @@
 
 ## 目录大纲
 
-> 📖 随查工具：[术语表与符号约定](00_glossary.md) ｜ [附录 A：环境与复现](appendix_setup.md) ｜ [附录 B：引用、许可与勘误](appendix_cite.md)
+> 📖 随查工具：[术语表与符号约定](00_glossary.md) ｜ [常见误区对照表](appendix_pitfalls.md) ｜ [附录 A：环境与复现](appendix_setup.md) ｜ [附录 B：引用、许可与勘误](appendix_cite.md)
+>
+> 🎓 学完全书后，请完成 [课程项目：端到端量化实战 (Capstone)](capstone.md)。
 
 ### 第一部分：量化基础与数据准备 (Foundations)
 
@@ -117,11 +119,13 @@
     *   案例：指标三课演示（读/用/迁移）([examples/textbook/ch16_indicators.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch16_indicators.py)）
     *   指标词典与实验脚手架联动（见 [AKQuant 指标全量说明](../guide/rust_indicator_reference.md)）
 
-### 附录 (Appendix)
+### 课程项目与附录
 
+*   **[课程项目：端到端量化实战 (Capstone)](capstone.md)**：把全书主线策略串成数据→策略→回测→评价→优化→可视化→实盘准备的完整闭环，附交付物清单。
 *   **[术语表与符号约定](00_glossary.md)**：全书数学符号与核心术语随查表，标注首次讲解章节。
 *   **[附录 A：环境与复现](appendix_setup.md)**：推荐环境、依赖版本基线与"如何复现书中回测数字"。
 *   **[附录 B：引用、许可与勘误](appendix_cite.md)**：如何引用本教材、MIT 许可说明、Issue 勘误入口与免责声明。
+*   **[附录 C：常见误区对照表](appendix_pitfalls.md)**：全书反复出现的陷阱汇成 ❌→✅ 速查表，动手前对照自查。
 
 ## 章节示例映射（主示例 / 进阶示例 / 对应指南）
 
