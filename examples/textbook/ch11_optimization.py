@@ -14,7 +14,7 @@ AKQuant 特性：
 - `run_grid_search`: 自动多进程并行回测，极大提高优化效率。
 """
 
-from typing import Any, List
+from typing import Any
 
 import akquant as aq
 import numpy as np
@@ -85,80 +85,53 @@ if __name__ == "__main__":
     param_grid = {"short_window": [3, 5, 10], "long_window": [15, 20, 30, 60]}
 
     # 运行网格搜索
-    # max_workers: 并行进程数，默认根据 CPU 核心数自动设置
-    # metric: 优化目标指标，默认为 sharpe_ratio
-    results: Any = aq.run_grid_search(
-        strategy=OptStrategy,
-        data=df,
-        param_grid=param_grid,
-        initial_cash=100_000,
-        commission_rate=0.0003,
-        max_workers=4,  # 限制为 4 个进程
-    )
-
-    print("\n" + "=" * 40)
-    print("优化结果 (按夏普比率排序)")
-    print("=" * 40)
-
-    # OptimizationResult 对象包含所有参数组合的回测结果
-    # 我们可以将其转换为 DataFrame 方便查看
-    df_results = pd.DataFrame(results)
-
-    # 按照 sharpe_ratio 降序排列
-    # 注意：AKQuant 的结果中，metrics 是一个字典
-    # 我们需要展开它
-
-    # 提取关键指标
-    summary: List[Any] = []
-    for res in results:
-        params = res.params
-        metrics = res.metrics
-
-        # metrics 可能是 BacktestResult 对象或者字典，视版本而定
-        # run_grid_search 通常返回一个包含 params 和 metrics 的轻量级对象
-        # 这里假设 metrics 是一个字典，包含 sharpe_ratio 等
-
-        # 实际上 aq.run_grid_search 返回的是 List[OptimizationResult]
-        # OptimizationResult.metrics 是一个 PerformanceMetrics 对象或字典
-
-        # 让我们直接打印最优结果
-        pass
-
-    # 简单起见，我们直接打印前 3 名
-    # run_grid_search 返回的结果通常已经按默认指标排序了 (如果内部实现了的话)
-    # 但为了保险，我们手动排序
-
-    # 假设 results 是 List[OptimizationResult]
-    # OptimizationResult(params={'short_window': 3, 'long_window': 15}, metrics=...)
-
-    sorted_results = sorted(
-        results,
-        key=lambda x: (
-            x.metrics.sharpe_ratio
-            if hasattr(x.metrics, "sharpe_ratio")
-            else x.metrics.get("sharpe_ratio", -999)
-        ),
-        reverse=True,
-    )
-
-    print(f"{'Short':<6} {'Long':<6} {'Sharpe':<10} {'Return':<10} {'MaxDD':<10}")
-    print("-" * 50)
-
-    for res in sorted_results[:5]:
-        p = res.params
-        m = res.metrics
-
-        # 兼容不同版本的属性访问
-        sharpe = getattr(m, "sharpe_ratio", m.get("sharpe_ratio", 0))
-        ret = getattr(m, "total_return_pct", m.get("total_return_pct", 0))
-        dd = getattr(m, "max_drawdown_pct", m.get("max_drawdown_pct", 0))
-
-        print(
-            f"{p['short_window']:<6} {p['long_window']:<6} "
-            f"{sharpe:<10.2f} {ret:<10.2f}% {dd:<10.2f}%"
+    # max_workers: 并行进程数。注意：Windows 下以 spawn 方式多进程时，策略类必须
+    # 可被子进程导入（不能定义在 __main__，详见第 11.4.0 节）。直接运行本脚本时，
+    # 若并行不可用则自动回退为单进程，保证示例随处可跑。
+    try:
+        results: Any = aq.run_grid_search(
+            strategy=OptStrategy,
+            data=df,
+            param_grid=param_grid,
+            initial_cash=100_000,
+            commission_rate=0.0003,
+            max_workers=4,  # 限制为 4 个进程
+        )
+    except Exception as exc:  # noqa: BLE001 - 直接运行的脚本可能无法多进程，回退单进程
+        print(f"并行优化不可用（{exc}），回退为单进程 (max_workers=1)。")
+        results = aq.run_grid_search(
+            strategy=OptStrategy,
+            data=df,
+            param_grid=param_grid,
+            initial_cash=100_000,
+            commission_rate=0.0003,
+            max_workers=1,
         )
 
+    # run_grid_search 默认 return_df=True，返回一个已按 sharpe_ratio 降序排好的
+    # DataFrame，列中同时包含参数列（short_window/long_window）与指标列
+    # （sharpe_ratio/total_return_pct/max_drawdown_pct 等）。
     print("\n" + "=" * 40)
-    print("最佳参数组合:")
-    best = sorted_results[0]
-    print(best.params)
+    print("优化结果 (按夏普比率排序，前 5 名)")
+    print("=" * 40)
+
+    if isinstance(results, pd.DataFrame) and not results.empty:
+        cols = [
+            "short_window",
+            "long_window",
+            "sharpe_ratio",
+            "total_return_pct",
+            "max_drawdown_pct",
+        ]
+        available = [c for c in cols if c in results.columns]
+        print(results[available].head().to_string(index=False))
+
+        best = results.iloc[0]
+        print("\n最佳参数组合:")
+        print(
+            f"  short_window={int(best['short_window'])}, "
+            f"long_window={int(best['long_window'])}, "
+            f"sharpe_ratio={float(best['sharpe_ratio']):.2f}"
+        )
+    else:
+        print(results)
