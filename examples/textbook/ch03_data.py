@@ -14,7 +14,33 @@ import os
 from pathlib import Path
 
 import akshare as ak
+import numpy as np
 import pandas as pd
+
+
+def generate_mock_raw_data(length: int = 240) -> pd.DataFrame:
+    """断网兜底：生成 AKShare 风格（中文列名）的原始日线数据.
+
+    保持与 ``stock_zh_a_hist`` 相同的中文列名，使后续重命名与清洗流程
+    在离线时也能完整演示。
+    """
+    np.random.seed(7)
+    dates = pd.date_range(start="2023-01-03", periods=length, freq="B")
+    close = 7.0 + np.cumsum(np.random.randn(length) * 0.06)
+    open_ = close + np.random.randn(length) * 0.03
+    high = np.maximum(open_, close) + np.abs(np.random.randn(length) * 0.05)
+    low = np.minimum(open_, close) - np.abs(np.random.randn(length) * 0.05)
+    volume = np.random.uniform(1e6, 5e6, length)
+    return pd.DataFrame(
+        {
+            "日期": dates,
+            "开盘": open_,
+            "最高": high,
+            "最低": low,
+            "收盘": close,
+            "成交量": volume,
+        }
+    )
 
 
 def fetch_and_clean_data(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -39,15 +65,13 @@ def fetch_and_clean_data(symbol: str, start_date: str, end_date: str) -> pd.Data
             end_date=end_date,
             adjust="qfq",
         )
-    except Exception as e:
-        print(f"数据获取失败: {e}")
-        return pd.DataFrame()
+    except Exception as e:  # noqa: BLE001 - 示例容错：网络/依赖异常一律回退
+        print(f"AKShare 获取失败（{e}），改用本地合成数据。")
+        df = generate_mock_raw_data()
 
     if df.empty:
-        print("警告: 获取到的数据为空")
-        from typing import cast
-
-        return cast(pd.DataFrame, df)
+        print("警告: 获取到的数据为空，改用本地合成数据。")
+        df = generate_mock_raw_data()
 
     # 2. 重命名列 (AKShare 中文列名 -> AKQuant 标准英文列名)
     # 标准列名: date, open, high, low, close, volume

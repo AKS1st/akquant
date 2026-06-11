@@ -1,5 +1,7 @@
 # 第 16 章：Rust 指标全景与工程化使用
 
+> ⏱️ 预计阅读 ~20 分钟 ｜ 🎯 难度 ★★★☆☆（进阶）
+
 在前面的章节中，我们已经学习了数据、回测、策略、分析与实盘主线。本章把视角重新拉回策略内部最常用的一类工具：**技术指标 (Indicators)**。与“知道某个指标名字”相比，更重要的是学会把指标当作**可迁移、可验证、可工程化复用**的组件来使用。
 
 ## 学习目标
@@ -15,21 +17,23 @@
 
 ## 本章实践入口
 
-- 主示例：[examples/45_talib_indicator_playbook_demo.py](https://github.com/akfamily/akquant/blob/main/examples/45_talib_indicator_playbook_demo.py)
-- 进阶示例：[examples/60_custom_indicator_demo.py](https://github.com/akfamily/akquant/blob/main/examples/60_custom_indicator_demo.py), [examples/62_indicator_streaming_demo.py](https://github.com/akfamily/akquant/blob/main/examples/62_indicator_streaming_demo.py), [examples/61_indicator_visualization_export_demo.py](https://github.com/akfamily/akquant/blob/main/examples/61_indicator_visualization_export_demo.py)
+- 主示例：[examples/textbook/ch16_indicators.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch16_indicators.py)
+- 进阶示例：[examples/45_talib_indicator_playbook_demo.py](https://github.com/akfamily/akquant/blob/main/examples/45_talib_indicator_playbook_demo.py), [examples/60_custom_indicator_demo.py](https://github.com/akfamily/akquant/blob/main/examples/60_custom_indicator_demo.py), [examples/62_indicator_streaming_demo.py](https://github.com/akfamily/akquant/blob/main/examples/62_indicator_streaming_demo.py), [examples/61_indicator_visualization_export_demo.py](https://github.com/akfamily/akquant/blob/main/examples/61_indicator_visualization_export_demo.py)
 - 对应指南：[AKQuant 指标全量说明](../guide/rust_indicator_reference.md)
 
 ## 快速运行与验收
 
 ```bash
-python examples/45_talib_indicator_playbook_demo.py
+python examples/textbook/ch16_indicators.py
+# 可选：接入真实 A 股数据
+python examples/textbook/ch16_indicators.py --symbol sh600000
 ```
 
 验收要点：
 
-1. 脚本可正常输出至少一组指标结果或对比信息。
-2. 切换 `backend="python"` 与 `backend="rust"` 后，结果方向一致且可解释。
-3. 能识别 warmup 导致的空值区段，并避免直接把无效值喂给策略信号。
+1. 脚本依次输出三课演示：读指标（输入/输出/warmup）、用指标（EMA+ADX+NATR 角色分工回测）、迁移指标（python/rust 后端对齐）。
+2. 切换 `backend="python"` 与 `backend="rust"` 后，收敛尾段数值基本一致且可解释。
+3. 能识别 warmup 导致的空值区段，并在计算指标前剔除前部 NaN 填充，避免把无效值喂给策略信号。
 
 ## 16.1 为什么单独学习 Rust 指标体系
 
@@ -253,6 +257,30 @@ if np.isnan([ema_fast[-1], ema_slow[-1], adx[-1], natr[-1], rsi[-1]]).any():
 - 做指标迁移时先对齐结果，再切后端提速。
 - 完整指标字典、参数说明与返回结构请始终以参考页为准：[Rust 指标全量说明（103 个）](../guide/rust_indicator_reference.md)。
 
+## 主线推进
+
+贯穿全书的那条最小多均线 / 趋势策略，在本章被反过来拆解成它最底层的零件——技术指标，并被纳入一套可迁移、可验证、可工程化复用的使用规范。前面各章里，均线只是“一根线穿过价格”的直觉；本章则要求把它当作有明确输入、输出与 warmup 行为的组件来对待：`EMA` 负责给方向，`ADX` 负责过滤弱趋势，`NATR` 负责把仓位与止损放回波动率尺度上，三者各司其职，正是“指标不是堆砌，而是角色分工”的最小示范。更关键的是，本章为这条主线补上了从 Python 后端到 Rust 后端的迁移纪律：先用 `backend="python"` 与既有结果对齐，再切到 `backend="rust"` 比对数值、信号点位与绩效，最后才谈性能与批量提速。至此，主线策略不再依赖某一处临时写就的指标计算，而是站在一个统一、可复现、可加速的指标工程层之上——这也为全书从研究走向准实盘、再走向规模化实验，留下了可靠的复用基座。
+
+## 延伸阅读
+
+**经典著作**
+
+- Kaufman, P. J. *Trading Systems and Methods*（第 6 版），John Wiley & Sons, 2019（ISBN 9781119605355）—— 交易系统与技术指标的权威工具书，系统覆盖移动平均、ATR、布林带、MACD、动量振荡器与趋势系统的数学口径与风险用法，可作为本章 16.4「五大类指标」逐项含义与组合方式的纸面参照。
+- Murphy, J. J. *Technical Analysis of the Financial Markets*，New York Institute of Finance, 1999 —— 技术分析的标准教科书，对趋势、动量、波动率与量价四类指标的市场含义有完整阐述，呼应本章 16.4.1–16.4.4 关于「指标承担什么角色」的讨论。
+- Pardo, R. *The Evaluation and Optimization of Trading Strategies*（第 2 版），John Wiley & Sons, 2008 —— 强调先固定数据与参数、再做基线对齐与回归验证的严谨流程，与本章 16.5.3、16.7.3 提出的「先对齐结果、再切后端提速」迁移纪律一脉相承。
+
+**官方文档与工具**
+
+- [AKQuant 指标全量说明（103 个）](../guide/rust_indicator_reference.md) —— 本章正文反复强调的权威参考页，给出全部指标的输入、输出、参数口径与返回结构，对应本章 16.2 的覆盖范围与 16.3 的「读指标」方法。
+- [TA-Lib Functions List](https://ta-lib.org/functions/) —— TA-Lib 官方函数清单，逐一列出 ADX、MACD、BBANDS、ATR、OBV 等全部指标及其英文全称，可对照本章 16.4 的五大类划分与 16.4.5 的数学变换类。
+- [TA-Lib Python 文档](https://ta-lib.github.io/ta-lib-python/) —— TA-Lib 的 Python 封装文档，说明函数返回数组、lookback（warmup）区段会以 NaN 填充等行为，呼应本章 16.3.3 与 16.5.1 对 warmup 空值的处理要求。
+
+**本书相关**
+
+- [第 5 章：策略开发实战](05_strategy.md) —— 本章 16.4 各指标最终要放进第 5 章那样的事件驱动策略类里承担主信号、过滤器或风控尺度的角色。
+- [第 10 章：策略评价体系与风险指标](10_analysis.md) —— 本章 16.7.3 的 `python -> rust` 迁移实验，最终要靠第 10 章的数值、信号点位与绩效对比来判定口径是否一致。
+- [第 14 章：高性能因子挖掘与表达式引擎](14_factor.md) —— 本章 16.4.5 的数学变换类指标，正是把信号送入第 14 章那种因子表达式与模型流程时的常用预处理算子。
+
 ## 课后练习
 
 ### 基础题
@@ -267,8 +295,25 @@ if np.isnan([ema_fast[-1], ema_slow[-1], adx[-1], natr[-1], rsi[-1]]).any():
 
 1. 对同一数据集分别运行 `backend="python"` 与 `backend="rust"`，比较数值、信号点位与回测结果差异，并写出迁移结论。
 
+??? note "参考答案要点（先独立思考再展开）"
+
+    **基础题**：`EMA(close)` 单输入单输出，warmup ≈ `timeperiod-1`；`RSI(close)` 单输入单输出，warmup ≈ `timeperiod`；`ATR(high, low, close)` 三输入单输出，warmup ≈ `timeperiod`。
+
+    **应用题**：EMA 给方向、ADX 过滤弱趋势、NATR 定风险尺度（决定仓位大小或止损宽度）——三者角色分工，而非指标堆砌。
+
+    **综合题**：EMA 这类简单递推指标全程基本一致；RSI/ADX/NATR 这类 Wilder 平滑指标在 warmup 区段有初值差异、收敛尾段趋于一致。结论：先用 python 后端对齐基线，再切 rust 提速。
+
 ## 常见错误与排查
 
 1. 指标结果全是空值：优先检查窗口长度、输入数组长度和 warmup 区段是否被误当成有效值。
 2. 多输出指标结果看起来“能跑但不对”：检查解包顺序是否与文档一致。
 3. 切换到 Rust 后结果变化很大：先回到 Python 后端做基线对齐，再排查数据口径、空值处理和参数设置。
+
+---
+
+**全书结语**：
+恭喜你完成了《量化投资：从理论到实战》的全部课程！
+我们从 Python/Rust 基础出发，构建了高性能回测引擎，探讨了股票、期货、期权等全资产类别的策略，落地到实盘交易系统，并在本章把视角收束回策略内部最常用的指标工程。
+量化投资是一场没有终点的马拉松。市场在变，对手在变，唯一不变的是我们要保持**对数据的敬畏**和**对逻辑的执着**。
+
+**愿 Alpha 与你同在！**

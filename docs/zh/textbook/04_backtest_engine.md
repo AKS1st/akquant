@@ -1,5 +1,7 @@
 # 第 4 章：事件驱动回测原理 (Event-Driven Architecture)
 
+> ⏱️ 预计阅读 ~40 分钟 ｜ 🎯 难度 ★★★★☆（核心）
+
 在第 1 章中，我们运行了一个简单的策略；在第 3 章中，我们准备好了数据。现在，让我们揭开 `AKQuant` 引擎盖下的秘密，从软件工程的角度深入理解**事件驱动 (Event-Driven)** 架构的设计原理。
 
 ## 学习目标
@@ -76,10 +78,7 @@ def run_pandas_backtest(df):
     df['strategy_return'] = df['position'] * df['close'].pct_change()
 ```
 
-*   **优点**：代码极简，计算效率极高（通常是毫秒级），适合早期的 Idea 验证。
-*   **缺点**：
-    *   **前视偏差风险**：极易引入未来函数（如忘记 `shift(1)`）。
-    *   **路径依赖缺失**：难以模拟撮合机制、滑点、资金占用等与“交易路径”强相关的状态。
+向量化回测的优点在于代码极简、计算效率极高（通常是毫秒级），因而很适合早期的 Idea 验证。它的代价则集中在两处：一是**前视偏差风险**，由于信号是全量一次性算出的，极易引入未来函数（如忘记 `shift(1)`）；二是**路径依赖缺失**，因为它跳过了逐笔成交过程，难以模拟撮合机制、滑点、资金占用等与“交易路径”强相关的状态。
 
 ### 4.1.2 事件驱动回测 (Backtrader & AKQuant)
 
@@ -116,12 +115,9 @@ class AKQuantSmaStrategy(Strategy):
             self.order_target_percent(...)
 ```
 
-*   **优点**：
-    *   **零未来函数**：在处理当前 Bar 时，物理上无法访问下一个 Bar 的数据。
-    *   **高度仿真**：支持限价单、止损单、复杂资金管理等微观结构模拟。
-*   **性能说明**：
-    *   Backtrader 与 AKQuant 都属于事件驱动范式，但其具体运行耗时会受到策略写法、数据规模、指标计算位置、回调频率和运行环境影响。
-    *   AKQuant 将事件循环、撮合与状态管理放在 Rust 层实现，目标是在保持事件驱动精确性的同时减少 Python 层开销；是否快于其他框架需要结合具体场景实测。
+事件驱动回测的优势恰好补上了向量化的短板。其一是**零未来函数**：在处理当前 Bar 时，策略在物理上就无法访问下一个 Bar 的数据，未来函数无从谈起；其二是**高度仿真**：它支持限价单、止损单、复杂资金管理等微观结构模拟，更贴近真实交易。
+
+至于**性能**，则需要更谨慎地看待。Backtrader 与 AKQuant 都属于事件驱动范式，其具体运行耗时会受到策略写法、数据规模、指标计算位置、回调频率和运行环境影响。AKQuant 将事件循环、撮合与状态管理放在 Rust 层实现，目标是在保持事件驱动精确性的同时减少 Python 层开销；但它是否快于其他框架，仍需结合具体场景实测，而非一概而论。
 
 你可以运行以下命令亲自体验三者的差异：
 
@@ -179,22 +175,13 @@ graph TD
 ### 4.2.3 关键组件详解
 
 #### 1. Engine (引擎)
-引擎是系统的调度中心 (Dispatcher)。它维护着全局时钟 (Global Clock) 和事件优先队列 (Priority Queue)。在 `AKQuant` 中，`Engine` 是一个 Rust 结构体，它完全接管了 Python 的控制流。
-
-*   **职责**：推进时间、分发事件、触发回调。
-*   **特性**：单线程极速循环，避免了 Python GIL 的锁竞争。
+引擎是系统的调度中心 (Dispatcher)。它维护着全局时钟 (Global Clock) 和事件优先队列 (Priority Queue)。在 `AKQuant` 中，`Engine` 是一个 Rust 结构体，它完全接管了 Python 的控制流。它的职责是推进时间、分发事件、触发回调；而正因为整个循环以单线程极速运行，它得以避免 Python GIL 的锁竞争。
 
 #### 2. DataFeed (数据源)
-负责按时间顺序向引擎“滴灌”行情数据。
-
-*   **实现**：在 Rust 中，`DataFeed` 内部维护了一个时间排序的 B-Tree 或 Vec，确保数据严格按时间戳推送。
-*   **多标的同步**：当回测多个标的时，DataFeed 会自动对齐时间，确保 `on_bar` 接收到的数据在时间轴上是同步的。
+DataFeed 负责按时间顺序向引擎“滴灌”行情数据。在实现上，它在 Rust 中维护了一个时间排序的 B-Tree 或 Vec，确保数据严格按时间戳推送。也正是凭借这套有序结构，当回测多个标的时，DataFeed 能自动对齐时间，确保 `on_bar` 接收到的数据在时间轴上是同步的。
 
 #### 3. StrategyContext (策略上下文)
-这是 Python 策略与 Rust 引擎通信的桥梁。
-
-*   **数据共享**：`StrategyContext` 在 Rust 中持有对 Portfolio 和 Orders 的引用，并通过 PyO3 暴露给 Python。
-*   **零拷贝访问**：当你访问 `self.ctx.positions` 时，你实际上是直接读取 Rust 的内存，没有数据复制。
+StrategyContext 是 Python 策略与 Rust 引擎通信的桥梁。在数据共享上，`StrategyContext` 在 Rust 中持有对 Portfolio 和 Orders 的引用，并通过 PyO3 暴露给 Python。这种设计带来的直接好处是零拷贝访问：当你访问 `self.ctx.positions` 时，实际上是直接读取 Rust 的内存，没有任何数据复制。
 
 ## 4.3 [主线必学] 配置系统详解 (The Configuration System)
 
@@ -394,9 +381,7 @@ result = aq.run_backtest(
 
 ### 4.8.1 为什么要预交易风控？
 
-*   **胖手指 (Fat Finger)**：手抖多敲了一个零，导致下单数量巨大。
-*   **逻辑 Bug**：策略代码写错了，导致无限循环下单或满仓梭哈。
-*   **合规要求**：某些基金有严格的行业集中度或杠杆限制。
+预交易风控之所以必要，是因为它要拦下几类典型的事故。最直接的是**胖手指 (Fat Finger)**——手抖多敲了一个零，导致下单数量巨大；其次是**逻辑 Bug**，策略代码写错了，可能导致无限循环下单或满仓梭哈；此外还有**合规要求**，某些基金有严格的行业集中度或杠杆限制，需要在下单前就被强制约束。
 
 ### 4.8.2 内置风控规则
 
@@ -724,6 +709,31 @@ $$ \text{Total Equity} = \text{Cash} + \sum (\text{Market Value of Positions}) $
 
 - 阅读本章时先抓住事件流主线，再回头查撮合、UTC 和风控细节。
 
+## 主线推进
+
+第 1 章里，那条贯穿全书的最小双均线（MA5/MA20）策略只是被“跑通”了一遍——我们看到了收益与回撤，却没有追问引擎是如何把一根根 Bar 变成一笔笔成交的。本章把同一条策略放回引擎盖下重新审视：它不再是一段会输出数字的脚本，而是一个在事件循环里被反复调用的状态机。我们用 `examples/textbook/ch04_comparison.py` 让这条双均线策略分别以 Pandas（向量化）、Backtrader 与 AKQuant（事件驱动）三种方式各跑一遍，从而亲眼看清：同样的金叉死叉逻辑，在“一次性矩阵运算”和“逐 Bar 撮合 + 风控拦截”两种范式下，建模方式、可信度与运行开销有何不同。至此，主线策略已经从“能运行”推进到“能解释它为什么这样成交”——下一章我们将基于这套事件驱动的认知，正式动手编写和打磨自己的策略逻辑。
+
+## 延伸阅读
+
+**经典著作**
+
+- Chan, E. P. *Algorithmic Trading: Winning Strategies and Their Rationale*，Wiley, 2013 —— 系统讨论回测流程、前视偏差与数据陷阱，可对照本章 4.1 的两种范式与 4.14 的排查清单。
+- Narang, R. K. *Inside the Black Box: A Simple Guide to Quantitative and High-Frequency Trading*（第 2 版），Wiley, 2013 —— 从系统视角拆解 Alpha、风控与执行模块，呼应本章 4.2 架构与 4.8 风控引擎。
+- Harris, L. *Trading and Exchanges: Market Microstructure for Practitioners*，Oxford University Press, 2003 —— 讲透限价单、止损单与撮合机制的市场微观结构，对应本章 4.5 与 4.10 的撮合逻辑。
+- de Prado, M. L. *Advances in Financial Machine Learning*，Wiley, 2018 —— 关于回测可信度、滑点与成本建模的进阶参考，延伸本章 4.6 冲击成本与 4.13 盈亏口径。
+
+**官方文档与工具**
+
+- [Backtrader 官方文档](https://www.backtrader.com/docu/) —— 本章 4.1.2 对比所用的 Python 事件驱动框架。
+- [PyO3 用户指南](https://pyo3.rs/) —— 理解本章 4.2.1 中 Python 与 Rust 零开销绑定的底层机制。
+- [pandas 官方文档](https://pandas.pydata.org/docs/) —— 本章 4.1.1 向量化回测所依赖的数据处理库。
+
+**本书相关**
+
+- [AKQuant 的时间与时区](../guide/quant_basics.md)、[时区处理指南](../advanced/timezone.md) —— 配合本章 4.12.1 理解引擎为何统一使用 UTC。
+- [高级指南：热启动](../advanced/warm_start.md) —— 展开本章 4.4 的状态快照与热启动机制。
+- [数据指南](../guide/data.md) —— 配合本章实践入口，准备多标的回测所需的统一时间流数据。
+
 ## 课后练习
 
 ### 基础题
@@ -737,6 +747,14 @@ $$ \text{Total Equity} = \text{Cash} + \sum (\text{Market Value of Positions}) $
 ### 综合题
 
 1. 人工构造一笔“部分成交”场景，验证订单状态流转是否符合预期。
+
+??? note "参考答案要点（先独立思考再展开）"
+
+    **基础题**：滑点/手续费上调会拉低收益、抬高对换手的惩罚，高频策略受影响尤甚——说明成本假设直接决定回测可信度。
+
+    **应用题**：向量化最快（一次性矩阵运算），事件驱动较慢（逐 Bar + 撮合 + 风控）；差异来自路径依赖建模与 Python/Rust 层开销，需结合数据规模实测。
+
+    **综合题**：用 `volume_limit` 或限价单制造部分成交，观察 New→Submitted→PartiallyFilled→Filled 的流转，并核对 `on_order` / `on_trade` 是否按预期多次触发。
 
 ## 常见错误与排查
 

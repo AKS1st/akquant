@@ -6,6 +6,10 @@ repo_url: https://github.com/akfamily/akquant
 repo_name: akfamily/akquant
 edit_uri: ""
 
+# 内部进度跟踪文档，不纳入站点构建（gitignore 风格，匹配任意目录下的 ROADMAP.md）
+exclude_docs: |
+  ROADMAP.md
+
 theme:
   name: material
   logo: assets/akquant-icon.svg
@@ -199,6 +203,7 @@ nav:
   - Home: index.md
   - Textbook:
       - Introduction: textbook/index.md
+      - 00_Glossary & Notation: textbook/00_glossary.md
       - Foundations:
           - 01_Overview & Setup: textbook/01_foundations.md
           - 02_Programming Guide: textbook/02_programming.md
@@ -220,6 +225,11 @@ nav:
           - 16_Indicator System: textbook/16_rust_indicators.md
       - Live Trading:
           - 15_Live Trading: textbook/15_live_trading.md
+      - Capstone Project: textbook/capstone.md
+      - Appendix:
+          - A_Setup & Reproducibility: textbook/appendix_setup.md
+          - B_Citation & License: textbook/appendix_cite.md
+          - C_Common Pitfalls: textbook/appendix_pitfalls.md
   - Getting Started:
       - Installation: start/installation.md
       - Environment Setup: start/setup_guide.md

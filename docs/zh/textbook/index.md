@@ -35,6 +35,10 @@
 
 ## 目录大纲
 
+> 📖 随查工具：[术语表与符号约定](00_glossary.md) ｜ [常见误区对照表](appendix_pitfalls.md) ｜ [附录 A：环境与复现](appendix_setup.md) ｜ [附录 B：引用、许可与勘误](appendix_cite.md)
+>
+> 🎓 学完全书后，请完成 [课程项目：端到端量化实战 (Capstone)](capstone.md)。
+
 ### 第一部分：量化基础与数据准备 (Foundations)
 
 *   **[第 1 章：量化投资概述与环境搭建](01_foundations.md)**
@@ -47,7 +51,7 @@
     *   案例：数据处理实战 ([examples/textbook/ch02_programming.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch02_programming.py))
 *   **[第 3 章：金融数据获取与处理](03_data.md)**
     *   时间序列分析基础
-    *   AkShare 数据接口详解
+    *   AKShare 数据接口详解
     *   数据清洗与本地存储 ([examples/textbook/ch03_data.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch03_data.py))
 
 ### 第二部分：回测引擎架构 (The Engine)
@@ -112,7 +116,16 @@
 *   **[第 16 章：AKQuant 指标全景与工程化使用](16_rust_indicators.md)**
     *   使用输入/输出/warmup 模板理解 AKQuant 的 103 个指标
     *   通过 `python -> rust` 迁移实验掌握指标工程化使用路径
+    *   案例：指标三课演示（读/用/迁移）([examples/textbook/ch16_indicators.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch16_indicators.py)）
     *   指标词典与实验脚手架联动（见 [AKQuant 指标全量说明](../guide/rust_indicator_reference.md)）
+
+### 课程项目与附录
+
+*   **[课程项目：端到端量化实战 (Capstone)](capstone.md)**：把全书主线策略串成数据→策略→回测→评价→优化→可视化→实盘准备的完整闭环，附交付物清单。
+*   **[术语表与符号约定](00_glossary.md)**：全书数学符号与核心术语随查表，标注首次讲解章节。
+*   **[附录 A：环境与复现](appendix_setup.md)**：推荐环境、依赖版本基线与"如何复现书中回测数字"。
+*   **[附录 B：引用、许可与勘误](appendix_cite.md)**：如何引用本教材、MIT 许可说明、Issue 勘误入口与免责声明。
+*   **[附录 C：常见误区对照表](appendix_pitfalls.md)**：全书反复出现的陷阱汇成 ❌→✅ 速查表，动手前对照自查。
 
 ## 章节示例映射（主示例 / 进阶示例 / 对应指南）
 
@@ -133,7 +146,7 @@
 | 第 13 章 | [ch13_visualization.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch13_visualization.py) | [11_plot_visualization.py](https://github.com/akfamily/akquant/blob/main/examples/11_plot_visualization.py) | [可视化指南](../guide/visualization.md) |
 | 第 14 章 | [ch14_factor.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch14_factor.py) | [16_adj_returns_signal.py](https://github.com/akfamily/akquant/blob/main/examples/16_adj_returns_signal.py) | [因子指南](../guide/factor.md) |
 | 第 15 章 | [ch15_live_trading.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch15_live_trading.py) | [ch15_strategy_loader.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch15_strategy_loader.py) | [实盘函数式指南](../advanced/live_functional_quickstart.md) |
-| 第 16 章 | [45_talib_indicator_playbook_demo.py](https://github.com/akfamily/akquant/blob/main/examples/45_talib_indicator_playbook_demo.py) | [60_custom_indicator_demo.py](https://github.com/akfamily/akquant/blob/main/examples/60_custom_indicator_demo.py), [62_indicator_streaming_demo.py](https://github.com/akfamily/akquant/blob/main/examples/62_indicator_streaming_demo.py) | [AKQuant 指标全量说明](../guide/rust_indicator_reference.md) |
+| 第 16 章 | [ch16_indicators.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch16_indicators.py) | [45_talib_indicator_playbook_demo.py](https://github.com/akfamily/akquant/blob/main/examples/45_talib_indicator_playbook_demo.py), [60_custom_indicator_demo.py](https://github.com/akfamily/akquant/blob/main/examples/60_custom_indicator_demo.py), [62_indicator_streaming_demo.py](https://github.com/akfamily/akquant/blob/main/examples/62_indicator_streaming_demo.py) | [AKQuant 指标全量说明](../guide/rust_indicator_reference.md) |
 
 ---
 

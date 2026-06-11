@@ -32,3 +32,4 @@ build/
 .cargo/config.toml
 /data_catalog/
 plans/
+CLAUDE.md

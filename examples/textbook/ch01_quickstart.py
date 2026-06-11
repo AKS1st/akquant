@@ -12,25 +12,59 @@
 
 import akquant as aq
 import akshare as ak
+import numpy as np
 import pandas as pd
 from akquant import Bar, Strategy
+
+
+def generate_mock_data(length: int = 970) -> pd.DataFrame:
+    """断网兜底：生成带趋势与波动的合成日线数据，保证示例可离线跑通."""
+    np.random.seed(42)
+    dates = pd.date_range(start="2020-01-02", periods=length, freq="B")
+    trend = np.linspace(8.0, 7.0, length)
+    noise = np.cumsum(np.random.randn(length) * 0.05)
+    close = trend + noise
+    open_ = close + np.random.randn(length) * 0.02
+    high = np.maximum(open_, close) + np.abs(np.random.randn(length) * 0.05)
+    low = np.minimum(open_, close) - np.abs(np.random.randn(length) * 0.05)
+    volume = np.random.uniform(1e6, 5e6, length)
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+            "symbol": "600000",
+        }
+    )
 
 
 def get_data() -> pd.DataFrame:
     """
     步骤 1: 数据获取.
 
-    使用 akshare 获取浦发银行 (600000) 的历史日线数据。
+    优先使用 akshare 获取浦发银行 (600000) 的历史日线数据；
+    若无网络或接口异常，则回退到本地合成数据，保证示例断网也能跑通。
     """
     print("正在获取数据...")
-    # 获取前复权数据
-    df = ak.stock_zh_a_daily(
-        symbol="sh600000", start_date="20200101", end_date="20231231", adjust="qfq"
-    )
-    df["symbol"] = "600000"
-    if "date" not in df.columns:
-        df = df.reset_index().rename(columns={"index": "date"})
-    return df  # type: ignore
+    try:
+        # 获取前复权数据（联网）
+        df = ak.stock_zh_a_daily(
+            symbol="sh600000",
+            start_date="20200101",
+            end_date="20231231",
+            adjust="qfq",
+        )
+        df["symbol"] = "600000"
+        if "date" not in df.columns:
+            df = df.reset_index().rename(columns={"index": "date"})
+        print(f"已从 AKShare 获取 {len(df)} 条数据。")
+        return df  # type: ignore[no-any-return]
+    except Exception as exc:  # noqa: BLE001 - 示例容错：网络/依赖异常一律回退
+        print(f"AKShare 获取失败（{exc}），改用本地合成数据。")
+        return generate_mock_data()
 
 
 class DualMAStrategy(Strategy):
