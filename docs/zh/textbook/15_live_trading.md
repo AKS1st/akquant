@@ -1,5 +1,7 @@
 # 第 15 章：实盘交易系统与运维
 
+> ⏱️ 预计阅读 ~30 分钟 ｜ 🎯 难度 ★★★★☆（核心）
+
 量化投资的终极目标是实盘获利。从回测到实盘，不仅是代码环境的切换，更是对**系统稳定性**、**执行效率**和**风险控制**的全面考验。本章将介绍 `AKQuant` 的实盘架构，并深入探讨订单管理系统 (OMS)、风控系统 (RMS) 以及高可用部署方案。
 
 ## 学习目标
@@ -77,6 +79,21 @@ bundle = create_gateway_bundle(
 
 *   [自定义 Broker 注册](../advanced/custom_broker_registry.md)
 *   [自定义 Broker 生产接入清单](../advanced/custom_broker_production_checklist.md)
+
+### 15.1.3 回测 → 实盘最小切换清单
+
+从回测走向实盘，最稳妥的路径不是"一步到位接柜台"，而是按下面这份清单逐层确认。它也帮你把"哪些是 AKQuant 已就绪的能力、哪些仍需自己补齐"分清楚。
+
+1. **先跑 paper（模拟盘）**：同一套 `Strategy` 代码先以 `paper` 模式运行，确认信号、下单与日志链路无误，再切 `broker_live`。切勿跳过这一步直接实盘。
+2. **查询执行能力再下单**：实盘前用 `self.get_execution_capabilities()` 读取 `account_mode`、`supports_short_sell`、`position_effect` 等字段，据此决定是否启用做空、`close_today` 等语义，避免回测能跑、实盘被拒。
+3. **数据源切换**：把历史重放的 `DataFeed` 换成实时行情源，由对应 broker gateway 驱动。
+4. **网关选型要清醒**：内置 `MiniQMT/PTrade` 当前更偏占位骨架与联调层，**不应视为已完成生产级 A 股适配**；集合竞价专用委托、打新等场景通常需自定义 broker 或增强 adapter（见 15.1.2 与《自定义 Broker 注册/生产接入清单》）。
+5. **成交语义从严**：CTP 链路使用 `execution_semantics_mode="strict"`（默认、推荐生产）——撤单/拒单/成交等**终态一律以柜台 `OnRtnOrder` 回报为准**，不要凭本地请求成功就推进状态（详见 15.2.2）。
+6. **风控前置必须开**：实盘务必显式配置 RMS 前置风控（单笔最大委托量、资金使用率、日内撤单次数、策略级止损），它是防"乌龙指"的最后一道防线（见 15.3）。
+7. **状态可恢复**：用 `save_snapshot` 定期落盘、`run_warm_start` 重启后续跑，保证宕机后"断点续传"（见 15.5.4、15.6.2）。
+8. **可观测性到位**：启动前用 `akquant.configure_logging(LogConfig(profile="live", file_json=True, ...))` 打开结构化日志，并接入监控告警（见 15.5.2、15.8）。
+
+一句话原则：**先 paper 后实盘、先查能力后下单、终态以柜台回报为准、风控与可观测性先于收益。**
 
 ## 15.2 订单管理系统 (Order Management System, OMS)
 
