@@ -6,6 +6,10 @@ repo_url: https://github.com/akfamily/akquant
 repo_name: akfamily/akquant
 edit_uri: ""
 
+# 内部进度跟踪文档，不纳入站点构建（gitignore 风格，匹配任意目录下的 ROADMAP.md）
+exclude_docs: |
+  ROADMAP.md
+
 theme:
   name: material
   logo: assets/akquant-icon.svg
