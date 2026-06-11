@@ -51,7 +51,7 @@
     *   案例：数据处理实战 ([examples/textbook/ch02_programming.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch02_programming.py))
 *   **[第 3 章：金融数据获取与处理](03_data.md)**
     *   时间序列分析基础
-    *   AkShare 数据接口详解
+    *   AKShare 数据接口详解
     *   数据清洗与本地存储 ([examples/textbook/ch03_data.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch03_data.py))
 
 ### 第二部分：回测引擎架构 (The Engine)
