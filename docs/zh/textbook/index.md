@@ -56,10 +56,10 @@
 
 ### 第二部分：回测引擎架构 (The Engine)
 
-*   **[第 4 章：事件驱动回测原理 (Event-Driven Architecture)](04_backtest_engine.md)**
+*   **[第 4 章：事件驱动回测原理](04_backtest_engine.md)**
     *   向量化 vs 事件驱动 ([examples/textbook/ch04_comparison.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch04_comparison.py))
     *   核心组件解析：Engine, Strategy, DataFeed
-*   **[第 5 章：策略开发实战 (Strategy Implementation)](05_strategy.md)**
+*   **[第 5 章：策略开发实战](05_strategy.md)**
     *   策略生命周期、完整 `on_xxx` 回调地图与下单接口
     *   历史数据获取与防未来函数
     *   案例：双均线策略实现 ([examples/textbook/ch05_strategy.py](https://github.com/akfamily/akquant/blob/main/examples/textbook/ch05_strategy.py))
