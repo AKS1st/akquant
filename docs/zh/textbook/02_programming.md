@@ -232,6 +232,14 @@ if __name__ == '__main__':
 
 1. 用 `multiprocessing.Pool` 改写一个小型参数扫描脚本。
 
+??? note "参考答案要点（先独立思考再展开）"
+
+    **基础题**：窗口从 20 改为 10，均线更敏感、对噪声反应更快，warmup 区段（前 N-1 个 NaN）也更短。
+
+    **应用题**：为参数与返回值补 `def f(x: int) -> float:` 之类注解，用 `mypy` / `ruff` 静态检查；注意 `Optional[...]` 与容器泛型（`list[int]` 等）。
+
+    **综合题**：把单次回测封装成函数，用 `with Pool(processes=N) as pool: pool.map(fn, params)` 并行；入口务必放在 `if __name__ == "__main__":` 下（Windows 的 spawn 必需）。
+
 ## 常见错误与排查
 
 1. 切片结果异常：优先检查 `loc` 与 `iloc` 的使用场景是否混淆。

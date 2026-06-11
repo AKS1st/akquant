@@ -295,6 +295,14 @@ if np.isnan([ema_fast[-1], ema_slow[-1], adx[-1], natr[-1], rsi[-1]]).any():
 
 1. 对同一数据集分别运行 `backend="python"` 与 `backend="rust"`，比较数值、信号点位与回测结果差异，并写出迁移结论。
 
+??? note "参考答案要点（先独立思考再展开）"
+
+    **基础题**：`EMA(close)` 单输入单输出，warmup ≈ `timeperiod-1`；`RSI(close)` 单输入单输出，warmup ≈ `timeperiod`；`ATR(high, low, close)` 三输入单输出，warmup ≈ `timeperiod`。
+
+    **应用题**：EMA 给方向、ADX 过滤弱趋势、NATR 定风险尺度（决定仓位大小或止损宽度）——三者角色分工，而非指标堆砌。
+
+    **综合题**：EMA 这类简单递推指标全程基本一致；RSI/ADX/NATR 这类 Wilder 平滑指标在 warmup 区段有初值差异、收敛尾段趋于一致。结论：先用 python 后端对齐基线，再切 rust 提速。
+
 ## 常见错误与排查
 
 1. 指标结果全是空值：优先检查窗口长度、输入数组长度和 warmup 区段是否被误当成有效值。
