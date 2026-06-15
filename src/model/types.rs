@@ -147,6 +147,7 @@ impl OptionMarginModel {
 pub enum OrderType {
     Market,
     Limit,
+    LimitMaker,
     StopMarket,
     StopLimit,
     OCO,
