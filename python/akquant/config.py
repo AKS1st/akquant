@@ -63,7 +63,7 @@ config = BacktestConfig(
 
 
 InstrumentSettlementType = Literal["cash", "settlement_price", "force_close"]
-InstrumentAssetType = Literal["STOCK", "FUTURES", "FUND", "OPTION"]
+InstrumentAssetType = Literal["STOCK", "FUTURES", "FUND", "OPTION", "CRYPTO"]
 InstrumentOptionType = Literal["CALL", "PUT"]
 InstrumentOptionMarginModel = Literal[
     "RATIO",
@@ -80,6 +80,7 @@ class InstrumentAssetTypeEnum(str, Enum):
     FUTURES = "FUTURES"
     FUND = "FUND"
     OPTION = "OPTION"
+    CRYPTO = "CRYPTO"
 
 
 class InstrumentOptionTypeEnum(str, Enum):

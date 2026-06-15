@@ -830,6 +830,8 @@ def _parse_order_type(order_type: Optional[str]) -> Tuple[Optional[str], Optiona
     mapping: Dict[str, str] = {
         "market": "Market",
         "limit": "Limit",
+        "limit_maker": "LimitMaker",
+        "post_only": "LimitMaker",
         "stop": "StopMarket",
         "stopmarket": "StopMarket",
         "stop_limit": "StopLimit",

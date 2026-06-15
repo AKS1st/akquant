@@ -68,6 +68,113 @@ from ..strategy_framework_hooks import (
 from ..strategy_loader import resolve_strategy_input
 from ..utils import df_to_arrays, prepare_dataframe
 from ..utils.inspector import infer_warmup_period
+
+# Binance USDⓈ-M 永续合约官方维持保证金档位表
+# 数据来源: Binance API / fapi/v1/leverageBracket / freqtrade 同步
+# 公式: 维持保证金 = 名义价值 × maint_margin_rate - maint_amount
+DEFAULT_CRYPTO_MAINT_TIERS: dict[str, list[dict[str, float]]] = {
+    "BTCUSDT": [
+        {"notional_upper": 300_000,     "maint_margin_rate": 0.004,  "maint_amount": 0},
+        {"notional_upper": 800_000,     "maint_margin_rate": 0.005,  "maint_amount": 300},
+        {"notional_upper": 3_000_000,   "maint_margin_rate": 0.0065, "maint_amount": 1_500},
+        {"notional_upper": 12_000_000,  "maint_margin_rate": 0.01,   "maint_amount": 12_000},
+        {"notional_upper": 70_000_000,  "maint_margin_rate": 0.02,   "maint_amount": 132_000},
+        {"notional_upper": 100_000_000, "maint_margin_rate": 0.025,  "maint_amount": 482_000},
+        {"notional_upper": 230_000_000, "maint_margin_rate": 0.05,   "maint_amount": 2_982_000},
+        {"notional_upper": 480_000_000, "maint_margin_rate": 0.10,   "maint_amount": 14_482_000},
+        {"notional_upper": 600_000_000, "maint_margin_rate": 0.125,  "maint_amount": 26_482_000},
+        {"notional_upper": 800_000_000, "maint_margin_rate": 0.15,   "maint_amount": 41_482_000},
+        {"notional_upper": 1_200_000_000, "maint_margin_rate": 0.25, "maint_amount": 121_482_000},
+        {"notional_upper": 1_800_000_000, "maint_margin_rate": 0.50, "maint_amount": 421_482_000},
+    ],
+    "ETHUSDT": [
+        {"notional_upper": 300_000,     "maint_margin_rate": 0.004,  "maint_amount": 0},
+        {"notional_upper": 800_000,     "maint_margin_rate": 0.005,  "maint_amount": 300},
+        {"notional_upper": 3_000_000,   "maint_margin_rate": 0.0065, "maint_amount": 1_500},
+        {"notional_upper": 12_000_000,  "maint_margin_rate": 0.01,   "maint_amount": 12_000},
+        {"notional_upper": 50_000_000,  "maint_margin_rate": 0.02,   "maint_amount": 132_000},
+        {"notional_upper": 65_000_000,  "maint_margin_rate": 0.025,  "maint_amount": 382_000},
+        {"notional_upper": 150_000_000, "maint_margin_rate": 0.05,   "maint_amount": 2_007_000},
+        {"notional_upper": 320_000_000, "maint_margin_rate": 0.10,   "maint_amount": 9_507_000},
+        {"notional_upper": 400_000_000, "maint_margin_rate": 0.125,  "maint_amount": 17_507_000},
+        {"notional_upper": 530_000_000, "maint_margin_rate": 0.15,   "maint_amount": 27_507_000},
+        {"notional_upper": 800_000_000, "maint_margin_rate": 0.25,   "maint_amount": 80_507_000},
+        {"notional_upper": 1_200_000_000, "maint_margin_rate": 0.50, "maint_amount": 280_507_000},
+    ],
+    "SOLUSDT": [
+        {"notional_upper": 50_000,     "maint_margin_rate": 0.005,  "maint_amount": 0},
+        {"notional_upper": 400_000,    "maint_margin_rate": 0.0065, "maint_amount": 75},
+        {"notional_upper": 1_000_000,  "maint_margin_rate": 0.01,   "maint_amount": 1_475},
+        {"notional_upper": 4_000_000,  "maint_margin_rate": 0.02,   "maint_amount": 11_475},
+        {"notional_upper": 8_000_000,  "maint_margin_rate": 0.025,  "maint_amount": 31_475},
+        {"notional_upper": 40_000_000, "maint_margin_rate": 0.05,   "maint_amount": 231_475},
+        {"notional_upper": 80_000_000, "maint_margin_rate": 0.10,   "maint_amount": 2_231_475},
+        {"notional_upper": 100_000_000,"maint_margin_rate": 0.125,  "maint_amount": 4_231_475},
+        {"notional_upper": 200_000_000,"maint_margin_rate": 0.25,   "maint_amount": 16_731_475},
+        {"notional_upper": 400_000_000,"maint_margin_rate": 0.50,   "maint_amount": 66_731_475},
+    ],
+    "BNBUSDT": [
+        {"notional_upper": 10_000,     "maint_margin_rate": 0.005,  "maint_amount": 0},
+        {"notional_upper": 200_000,    "maint_margin_rate": 0.006,  "maint_amount": 10},
+        {"notional_upper": 400_000,    "maint_margin_rate": 0.01,   "maint_amount": 810},
+        {"notional_upper": 1_500_000,  "maint_margin_rate": 0.02,   "maint_amount": 4_810},
+        {"notional_upper": 3_000_000,  "maint_margin_rate": 0.025,  "maint_amount": 12_310},
+        {"notional_upper": 15_000_000, "maint_margin_rate": 0.05,   "maint_amount": 87_310},
+        {"notional_upper": 30_000_000, "maint_margin_rate": 0.10,   "maint_amount": 837_310},
+        {"notional_upper": 37_500_000, "maint_margin_rate": 0.125,  "maint_amount": 1_587_310},
+        {"notional_upper": 75_000_000, "maint_margin_rate": 0.25,   "maint_amount": 6_274_810},
+        {"notional_upper": 150_000_000,"maint_margin_rate": 0.50,   "maint_amount": 25_024_810},
+    ],
+    "XRPUSDT": [
+        {"notional_upper": 40_000,     "maint_margin_rate": 0.005,  "maint_amount": 0},
+        {"notional_upper": 80_000,     "maint_margin_rate": 0.006,  "maint_amount": 40},
+        {"notional_upper": 150_000,    "maint_margin_rate": 0.01,   "maint_amount": 360},
+        {"notional_upper": 400_000,    "maint_margin_rate": 0.0125, "maint_amount": 735},
+        {"notional_upper": 1_000_000,  "maint_margin_rate": 0.02,   "maint_amount": 3_735},
+        {"notional_upper": 2_000_000,  "maint_margin_rate": 0.025,  "maint_amount": 8_735},
+        {"notional_upper": 10_000_000, "maint_margin_rate": 0.05,   "maint_amount": 58_735},
+        {"notional_upper": 20_000_000, "maint_margin_rate": 0.10,   "maint_amount": 558_735},
+        {"notional_upper": 25_000_000, "maint_margin_rate": 0.125,  "maint_amount": 1_058_735},
+        {"notional_upper": 50_000_000, "maint_margin_rate": 0.25,   "maint_amount": 4_183_735},
+        {"notional_upper": 100_000_000,"maint_margin_rate": 0.50,   "maint_amount": 16_683_735},
+    ],
+    "ADAUSDT": [
+        {"notional_upper": 10_000,     "maint_margin_rate": 0.005,  "maint_amount": 0},
+        {"notional_upper": 50_000,     "maint_margin_rate": 0.01,   "maint_amount": 50},
+        {"notional_upper": 200_000,    "maint_margin_rate": 0.015,  "maint_amount": 300},
+        {"notional_upper": 1_000_000,  "maint_margin_rate": 0.02,   "maint_amount": 1_300},
+        {"notional_upper": 2_000_000,  "maint_margin_rate": 0.025,  "maint_amount": 6_300},
+        {"notional_upper": 10_000_000, "maint_margin_rate": 0.05,   "maint_amount": 56_300},
+        {"notional_upper": 20_000_000, "maint_margin_rate": 0.10,   "maint_amount": 556_300},
+        {"notional_upper": 25_000_000, "maint_margin_rate": 0.125,  "maint_amount": 1_056_300},
+        {"notional_upper": 50_000_000, "maint_margin_rate": 0.25,   "maint_amount": 4_181_300},
+        {"notional_upper": 100_000_000,"maint_margin_rate": 0.50,   "maint_amount": 16_681_300},
+    ],
+    "DOGEUSDT": [
+        {"notional_upper": 80_000,     "maint_margin_rate": 0.0065, "maint_amount": 0},
+        {"notional_upper": 150_000,    "maint_margin_rate": 0.01,   "maint_amount": 280},
+        {"notional_upper": 750_000,    "maint_margin_rate": 0.0125, "maint_amount": 655},
+        {"notional_upper": 2_000_000,  "maint_margin_rate": 0.02,   "maint_amount": 6_280},
+        {"notional_upper": 4_000_000,  "maint_margin_rate": 0.025,  "maint_amount": 16_280},
+        {"notional_upper": 20_000_000, "maint_margin_rate": 0.05,   "maint_amount": 116_280},
+        {"notional_upper": 40_000_000, "maint_margin_rate": 0.10,   "maint_amount": 1_116_280},
+        {"notional_upper": 50_000_000, "maint_margin_rate": 0.125,  "maint_amount": 2_116_280},
+        {"notional_upper": 100_000_000,"maint_margin_rate": 0.25,   "maint_amount": 8_366_280},
+        {"notional_upper": 200_000_000,"maint_margin_rate": 0.50,   "maint_amount": 33_366_280},
+    ],
+    "AVAXUSDT": [
+        {"notional_upper": 25_000,     "maint_margin_rate": 0.005,  "maint_amount": 0},
+        {"notional_upper": 80_000,     "maint_margin_rate": 0.01,   "maint_amount": 125},
+        {"notional_upper": 160_000,    "maint_margin_rate": 0.015,  "maint_amount": 525},
+        {"notional_upper": 800_000,    "maint_margin_rate": 0.02,   "maint_amount": 1_325},
+        {"notional_upper": 1_600_000,  "maint_margin_rate": 0.025,  "maint_amount": 5_325},
+        {"notional_upper": 8_000_000,  "maint_margin_rate": 0.05,   "maint_amount": 45_325},
+        {"notional_upper": 16_000_000, "maint_margin_rate": 0.10,   "maint_amount": 445_325},
+        {"notional_upper": 20_000_000, "maint_margin_rate": 0.125,  "maint_amount": 845_325},
+        {"notional_upper": 40_000_000, "maint_margin_rate": 0.25,   "maint_amount": 3_345_325},
+        {"notional_upper": 80_000_000, "maint_margin_rate": 0.50,   "maint_amount": 13_345_325},
+    ],
+}
 from .result import BacktestResult
 
 _RUNTIME_CONFIG_FIELDS = {f.name for f in fields(StrategyRuntimeConfig)}
@@ -1395,7 +1502,7 @@ def _normalize_strategy_commission_map(
     return normalized
 
 
-def _parse_asset_type_name(value: Any) -> Literal["futures", "stock", "fund", "option"]:
+def _parse_asset_type_name(value: Any) -> Literal["futures", "stock", "fund", "option", "crypto"]:
     if isinstance(value, AssetType):
         if value == AssetType.Futures:
             return "futures"
@@ -1405,6 +1512,8 @@ def _parse_asset_type_name(value: Any) -> Literal["futures", "stock", "fund", "o
             return "fund"
         if value == AssetType.Option:
             return "option"
+        if value == AssetType.Crypto:
+            return "crypto"
         raise ValueError(f"Unsupported asset_type: {value}")
     if isinstance(value, str):
         v_lower = value.lower()
@@ -1416,6 +1525,8 @@ def _parse_asset_type_name(value: Any) -> Literal["futures", "stock", "fund", "o
             return "fund"
         if v_lower == "option":
             return "option"
+        if v_lower == "crypto":
+            return "crypto"
     raise ValueError(f"Unsupported asset_type: {value}")
 
 
@@ -1463,6 +1574,8 @@ def _asset_type_to_upper_name(
         return "FUND"
     if parsed == "option":
         return "OPTION"
+    if parsed == "crypto":
+        return "CRYPTO"
     return "STOCK"
 
 
@@ -3704,6 +3817,24 @@ def run_backtest(
         engine.set_stock_fee_rules(
             commission_rate, stamp_tax_rate, transfer_fee_rate, min_commission
         )
+
+    # Enable crypto perpetual features (funding + liquidation) for crypto assets
+    _asset_type = kwargs.get("asset_type")
+    if not t_plus_one and _asset_type is not None:
+        _parsed = _parse_asset_type_name(_asset_type)
+        if _parsed == "crypto" and hasattr(engine, "use_crypto_perp"):
+            cast(Any, engine).use_crypto_perp(True)
+            # 从 Python 侧传入默认维持保证金档位表
+            if hasattr(engine, "set_perp_maint_tiers"):
+                _user_tiers = kwargs.get("perp_maint_tiers")
+                _tier_table = _user_tiers if isinstance(_user_tiers, dict) else DEFAULT_CRYPTO_MAINT_TIERS
+                for sym in symbols:
+                    if sym in _tier_table:
+                        cast(Any, engine).set_perp_maint_tiers(sym, _tier_table[sym])
+            # Maker 费率先不管设置 taker 费率, 在set_stock_fee_policy之后再设maker
+            _maker_rate = kwargs.get("maker_commission_rate")
+            if _maker_rate is not None and hasattr(engine, "set_maker_commission_rate"):
+                cast(Any, engine).set_maker_commission_rate(float(_maker_rate))
 
     # Configure Execution parameters
     if (

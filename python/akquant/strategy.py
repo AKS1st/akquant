@@ -206,7 +206,7 @@ class StrategyRuntimeConfig:
 
 
 InstrumentStaticValue = Union[str, int, float, bool]
-InstrumentAssetTypeName = Literal["STOCK", "FUTURES", "FUND", "OPTION"]
+InstrumentAssetTypeName = Literal["STOCK", "FUTURES", "FUND", "OPTION", "CRYPTO"]
 InstrumentOptionTypeName = Literal["CALL", "PUT"]
 InstrumentOptionMarginModelName = Literal[
     "RATIO",
