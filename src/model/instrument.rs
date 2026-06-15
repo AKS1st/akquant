@@ -120,6 +120,7 @@ pub struct CryptoInstrument {
     pub lot_size: Decimal, // Usually small (e.g. 0.0001)
     pub tick_size: Decimal,
     pub multiplier: Decimal, // Usually 1.0 for Spot, but contract size for futures
+    pub margin_ratio: Decimal, // 杠杆倒数: 10x = 0.1, 全额 = 1.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -267,6 +268,7 @@ impl Instrument {
                 lot_size: lot_val,
                 tick_size: tick_val,
                 multiplier: multiplier_val,
+                margin_ratio: margin_val,
             }),
             AssetType::Forex => InstrumentEnum::Forex(ForexInstrument {
                 symbol: clean_symbol.clone(),
@@ -347,6 +349,7 @@ impl Instrument {
         match &self.inner {
             InstrumentEnum::Futures(f) => f.margin_ratio,
             InstrumentEnum::Option(o) => o.margin_ratio,
+            InstrumentEnum::Crypto(c) => c.margin_ratio,
             InstrumentEnum::Forex(_) => Decimal::new(1, 2), // 0.01 default for Forex
             _ => Decimal::ONE,
         }
