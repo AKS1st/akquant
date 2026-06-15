@@ -26,6 +26,7 @@ fn create_trade(
         bar_index: 0,
         position_effect: PositionEffect::Auto,
         owner_strategy_id: None,
+        is_maker: false,
     }
 }
 

@@ -333,6 +333,7 @@ impl SettlementManager {
                 timestamp: ctx.timestamp,
                 bar_index: ctx.bar_index,
                 owner_strategy_id,
+                is_maker: false,
             };
             outcome
                 .forced_liquidation_events

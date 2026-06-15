@@ -369,6 +369,7 @@ impl OrderManager {
                             trade.side,
                             trade.price,
                             trade.quantity,
+                            trade.is_maker,
                         ),
                     };
                 } else {
@@ -377,6 +378,7 @@ impl OrderManager {
                         trade.side,
                         trade.price,
                         trade.quantity,
+                        trade.is_maker,
                     );
                 }
             }

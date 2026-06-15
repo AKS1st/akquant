@@ -8,8 +8,8 @@ use crate::execution::slippage::{SlippageModel, ZeroSlippage};
 use crate::execution::{ExecutionClient, crypto, forex, futures, option, stock};
 use crate::log_context::{AkqLogContext, execution_order_context, render_log_message};
 use crate::model::{
-    AssetType, ExecutionPolicyCore, Order, OrderStatus, PriceBasis, TemporalPolicy, TimeInForce,
-    TradingSession,
+    AssetType, ExecutionPolicyCore, Order, OrderStatus, OrderType, PriceBasis, TemporalPolicy,
+    TimeInForce, TradingSession,
 };
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
@@ -172,6 +172,13 @@ impl SimulatedExecutionClient {
                 | OrderStatus::Rejected
                 | OrderStatus::Expired
         )
+    }
+
+    fn is_maker_order(order: &Order) -> bool {
+        match order.order_type {
+            OrderType::Limit | OrderType::LimitMaker => true,
+            _ => false, // Market, StopMarket, StopLimit → taker
+        }
     }
 
     fn effective_policy(order: &Order, ctx: &crate::context::EngineContext) -> ExecutionPolicyCore {
@@ -366,11 +373,13 @@ impl SimulatedExecutionClient {
                                 let mut prices_for_margin = ctx.last_prices.clone();
                                 prices_for_margin.insert(trade.symbol.clone(), trade.price);
 
+                                let is_maker = Self::is_maker_order(order);
                                 let commission = ctx.market_model.calculate_commission(
                                     instrument,
                                     trade.side,
                                     trade.price,
                                     trade.quantity,
+                                    is_maker,
                                 );
 
                                 let base_used_margin = projected_portfolio
@@ -430,6 +439,7 @@ impl SimulatedExecutionClient {
                                                 trade.side,
                                                 trade.price,
                                                 new_qty,
+                                                Self::is_maker_order(order),
                                             );
                                             let mut resized_projection =
                                                 projected_portfolio.clone();
@@ -506,6 +516,7 @@ impl SimulatedExecutionClient {
                                     trade.side,
                                     trade.price,
                                     trade.quantity,
+                                    Self::is_maker_order(order),
                                 );
                                 projected_portfolio.adjust_cash(-commission);
                                 if is_futures_margin_account(instrument, ctx.risk_config) {
