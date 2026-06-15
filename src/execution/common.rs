@@ -2,7 +2,8 @@ use crate::event::Event;
 use crate::execution::matcher::MatchContext;
 use crate::log_context::{execution_order_context_from_event, render_log_message};
 use crate::model::{
-    Order, OrderSide, OrderStatus, OrderType, PriceBasis, TimeInForce, Timer, Trade,
+    Bar, ExecutionPolicyCore, Order, OrderSide, OrderStatus, OrderType, PriceBasis, Tick,
+    TimeInForce, Timer, Trade,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -11,6 +12,10 @@ use uuid::Uuid;
 pub struct CommonMatcher;
 
 impl CommonMatcher {
+    fn is_maker_by_order_type(order_type: OrderType) -> bool {
+        matches!(order_type, OrderType::Limit | OrderType::LimitMaker)
+    }
+
     fn effective_timer_execution_timestamp(timer: &Timer) -> i64 {
         timer
             .payload
@@ -28,6 +33,93 @@ impl CommonMatcher {
             ),
             execution_order_context_from_event(order, event),
         )
+    }
+
+    /// 限价单在 Bar 中的成交逻辑 (被 Limit 和 LimitMaker 共用)
+    fn match_limit_in_bar(
+        order: &Order,
+        bar: &Bar,
+        execution_policy: ExecutionPolicyCore,
+        is_triggered_now: bool,
+        trigger_price_val: Option<Decimal>,
+    ) -> Option<Decimal> {
+        let limit_price = order.price?;
+
+        let can_execute = match order.side {
+            OrderSide::Buy => bar.low <= limit_price,
+            OrderSide::Sell => bar.high >= limit_price,
+        };
+        if !can_execute {
+            return None;
+        }
+
+        let mut final_fill_price = limit_price;
+
+        if execution_policy.price_basis == PriceBasis::Open {
+            match order.side {
+                OrderSide::Buy => {
+                    if bar.open < limit_price {
+                        final_fill_price = bar.open;
+                    }
+                }
+                OrderSide::Sell => {
+                    if bar.open > limit_price {
+                        final_fill_price = bar.open;
+                    }
+                }
+            }
+        }
+
+        if is_triggered_now && let Some(tp) = trigger_price_val {
+            let is_gap = match order.side {
+                OrderSide::Buy => bar.open >= tp,
+                OrderSide::Sell => bar.open <= tp,
+            };
+            if !is_gap {
+                match order.side {
+                    OrderSide::Buy => {
+                        if final_fill_price < tp {
+                            final_fill_price = tp;
+                        }
+                        if final_fill_price > limit_price {
+                            log::warn!(
+                                "Deferred stop-limit order: limit price {} above trigger price {} for buy order {}",
+                                limit_price, tp, order.id,
+                            );
+                            return None;
+                        }
+                    }
+                    OrderSide::Sell => {
+                        if final_fill_price > tp {
+                            final_fill_price = tp;
+                        }
+                        if final_fill_price < limit_price {
+                            log::warn!(
+                                "Deferred stop-limit order: limit price {} below trigger price {} for sell order {}",
+                                limit_price, tp, order.id,
+                            );
+                            return None;
+                        }
+                    }
+                }
+            }
+        }
+
+        Some(final_fill_price)
+    }
+
+    /// 限价单在 Tick 中的成交逻辑 (被 Limit 和 LimitMaker 共用)
+    fn match_limit_on_tick(order: &Order, tick: &Tick) -> Option<Decimal> {
+        let limit = order.price?;
+        let can_execute = match order.side {
+            OrderSide::Buy => tick.price <= limit,
+            OrderSide::Sell => tick.price >= limit,
+        };
+        if !can_execute {
+            return None;
+        }
+        // Fill at tick price (the better of limit and market)
+        Some(tick.price)
     }
 
     fn deferred_triggered_stop_limit_warning(
@@ -260,83 +352,40 @@ impl CommonMatcher {
                             execute_price = Some(market_price);
                         }
                     }
-                    OrderType::Limit => {
-                        if let Some(limit_price) = order.price {
-                            // 3.1 Check Executability (Low/High Penetration)
-                            let can_execute = match order.side {
-                                OrderSide::Buy => bar.low <= limit_price,
-                                OrderSide::Sell => bar.high >= limit_price,
-                            };
-
-                            if can_execute {
-                                // 3.2 Determine Fill Price
-                                let mut final_fill_price = limit_price;
-
-                                if execution_policy.price_basis == PriceBasis::Open {
-                                    match order.side {
-                                        OrderSide::Buy => {
-                                            if bar.open < limit_price {
-                                                final_fill_price = bar.open;
-                                            }
-                                        }
-                                        OrderSide::Sell => {
-                                            if bar.open > limit_price {
-                                                final_fill_price = bar.open;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // 3.3 Apply Stop-Limit Constraints (In-Bar Trigger)
-                                if is_triggered_now && let Some(tp) = trigger_price_val {
-                                    let is_gap = match order.side {
-                                        OrderSide::Buy => bar.open >= tp,
-                                        OrderSide::Sell => bar.open <= tp,
-                                    };
-
-                                    if !is_gap {
-                                        // Triggered In-Bar.
-                                        match order.side {
-                                            OrderSide::Buy => {
-                                                if final_fill_price < tp {
-                                                    final_fill_price = tp;
-                                                }
-                                                if final_fill_price > limit_price {
-                                                    log::warn!(
-                                                        "{}",
-                                                        Self::deferred_triggered_stop_limit_warning(
-                                                            order,
-                                                            event,
-                                                            tp,
-                                                            limit_price,
-                                                        )
-                                                    );
-                                                    return None;
-                                                }
-                                            }
-                                            OrderSide::Sell => {
-                                                if final_fill_price > tp {
-                                                    final_fill_price = tp;
-                                                }
-                                                if final_fill_price < limit_price {
-                                                    log::warn!(
-                                                        "{}",
-                                                        Self::deferred_triggered_stop_limit_warning(
-                                                            order,
-                                                            event,
-                                                            tp,
-                                                            limit_price,
-                                                        )
-                                                    );
-                                                    return None;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                execute_price = Some(final_fill_price);
-                            }
+                    OrderType::LimitMaker => {
+                        // Post-Only: reject if order would taker at open
+                        let would_taker = match order.side {
+                            OrderSide::Buy => order.price.is_some_and(|lp| lp >= bar.open),
+                            OrderSide::Sell => order.price.is_some_and(|lp| lp <= bar.open),
+                        };
+                        if would_taker {
+                            order.status = OrderStatus::Rejected;
+                            order.reject_reason =
+                                "Post-only would taker at open".to_string();
+                            order.updated_at = bar.timestamp;
+                            log::info!(
+                                "{}",
+                                render_log_message(
+                                    "Post-only LimitMaker order rejected: would taker at open",
+                                    execution_order_context_from_event(order, event),
+                                )
+                            );
+                            return Some(Event::ExecutionReport(
+                                order.clone(),
+                                None,
+                            ));
                         }
+                        // Not a taker → match as limit order (maker in bar)
+                        execute_price = Self::match_limit_in_bar(
+                            order, bar, execution_policy,
+                            is_triggered_now, trigger_price_val,
+                        );
+                    }
+                    OrderType::Limit => {
+                        execute_price = Self::match_limit_in_bar(
+                            order, bar, execution_policy,
+                            is_triggered_now, trigger_price_val,
+                        );
                     }
                     _ => {}
                 }
@@ -374,6 +423,7 @@ impl CommonMatcher {
                             (prev_avg * prev_filled + final_price * trade_qty) / current_filled;
                         order.average_filled_price = Some(new_avg);
 
+                        let is_maker = Self::is_maker_by_order_type(order.order_type);
                         let trade = Trade {
                             id: Uuid::new_v4().to_string(),
                             order_id: order.id.clone(),
@@ -386,6 +436,7 @@ impl CommonMatcher {
                             timestamp: bar.timestamp,
                             bar_index,
                             owner_strategy_id: order.owner_strategy_id.clone(),
+                            is_maker,
                         };
                         return Some(Event::ExecutionReport(order.clone(), Some(trade)));
                     }
@@ -460,6 +511,7 @@ impl CommonMatcher {
                         order.updated_at = tick.timestamp;
                         order.filled_quantity += trade_qty;
                         order.average_filled_price = Some(final_price);
+                        let is_maker_tick = Self::is_maker_by_order_type(order.order_type);
                         let trade = Trade {
                             id: Uuid::new_v4().to_string(),
                             order_id: order.id.clone(),
@@ -472,6 +524,7 @@ impl CommonMatcher {
                             timestamp: tick.timestamp,
                             bar_index,
                             owner_strategy_id: order.owner_strategy_id.clone(),
+                            is_maker: is_maker_tick,
                         };
                         return Some(Event::ExecutionReport(order.clone(), Some(trade)));
                     }
@@ -540,6 +593,7 @@ impl CommonMatcher {
                         order.updated_at = execution_timestamp;
                         order.filled_quantity += trade_qty;
                         order.average_filled_price = Some(final_price);
+                        let is_maker_timer = Self::is_maker_by_order_type(order.order_type);
                         let trade = Trade {
                             id: Uuid::new_v4().to_string(),
                             order_id: order.id.clone(),
@@ -552,6 +606,7 @@ impl CommonMatcher {
                             timestamp: execution_timestamp,
                             bar_index,
                             owner_strategy_id: order.owner_strategy_id.clone(),
+                            is_maker: is_maker_timer,
                         };
                         return Some(Event::ExecutionReport(order.clone(), Some(trade)));
                     }
