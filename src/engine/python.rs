@@ -525,6 +525,7 @@ impl Engine {
             event_manager: EventManager::new(),
             statistics_manager: StatisticsManager::new(),
             settlement_manager: SettlementManager::new(),
+            perp_manager: None,
             current_event: None,
             bar_count: 0,
             progress_total_steps: 0,
@@ -859,6 +860,63 @@ impl Engine {
         self.market_manager.set_t_plus_one(enabled);
     }
 
+    /// 启用加密货币永续合约模式
+    ///
+    /// 启用后每个 bar 会执行:
+    ///   1. 更新标记价格
+    ///   2. UTC 0/8/16 整小时结算资金费率
+    ///   3. 检查强平 (按标记价格 + 维持保证金档位)
+    ///
+    /// :param enabled: 是否启用
+    fn use_crypto_perp(&mut self, enabled: bool) {
+        if enabled {
+            self.perp_manager = Some(crate::perpetual::CryptoPerpManager::new());
+        } else {
+            self.perp_manager = None;
+        }
+    }
+
+    /// 设置永续合约维持保证金档位表
+    ///
+    /// :param symbol: 币种
+    /// :param tiers: 档位列表, 每项 {"notional_upper": f64, "maint_margin_rate": f64}
+    fn set_perp_maint_tiers(&mut self, symbol: &str, tiers: Vec<HashMap<String, f64>>) {
+        if let Some(ref mut pm) = self.perp_manager {
+            for t in tiers {
+                let upper = t.get("notional_upper").copied().unwrap_or(f64::MAX);
+                let rate = t.get("maint_margin_rate").copied().unwrap_or(0.005);
+                let amount = t.get("maint_amount").copied().unwrap_or(0.0);
+                pm.liquidation
+                    .tier_table
+                    .entry(symbol.to_string())
+                    .or_default()
+                    .push(crate::perpetual::MaintenanceMarginTier {
+                        notional_upper: upper,
+                        maint_margin_rate: rate,
+                        maint_amount: amount,
+                    });
+            }
+        }
+    }
+
+    /// 设置资金费率结算开关
+    ///
+    /// :param enabled: 是否启用资金费率结算
+    fn set_perp_funding(&mut self, enabled: bool) {
+        if let Some(ref mut pm) = self.perp_manager {
+            pm.funding.enabled = enabled;
+        }
+    }
+
+    /// 设置强平检查开关
+    ///
+    /// :param enabled: 是否启用强平检查
+    fn set_perp_liquidation(&mut self, enabled: bool) {
+        if let Some(ref mut pm) = self.perp_manager {
+            pm.liquidation.enabled = enabled;
+        }
+    }
+
     /// 强制连续交易时段
     ///
     /// :param enabled: 是否强制连续交易 (忽略午休等)
@@ -979,6 +1037,16 @@ impl Engine {
     ) {
         self.market_manager
             .set_options_fee_rules_by_prefix(symbol_prefix, commission_per_contract);
+    }
+
+    /// 设置 Maker 费率 (与 taker 区分)
+    ///
+    /// :param rate: 费率 (如 0.0005)
+    fn set_maker_commission_rate(&mut self, rate: f64) {
+        if let crate::market::MarketConfig::Simple(ref mut c) = self.market_manager.config {
+            c.maker_commission_rate = Decimal::from_f64(rate).unwrap_or(Decimal::ZERO);
+            self.market_manager.model = self.market_manager.config.create_model();
+        }
     }
 
     /// 设置加密货币费率规则 (按金额比例)

@@ -882,6 +882,74 @@ impl Processor for DataProcessor {
     }
 }
 
+/// 加密货币永续合约处理器
+///
+/// 每个 bar 后处理:
+///   1. 更新标记价格
+///   2. UTC 0/8/16 整小时结算资金费率
+///   3. 检查强平
+///
+/// 只在 engine.perp_manager 存在时生效。
+pub struct CryptoPerpProcessor;
+
+impl Processor for CryptoPerpProcessor {
+    fn process(
+        &mut self,
+        engine: &mut Engine,
+        _py: Python<'_>,
+        _strategy: &Bound<'_, PyAny>,
+    ) -> PyResult<ProcessorResult> {
+        let Some(Event::Bar(ref bar)) = engine.current_event else {
+            return Ok(ProcessorResult::Next);
+        };
+        let Some(ref mut pm) = engine.perp_manager else {
+            return Ok(ProcessorResult::Next);
+        };
+
+        // 1. 更新标记价格
+        pm.liquidation.update_mark_price(bar);
+
+        // 2. 资金费率结算
+        if let Some(rate) = pm.funding.check_settlement(bar) {
+            let payments = pm.funding.settle(
+                rate,
+                engine.state.portfolio.positions.as_ref(),
+                &pm.liquidation.mark_prices,
+                &mut engine.state.portfolio.cash,
+            );
+            for p in &payments {
+                log::info!(
+                    "Funding settlement: {} pays {:.6} USDT (rate={:.6})",
+                    p.symbol,
+                    p.amount,
+                    p.rate
+                );
+            }
+        }
+
+        // 3. 强平检查（生成已成交的 ExecutionReport，走现有事件处理链路）
+        let liquidation_events = pm.liquidation.check_liquidations(
+            &engine.state.portfolio,
+            &engine.instruments,
+            &engine.state.order_manager.trade_tracker,
+            bar.timestamp,
+            engine.bar_count,
+        );
+        for event in liquidation_events {
+            if let Event::ExecutionReport(ref order, _) = event {
+                log::warn!(
+                    "Liquidation: {} side={:?} qty={} price={}",
+                    order.symbol, order.side, order.quantity,
+                    order.average_filled_price.map(|p| p.to_string()).unwrap_or_default(),
+                );
+            }
+            let _ = engine.event_manager.send(event);
+        }
+
+        Ok(ProcessorResult::Next)
+    }
+}
+
 pub struct StrategyProcessor;
 
 fn flush_pending_engine_oco_groups(

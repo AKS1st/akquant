@@ -71,6 +71,8 @@ pub struct Engine {
     pub(crate) event_manager: EventManager,
     pub(crate) statistics_manager: StatisticsManager,
     pub(crate) settlement_manager: SettlementManager,
+    /// 永续合约管理器 (资金费率 + 强平)
+    pub(crate) perp_manager: Option<crate::perpetual::CryptoPerpManager>,
     // Pipeline state
     pub(crate) current_event: Option<Event>,
     pub(crate) bar_count: usize,
@@ -1332,6 +1334,12 @@ impl Engine {
 
         // 2. Fetch new Data Event
         pipeline.add_processor(Box::new(DataProcessor::new()));
+
+        // 2.5 Crypto Perpetual Processing (funding + liquidation)
+        // Runs after data arrives, before execution and strategy logic.
+        pipeline.add_processor(Box::new(
+            crate::pipeline::stages::CryptoPerpProcessor,
+        ));
 
         // 3. Pre-Strategy Execution (Match Pending Orders)
         // For NextOpen/NextClose/NextAverage: Matches orders generated in previous bar against current bar.
