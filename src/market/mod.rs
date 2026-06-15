@@ -79,6 +79,7 @@ mod tests {
             OrderSide::Buy,
             Decimal::from(4000),
             Decimal::from(1),
+            false,
         );
     }
 
@@ -115,6 +116,7 @@ mod tests {
             OrderSide::Buy,
             Decimal::from(3500),
             Decimal::from(2),
+            false,
         );
         assert_eq!(commission, Decimal::from_str("35").unwrap());
     }
@@ -157,6 +159,7 @@ mod tests {
             OrderSide::Buy,
             Decimal::from_str("0.1234").unwrap(),
             Decimal::from(3),
+            false,
         );
         assert_eq!(commission, Decimal::from(36));
     }

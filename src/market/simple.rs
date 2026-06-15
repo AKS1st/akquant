@@ -11,7 +11,8 @@ use super::stock::CommissionMode;
 #[derive(Clone, Debug)]
 pub struct SimpleMarketConfig {
     pub commission_mode: CommissionMode,
-    pub commission_rate: Decimal,
+    pub commission_rate: Decimal,        // taker 费率
+    pub maker_commission_rate: Decimal,  // maker 费率 (默认同 taker)
     pub stamp_tax: Decimal,
     pub transfer_fee: Decimal,
     pub min_commission: Decimal,
@@ -22,6 +23,7 @@ impl Default for SimpleMarketConfig {
         Self {
             commission_mode: CommissionMode::Percent,
             commission_rate: Decimal::from_str("0.0003").unwrap(),
+            maker_commission_rate: Decimal::from_str("0.0003").unwrap(),
             stamp_tax: Decimal::ZERO,
             transfer_fee: Decimal::ZERO,
             min_commission: Decimal::ZERO,
@@ -51,12 +53,18 @@ impl MarketModel for SimpleMarket {
         side: OrderSide,
         price: Decimal,
         quantity: Decimal,
+        is_maker: bool,
     ) -> Decimal {
         let turnover = price * quantity * instrument.multiplier();
+        let rate = if is_maker {
+            self.config.maker_commission_rate
+        } else {
+            self.config.commission_rate
+        };
         let mut commission = match self.config.commission_mode {
-            CommissionMode::Percent => turnover * self.config.commission_rate,
-            CommissionMode::Fixed => self.config.commission_rate,
-            CommissionMode::PerUnit => quantity * self.config.commission_rate,
+            CommissionMode::Percent => turnover * rate,
+            CommissionMode::Fixed => rate,
+            CommissionMode::PerUnit => quantity * rate,
         };
         if commission < self.config.min_commission {
             commission = self.config.min_commission;
@@ -101,5 +109,67 @@ impl MarketModel for SimpleMarket {
         _available_positions: &mut HashMap<String, Decimal>,
         _instruments: &HashMap<String, Instrument>,
     ) {
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::instrument::{CryptoInstrument, InstrumentEnum};
+    use crate::model::AssetType;
+    use rust_decimal_macros::dec;
+
+    fn crypto_instr() -> Instrument {
+        Instrument {
+            asset_type: AssetType::Crypto,
+            inner: InstrumentEnum::Crypto(CryptoInstrument {
+                symbol: "BTCUSDT".to_string(),
+                lot_size: dec!(0.001),
+                tick_size: dec!(0.01),
+                multiplier: dec!(1),
+                margin_ratio: dec!(0.1),
+            }),
+        }
+    }
+
+    #[test]
+    fn test_taker_maker_different_rates() {
+        let config = SimpleMarketConfig {
+            commission_mode: CommissionMode::Percent,
+            commission_rate: dec!(0.001),           // taker: 0.1%
+            maker_commission_rate: dec!(0.0005),    // maker: 0.05%
+            stamp_tax: Decimal::ZERO,
+            transfer_fee: Decimal::ZERO,
+            min_commission: Decimal::ZERO,
+        };
+        let market = SimpleMarket::from_config(config);
+        let instr = crypto_instr();
+
+        let taker_fee = market.calculate_commission(
+            &instr, OrderSide::Buy, dec!(50000), dec!(1), false,
+        );
+        let maker_fee = market.calculate_commission(
+            &instr, OrderSide::Buy, dec!(50000), dec!(1), true,
+        );
+
+        assert_eq!(taker_fee, dec!(50));   // 50000 × 0.1%
+        assert_eq!(maker_fee, dec!(25));   // 50000 × 0.05%
+        assert!(taker_fee > maker_fee);
+    }
+
+    #[test]
+    fn test_default_same_rate_maker_taker_equal() {
+        // 不设 maker_commission_rate 时默认同 taker
+        let market = SimpleMarket::from_config(SimpleMarketConfig::default());
+        let instr = crypto_instr();
+
+        let taker_fee = market.calculate_commission(
+            &instr, OrderSide::Buy, dec!(50000), dec!(1), false,
+        );
+        let maker_fee = market.calculate_commission(
+            &instr, OrderSide::Buy, dec!(50000), dec!(1), true,
+        );
+
+        assert_eq!(taker_fee, maker_fee);
     }
 }

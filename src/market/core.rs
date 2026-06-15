@@ -34,6 +34,7 @@ pub trait MarketModel: Send + Sync {
         side: OrderSide,
         price: Decimal,
         quantity: Decimal,
+        is_maker: bool,
     ) -> Decimal;
 
     fn update_available_position(

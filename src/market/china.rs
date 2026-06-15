@@ -152,6 +152,7 @@ impl MarketModel for ChinaMarket {
         side: OrderSide,
         price: Decimal,
         quantity: Decimal,
+        _is_maker: bool,
     ) -> Decimal {
         match instrument.asset_type {
             AssetType::Stock => {
