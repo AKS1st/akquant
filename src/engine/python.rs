@@ -526,6 +526,7 @@ impl Engine {
             statistics_manager: StatisticsManager::new(),
             settlement_manager: SettlementManager::new(),
             perp_manager: None,
+            min_notional: None,
             current_event: None,
             bar_count: 0,
             progress_total_steps: 0,
@@ -1047,6 +1048,14 @@ impl Engine {
             c.maker_commission_rate = Decimal::from_f64(rate).unwrap_or(Decimal::ZERO);
             self.market_manager.model = self.market_manager.config.create_model();
         }
+    }
+
+    /// 设置最小开仓名义价值 (如 50 USD)
+    ///
+    /// 订单名义价值 = price × quantity × multiplier
+    /// 低于此值的订单将被拒绝
+    fn set_min_notional(&mut self, min: f64) {
+        self.min_notional = Decimal::from_f64(min);
     }
 
     /// 设置加密货币费率规则 (按金额比例)

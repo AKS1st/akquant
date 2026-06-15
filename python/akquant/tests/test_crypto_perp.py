@@ -1046,3 +1046,73 @@ class TestTakerMakerFee:
         # Maker 付的佣金少 → 剩余现金多
         assert maker_cash > taker_cash, \
             f"Maker cash {maker_cash} should be > Taker cash {taker_cash}"
+
+
+@pytest.mark.integration
+@requires_engine
+class TestMinNotional:
+    """最小开仓名义价值检查"""
+
+    def test_order_below_min_notional_rejected(self):
+        """名义价值 < 50 的订单应被拒绝"""
+        import pandas as pd
+
+        ts = pd.date_range("2024-01-01", periods=5, freq="1min", tz="UTC")
+        df = pd.DataFrame({
+            "timestamp": ts,
+            "open": 100, "high": 101, "low": 99, "close": 100, "volume": 100,
+        })
+
+        rejected_ids = []
+
+        class SmallOrderStrategy(aq.Strategy):
+            def on_bar(self, bar):
+                if self.get_position("BTC") == 0:
+                    self.buy("BTC", quantity=0.01, price=100)  # notional = 1
+
+            def on_reject(self, order):
+                rejected_ids.append(order.id)
+
+        result = aq.run_backtest(
+            strategy=SmallOrderStrategy(),
+            symbols=["BTC"],
+            data=df,
+            asset_type=aq.AssetType.Crypto,
+            initial_cash=100000,
+            commission_rate=0.0,
+            min_notional=50,
+        )
+        # notional = 0.01 × 100 × 1 = 1 < 50 → 应被拒绝
+        assert len(rejected_ids) > 0, "Order should be rejected (notional 1 < 50)"
+
+    def test_order_above_min_notional_accepted(self):
+        """名义价值 >= 50 的订单应通过"""
+        import pandas as pd
+
+        ts = pd.date_range("2024-01-01", periods=5, freq="1min", tz="UTC")
+        df = pd.DataFrame({
+            "timestamp": ts,
+            "open": 100, "high": 101, "low": 99, "close": 100, "volume": 100,
+        })
+
+        rejected_ids = []
+
+        class BigOrderStrategy(aq.Strategy):
+            def on_bar(self, bar):
+                if self.get_position("BTC") == 0:
+                    self.buy("BTC", quantity=1)  # notional ≈ 100
+
+            def on_reject(self, order):
+                rejected_ids.append(order.id)
+
+        result = aq.run_backtest(
+            strategy=BigOrderStrategy(),
+            symbols=["BTC"],
+            data=df,
+            asset_type=aq.AssetType.Crypto,
+            initial_cash=100000,
+            commission_rate=0.0,
+            min_notional=50,
+        )
+        # notional ≈ 1 × 100 × 1 = 100 >= 50 → 应通过
+        assert len(rejected_ids) == 0, "Order should be accepted (notional 100 >= 50)"
