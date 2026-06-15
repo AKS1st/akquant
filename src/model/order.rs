@@ -524,6 +524,8 @@ pub struct Trade {
     #[pyo3(get)]
     #[serde(default)]
     pub owner_strategy_id: Option<String>,
+    #[serde(default)]
+    pub is_maker: bool,
 }
 
 #[gen_stub_pymethods]
@@ -568,6 +570,7 @@ impl Trade {
             timestamp,
             bar_index,
             owner_strategy_id,
+            is_maker: false,
         })
     }
 
@@ -750,6 +753,7 @@ mod tests {
             timestamp: 1_735_801_200_000_000_000_i64,
             bar_index: 0,
             owner_strategy_id: None,
+            is_maker: false,
         };
 
         assert_eq!(trade.timestamp_iso(), "2025-01-02T07:00:00Z");
