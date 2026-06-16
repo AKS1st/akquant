@@ -137,6 +137,10 @@ class InstrumentConfig:
                          主要用于期货/线性资产；期权仅在 `RATIO` 模式下使用。
     :param tick_size: Minimum price movement. Default 0.01.
     :param lot_size: Minimum trading unit (round lot). Default None.
+    :param step_size: 数量步长 (仅 Crypto)，下单数量将向下对其到 step_size 的整数倍。
+                      默认等于 lot_size。
+    :param min_qty: 最小订单数量 (仅 Crypto)，低于此值的买入/卖出订单将被拒绝。
+                    默认等于 step_size。
 
     **Cost & Execution Overrides:**
     These fields override the global settings in `StrategyConfig` for
@@ -167,7 +171,9 @@ class InstrumentConfig:
     multiplier: float = 1.0
     margin_ratio: float = 1.0
     tick_size: float = 0.01
-    lot_size: Optional[int] = None
+    lot_size: Optional[float] = None
+    step_size: Optional[float] = None  # 数量步长 (仅 Crypto)，默认等于 lot_size
+    min_qty: Optional[float] = None  # 最小订单数量 (仅 Crypto)，默认等于 step_size
 
     # Costs & Execution (Asset Specific)
     commission_rate: Optional[float] = None
@@ -196,7 +202,7 @@ class InstrumentConfig:
             else self.asset_type
         )
         self.asset_type = cast(InstrumentAssetType, str(asset_raw).strip().upper())
-        if self.asset_type not in {"STOCK", "FUTURES", "FUND", "OPTION"}:
+        if self.asset_type not in {"STOCK", "FUTURES", "FUND", "OPTION", "CRYPTO"}:
             raise ValueError(f"Unsupported asset_type: {self.asset_type}")
         if self.option_type is not None:
             option_raw = (
@@ -240,6 +246,10 @@ class InstrumentConfig:
                 raise ValueError(f"Unsupported settlement_type: {self.settlement_type}")
         if self.lot_size is not None and self.lot_size <= 0:
             raise ValueError("lot_size must be > 0")
+        if self.step_size is not None and self.step_size <= 0:
+            raise ValueError("step_size must be > 0")
+        if self.min_qty is not None and self.min_qty <= 0:
+            raise ValueError("min_qty must be > 0")
         if self.reference_volatility is not None and self.reference_volatility <= 0:
             raise ValueError("reference_volatility must be > 0")
 

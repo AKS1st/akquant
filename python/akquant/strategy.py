@@ -272,6 +272,8 @@ class InstrumentSnapshot:
     margin_ratio: float
     tick_size: float
     lot_size: float
+    step_size: float = 1.0
+    min_qty: float = 1.0
     option_margin_model: Optional[InstrumentOptionMarginModelName] = None
     option_type: Optional[InstrumentOptionTypeName] = None
     strike_price: Optional[float] = None
