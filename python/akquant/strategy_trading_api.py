@@ -1,7 +1,22 @@
+import math
 import warnings
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 from .akquant import OrderSide, OrderStatus, OrderType, PositionEffect, TimeInForce
+
+
+def round_qty(quantity: float, step_size: float) -> float:
+    """将 quantity 向下对齐到 step_size 的整数倍（截断不舍入）。"""
+    if step_size <= 0:
+        return quantity
+    return math.floor(quantity / step_size) * step_size
+
+
+def round_price(price: float, tick_size: float) -> float:
+    """将 price 四舍五入到 tick_size 的整数倍。"""
+    if tick_size <= 0:
+        return price
+    return round(price / tick_size) * tick_size
 
 OrderFillPolicy = Dict[str, Any]
 OrderSlippage = Dict[str, Any]
@@ -1396,15 +1411,28 @@ def calculate_max_buy_qty(
             float(price) * (1 + float(strategy.transfer_fee_rate))
         )
 
-    current_lot_size = 1
-    if isinstance(strategy.lot_size, int):
-        current_lot_size = int(strategy.lot_size)
-    elif isinstance(strategy.lot_size, dict):
-        val = strategy.lot_size.get(symbol, strategy.lot_size.get("DEFAULT", 1))
-        current_lot_size = int(val) if val is not None else 1
+    # 优先从 instrument snapshot 获取 step_size/min_qty，支持浮点数
+    try:
+        instr = strategy.get_instrument(symbol)
+        step = instr.step_size
+        min_qty = instr.min_qty
+    except (KeyError, AttributeError):
+        step = 1.0
+        min_qty = 1.0
+        # fallback: 兼容旧版 strategy.lot_size (int 或 dict)
+        if isinstance(strategy.lot_size, (int, float)):
+            step = float(strategy.lot_size)
+            min_qty = step
+        elif isinstance(strategy.lot_size, dict):
+            val = strategy.lot_size.get(symbol, strategy.lot_size.get("DEFAULT", 1))
+            step = float(val) if val is not None else 1.0
+            min_qty = step
 
-    if current_lot_size > 0:
-        est_qty = (est_qty // current_lot_size) * current_lot_size
+    if step > 0:
+        est_qty = round_qty(est_qty, step)
+
+    if est_qty < min_qty:
+        return 0.0
 
     return float(est_qty)
 
@@ -1467,18 +1495,32 @@ def order_target_value(
     target_qty = target_value / current_price
     delta_qty = target_qty - current_qty
 
-    current_lot_size = 1
-    if isinstance(strategy.lot_size, int):
-        current_lot_size = strategy.lot_size
-    elif isinstance(strategy.lot_size, dict):
-        val = strategy.lot_size.get(symbol, strategy.lot_size.get("DEFAULT", 1))
-        current_lot_size = int(val) if val is not None else 1
+    # 优先从 instrument snapshot 获取 step_size/min_qty，支持浮点数
+    try:
+        instr = strategy.get_instrument(symbol)
+        step = instr.step_size
+        min_qty = instr.min_qty
+    except (KeyError, AttributeError):
+        step = 1.0
+        min_qty = 1.0
+        # fallback: 兼容旧版 strategy.lot_size (int 或 dict)
+        if isinstance(strategy.lot_size, (int, float)):
+            step = float(strategy.lot_size)
+            min_qty = step
+        elif isinstance(strategy.lot_size, dict):
+            val = strategy.lot_size.get(symbol, strategy.lot_size.get("DEFAULT", 1))
+            step = float(val) if val is not None else 1.0
+            min_qty = step
 
-    if current_lot_size > 0:
+    if step > 0:
         if delta_qty > 0:
-            delta_qty = (delta_qty // current_lot_size) * current_lot_size
+            delta_qty = round_qty(delta_qty, step)
+            if delta_qty < min_qty:
+                delta_qty = 0.0
         elif delta_qty < 0:
-            delta_qty = -((abs(delta_qty) // current_lot_size) * current_lot_size)
+            delta_qty = -round_qty(abs(delta_qty), step)
+            if abs(delta_qty) < min_qty:
+                delta_qty = 0.0
 
     if delta_qty > 0:
         buy(strategy, symbol, delta_qty, price, **kwargs)

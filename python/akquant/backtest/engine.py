@@ -2950,6 +2950,9 @@ def run_backtest(
     for sym in preliminary_symbols:
         if sym in preliminary_prebuilt_instruments:
             prebuilt = preliminary_prebuilt_instruments[sym]
+            _prebuilt_lot = float(getattr(prebuilt, "lot_size", 1.0))
+            _prebuilt_step = getattr(prebuilt, "step_size", None)
+            _prebuilt_min_qty = getattr(prebuilt, "min_qty", None)
             preliminary_snapshots[sym] = InstrumentSnapshot(
                 symbol=sym,
                 asset_type=_asset_type_to_upper_name(
@@ -2961,7 +2964,9 @@ def run_backtest(
                     getattr(prebuilt, "option_margin_model", None)
                 ),
                 tick_size=float(getattr(prebuilt, "tick_size", 0.01)),
-                lot_size=float(getattr(prebuilt, "lot_size", 1.0)),
+                lot_size=_prebuilt_lot,
+                step_size=float(_prebuilt_step if _prebuilt_step is not None else _prebuilt_lot),
+                min_qty=float(_prebuilt_min_qty if _prebuilt_min_qty is not None else (_prebuilt_step if _prebuilt_step is not None else _prebuilt_lot)),
                 implied_volatility=(
                     float(getattr(prebuilt, "implied_volatility"))
                     if getattr(prebuilt, "implied_volatility", None) is not None
@@ -3039,6 +3044,16 @@ def run_backtest(
             if conf.lot_size is not None
             else float(symbol_lot_size or 1.0)
         )
+        conf_step = (
+            float(conf.step_size)
+            if conf.step_size is not None
+            else conf_lot
+        )
+        conf_min_qty = (
+            float(conf.min_qty)
+            if conf.min_qty is not None
+            else conf_step
+        )
         preliminary_snapshots[sym] = InstrumentSnapshot(
             symbol=sym,
             asset_type=_asset_type_to_upper_name(conf.asset_type),
@@ -3050,6 +3065,8 @@ def run_backtest(
             ),
             tick_size=float(conf.tick_size),
             lot_size=conf_lot,
+            step_size=conf_step,
+            min_qty=conf_min_qty,
             option_type=_option_type_to_upper_name(conf.option_type),
             strike_price=(
                 float(conf.strike_price) if conf.strike_price is not None else None
@@ -4224,6 +4241,9 @@ def run_backtest(
         if sym in prebuilt_instruments:
             prebuilt = prebuilt_instruments[sym]
             engine.add_instrument(prebuilt)
+            _prebuilt_lot_f = float(getattr(prebuilt, "lot_size", 1.0))
+            _prebuilt_step_f = getattr(prebuilt, "step_size", None)
+            _prebuilt_min_qty_f = getattr(prebuilt, "min_qty", None)
             instrument_snapshots[sym] = InstrumentSnapshot(
                 symbol=sym,
                 asset_type=_asset_type_to_upper_name(
@@ -4235,7 +4255,9 @@ def run_backtest(
                     getattr(prebuilt, "option_margin_model", None)
                 ),
                 tick_size=float(getattr(prebuilt, "tick_size", 0.01)),
-                lot_size=float(getattr(prebuilt, "lot_size", 1.0)),
+                lot_size=_prebuilt_lot_f,
+                step_size=float(_prebuilt_step_f if _prebuilt_step_f is not None else _prebuilt_lot_f),
+                min_qty=float(_prebuilt_min_qty_f if _prebuilt_min_qty_f is not None else (_prebuilt_step_f if _prebuilt_step_f is not None else _prebuilt_lot_f)),
                 implied_volatility=(
                     float(getattr(prebuilt, "implied_volatility"))
                     if getattr(prebuilt, "implied_volatility", None) is not None
@@ -4278,6 +4300,17 @@ def run_backtest(
                 i_conf.lot_size
                 if i_conf.lot_size is not None
                 else float(current_lot_size or 1.0)
+            )
+            # step_size 和 min_qty (仅 Crypto 使用)
+            p_step = (
+                i_conf.step_size
+                if i_conf.step_size is not None
+                else p_lot
+            )
+            p_min_qty = (
+                i_conf.min_qty
+                if i_conf.min_qty is not None
+                else p_step
             )
             if futures_template and p_asset_type == AssetType.Futures:
                 if i_conf.multiplier == 1 and futures_template.multiplier is not None:
@@ -4337,12 +4370,16 @@ def run_backtest(
                     if futures_template.lot_size is not None
                     else float(current_lot_size or 1.0)
                 )
+                p_step = p_lot
+                p_min_qty = p_step
             else:
                 p_asset_type = default_asset_type
                 p_multiplier = default_multiplier
                 p_margin = default_margin_ratio
                 p_tick = default_tick_size
                 p_lot = float(current_lot_size or 1.0)
+                p_step = p_lot
+                p_min_qty = p_step
 
             p_opt_type = default_option_type
             p_option_margin_model = _parse_option_margin_model(
@@ -4396,6 +4433,8 @@ def run_backtest(
             p_strike,
             p_expiry,
             p_lot_f,
+            p_step,
+            p_min_qty,
             p_underlying,
             p_settlement_type,
             p_settlement_price,
@@ -4414,6 +4453,8 @@ def run_backtest(
             ),
             tick_size=float(p_tick),
             lot_size=float(p_lot_f),
+            step_size=float(p_step),
+            min_qty=float(p_min_qty),
             option_type=_option_type_to_upper_name(p_opt_type),
             strike_price=float(p_strike) if p_strike is not None else None,
             expiry_date=p_expiry,
@@ -5434,6 +5475,9 @@ def run_warm_start(
         if sym in prebuilt_instruments:
             prebuilt = prebuilt_instruments[sym]
             engine.add_instrument(prebuilt)
+            _ws_prebuilt_lot = float(getattr(prebuilt, "lot_size", 1.0))
+            _ws_prebuilt_step = getattr(prebuilt, "step_size", None)
+            _ws_prebuilt_min_qty = getattr(prebuilt, "min_qty", None)
             warm_start_instrument_snapshots[sym] = InstrumentSnapshot(
                 symbol=sym,
                 asset_type=_asset_type_to_upper_name(
@@ -5445,7 +5489,9 @@ def run_warm_start(
                     getattr(prebuilt, "option_margin_model", None)
                 ),
                 tick_size=float(getattr(prebuilt, "tick_size", 0.01)),
-                lot_size=float(getattr(prebuilt, "lot_size", 1.0)),
+                lot_size=_ws_prebuilt_lot,
+                step_size=float(_ws_prebuilt_step if _ws_prebuilt_step is not None else _ws_prebuilt_lot),
+                min_qty=float(_ws_prebuilt_min_qty if _ws_prebuilt_min_qty is not None else (_ws_prebuilt_step if _ws_prebuilt_step is not None else _ws_prebuilt_lot)),
                 option_type=_option_type_to_upper_name(
                     getattr(prebuilt, "option_type", None)
                 ),
