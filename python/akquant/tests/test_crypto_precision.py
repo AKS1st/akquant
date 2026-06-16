@@ -218,7 +218,7 @@ class TestDefaultSymbolInfo:
         assert btc["step_size"] == 0.001
         assert btc["min_qty"] == 0.001
         assert btc["tick_size"] == 0.1
-        assert btc["min_notional"] == 5.0
+        assert btc["min_notional"] == 50.0
 
     def test_eth_defaults(self):
         from akquant.crypto_exchange_info import DEFAULT_CRYPTO_SYMBOL_INFO

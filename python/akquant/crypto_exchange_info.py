@@ -14,65 +14,67 @@ from typing import Any, Dict, List, Optional
 # 适用于永续合约回测，与现货精度不同。用户可按需覆盖。
 # ---------------------------------------------------------------------------
 DEFAULT_CRYPTO_SYMBOL_INFO: Dict[str, Dict[str, float]] = {
-    "BTCUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.1,        "min_notional": 5.0},
-    "ETHUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,       "min_notional": 5.0},
-    "SOLUSDT":  {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.01,       "min_notional": 5.0},
-    "BNBUSDT":  {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.01,       "min_notional": 5.0},
-    "XRPUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "ADAUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "DOGEUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "AVAXUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.001,      "min_notional": 5.0},
-    "DOTUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,      "min_notional": 5.0},
-    "LINKUSDT": {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.001,      "min_notional": 5.0},
-    "ATOMUSDT": {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.001,      "min_notional": 5.0},
-    "LTCUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,       "min_notional": 5.0},
-    "BCHUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,       "min_notional": 5.0},
-    "FILUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,      "min_notional": 5.0},
-    "NEARUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.001,      "min_notional": 5.0},
-    "NEOUSDT":  {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.001,      "min_notional": 5.0},
-    "QTUMUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,      "min_notional": 5.0},
-    "IOTAUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "XLMUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "TRXUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "ETCUSDT":  {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.001,      "min_notional": 5.0},
-    "VETUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,   "min_notional": 5.0},
-    "ZECUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,       "min_notional": 5.0},
-    "DASHUSDT": {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,       "min_notional": 5.0},
-    "THETAUSDT":{"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "ALGOUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "XTZUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "AAVEUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.01,       "min_notional": 5.0},
-    "CRVUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "KSMUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,      "min_notional": 5.0},
-    "EGLDUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,      "min_notional": 5.0},
-    "RUNEUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "AXSUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.001,      "min_notional": 5.0},
-    "YFIUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 1.0,        "min_notional": 5.0},
-    "COMPUSDT": {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,       "min_notional": 5.0},
-    "SUSHIUSDT":{"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "1INCHUSDT":{"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "ZILUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,   "min_notional": 5.0},
-    "ENJUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "IOSTUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,   "min_notional": 5.0},
-    "ICXUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "STXUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "HBARUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "CHZUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "SANDUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "GRTUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "ANKRUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,   "min_notional": 5.0},
-    "MANAUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "SNXUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "KAVAUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "BATUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "ZRXUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "ZENUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,      "min_notional": 5.0},
-    "ONTUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.00001,    "min_notional": 5.0},
-    "XMRUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,       "min_notional": 5.0},
-    "ALICEUSDT":{"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,     "min_notional": 5.0},
-    "SKLUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,   "min_notional": 5.0},
-    "RSRUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,   "min_notional": 5.0},
-    "BELUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001,    "min_notional": 5.0},
+    # 数据来源: Binance USDⓈ-M Futures API (fapi/v1/exchangeInfo, 2026-06-16 实时拉取)
+    # 仅包含 status=TRADING 的 PERPETUAL 合约
+    "BTCUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.1,     "min_notional": 50.0},
+    "ETHUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,    "min_notional": 20.0},
+    "SOLUSDT":  {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.01,    "min_notional": 5.0},
+    "BNBUSDT":  {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.01,    "min_notional": 5.0},
+    "XRPUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "ADAUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "DOGEUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001, "min_notional": 5.0},
+    "AVAXUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.001,   "min_notional": 5.0},
+    "DOTUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,   "min_notional": 5.0},
+    "LINKUSDT": {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.001,   "min_notional": 20.0},
+    "ATOMUSDT": {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.001,   "min_notional": 5.0},
+    "LTCUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,    "min_notional": 20.0},
+    "BCHUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,    "min_notional": 20.0},
+    "FILUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,   "min_notional": 5.0},
+    "NEARUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.001,   "min_notional": 5.0},
+    "NEOUSDT":  {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.001,   "min_notional": 5.0},
+    "QTUMUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,   "min_notional": 5.0},
+    "IOTAUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.00001, "min_notional": 5.0},
+    "XLMUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001, "min_notional": 5.0},
+    "TRXUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001, "min_notional": 5.0},
+    "ETCUSDT":  {"step_size": 0.01,  "min_qty": 0.01,  "tick_size": 0.001,   "min_notional": 20.0},
+    "VETUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,"min_notional": 5.0},
+    "ZECUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,    "min_notional": 5.0},
+    "DASHUSDT": {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,    "min_notional": 5.0},
+    "THETAUSDT":{"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "ALGOUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "XTZUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "AAVEUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.01,    "min_notional": 5.0},
+    "CRVUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "KSMUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,   "min_notional": 5.0},
+    "EGLDUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,   "min_notional": 5.0},
+    "RUNEUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "AXSUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.001,   "min_notional": 5.0},
+    "YFIUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 1.0,     "min_notional": 5.0},
+    "COMPUSDT": {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,    "min_notional": 5.0},
+    "SUSHIUSDT":{"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "1INCHUSDT":{"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "ZILUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,"min_notional": 5.0},
+    "ENJUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001, "min_notional": 5.0},
+    "IOSTUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,"min_notional": 5.0},
+    "ICXUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001, "min_notional": 5.0},
+    "STXUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "HBARUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001, "min_notional": 5.0},
+    "CHZUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001, "min_notional": 5.0},
+    "SANDUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001, "min_notional": 5.0},
+    "GRTUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001, "min_notional": 5.0},
+    "ANKRUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,"min_notional": 5.0},
+    "MANAUSDT": {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "SNXUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "KAVAUSDT": {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.00001, "min_notional": 5.0},
+    "BATUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "ZRXUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "ZENUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.001,   "min_notional": 5.0},
+    "ONTUSDT":  {"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.00001, "min_notional": 5.0},
+    "XMRUSDT":  {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01,    "min_notional": 5.0},
+    "ALICEUSDT":{"step_size": 0.1,   "min_qty": 0.1,   "tick_size": 0.0001,  "min_notional": 5.0},
+    "SKLUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,"min_notional": 5.0},
+    "RSRUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.000001,"min_notional": 5.0},
+    "BELUSDT":  {"step_size": 1.0,   "min_qty": 1.0,   "tick_size": 0.00001, "min_notional": 5.0},
 }
 
 
@@ -95,7 +97,8 @@ def _extract_symbol_filter(info: Dict[str, Any], symbol: str) -> Optional[Dict[s
         elif ftype == "PRICE_FILTER":
             tick_size = f.get("tickSize")
         elif ftype == "MIN_NOTIONAL":
-            min_notional = f.get("minNotional")
+            # fapi 返回的 key 为 "notional"，现货为 "minNotional"
+            min_notional = f.get("notional") or f.get("minNotional")
 
     if not step_size or not tick_size:
         return None
@@ -115,7 +118,7 @@ def _extract_symbol_filter(info: Dict[str, Any], symbol: str) -> Optional[Dict[s
 
 def fetch_binance_symbol_info(
     symbols: Optional[List[str]] = None,
-    base_url: str = "https://api.binance.com",
+    base_url: str = "https://fapi.binance.com",
 ) -> Dict[str, Dict[str, float]]:
     """
     从 Binance API 的 exchangeInfo 接口拉取交易对精度信息。
@@ -132,7 +135,7 @@ def fetch_binance_symbol_info(
     import json
     import urllib.request
 
-    url = f"{base_url}/api/v3/exchangeInfo"
+    url = f"{base_url}/fapi/v1/exchangeInfo"
     if symbols:
         sym_list = ",".join(symbols)
         url += f"?symbols={urllib.request.quote(json.dumps(sym_list.split(',')))}"
@@ -156,7 +159,7 @@ def fetch_binance_symbol_info(
 def build_crypto_instrument_configs(
     symbols: List[str],
     *,
-    base_url: str = "https://api.binance.com",
+    base_url: str = "https://fapi.binance.com",
     fallback: bool = True,
     margin_ratio: float = 1.0,
     maker_commission_rate: float = 0.0002,
@@ -210,6 +213,7 @@ def build_crypto_instrument_configs(
             tick_size=params.get("tick_size", 0.01),
             step_size=params.get("step_size", 0.001),
             min_qty=params.get("min_qty", 0.001),
+            min_notional=params.get("min_notional"),
             commission_rate=taker_commission_rate,
             **extra,
         ))
