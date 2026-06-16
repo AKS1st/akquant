@@ -414,7 +414,11 @@ impl SimulatedExecutionClient {
 
                                 if total_required > current_free_margin {
                                     if report_order.allow_quantity_auto_resize {
-                                        let lot_size = instrument.lot_size();
+                                        let effective_step = if instrument.asset_type == AssetType::Crypto {
+                                            instrument.step_size()
+                                        } else {
+                                            instrument.lot_size()
+                                        };
                                         let safety_factor =
                                             Decimal::from_f64(0.9999).unwrap_or(Decimal::ONE);
                                         let mut new_qty = if total_required > Decimal::ZERO
@@ -426,11 +430,11 @@ impl SimulatedExecutionClient {
                                         } else {
                                             Decimal::ZERO
                                         };
-                                        if lot_size > Decimal::ZERO {
-                                            new_qty = new_qty - (new_qty % lot_size);
+                                        if effective_step > Decimal::ZERO {
+                                            new_qty = new_qty - (new_qty % effective_step);
                                         }
-                                        if new_qty >= trade.quantity && lot_size > Decimal::ZERO {
-                                            new_qty -= lot_size;
+                                        if new_qty >= trade.quantity && effective_step > Decimal::ZERO {
+                                            new_qty -= effective_step;
                                         }
 
                                         while new_qty > Decimal::ZERO {
@@ -470,8 +474,8 @@ impl SimulatedExecutionClient {
                                             if resized_required + new_comm <= current_free_margin {
                                                 break;
                                             }
-                                            if new_qty >= lot_size && lot_size > Decimal::ZERO {
-                                                new_qty -= lot_size;
+                                            if new_qty >= effective_step && effective_step > Decimal::ZERO {
+                                                new_qty -= effective_step;
                                             } else {
                                                 new_qty = Decimal::ZERO;
                                             }

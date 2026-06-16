@@ -241,9 +241,14 @@ impl RiskManager {
                         let max_qty_raw = max_qty_raw * safety_factor;
 
                         let lot_size = instr.lot_size();
+                        let effective_step = if instr.asset_type == AssetType::Crypto {
+                            instr.step_size()
+                        } else {
+                            lot_size
+                        };
                         let mut new_qty = max_qty_raw.floor();
-                        if lot_size > Decimal::ZERO {
-                            new_qty = new_qty - (new_qty % lot_size);
+                        if effective_step > Decimal::ZERO {
+                            new_qty = new_qty - (new_qty % effective_step);
                         }
 
                         if new_qty > Decimal::ZERO && new_qty < order.quantity {

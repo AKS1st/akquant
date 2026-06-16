@@ -22,7 +22,7 @@ use crate::execution::ExecutionClient;
 use crate::history::HistoryBuffer;
 use crate::market::corporate_action::CorporateActionManager;
 use crate::market::manager::MarketManager;
-use crate::model::{ExecutionPolicyCore, Instrument, Order, OrderSide, Timer, Trade};
+use crate::model::{AssetType, ExecutionPolicyCore, Instrument, Order, OrderSide, Timer, Trade};
 use crate::pipeline::PipelineRunner;
 use crate::pipeline::stages::{
     ChannelProcessor, CleanupProcessor, DataProcessor, ExecutionPhase, ExecutionProcessor,
@@ -387,6 +387,19 @@ impl Engine {
             return Some(format!(
                 "Risk: Order notional {:.2} below minimum {:.2} for {}",
                 notional, min_val, order.symbol
+            ));
+        }
+        None
+    }
+
+    pub(crate) fn check_min_qty(&self, order: &Order) -> Option<String> {
+        let instr = self.instruments.get(&order.symbol)?;
+        if instr.asset_type == AssetType::Crypto && order.quantity < instr.min_qty() {
+            return Some(format!(
+                "Qty {} below min_qty {} for {}",
+                order.quantity,
+                instr.min_qty(),
+                order.symbol
             ));
         }
         None

@@ -47,6 +47,10 @@ fn process_order_request(engine: &mut Engine, py: Python<'_>, mut order: Order) 
     if strategy_limit_err.is_none() {
         strategy_limit_err = engine.check_min_notional(&order);
     }
+    // 检查 Crypto 最小订单数量 (min_qty)
+    if strategy_limit_err.is_none() {
+        strategy_limit_err = engine.check_min_qty(&order);
+    }
     if triggers_risk_fallback {
         engine.activate_strategy_reduce_only_if_configured(&order);
         engine.activate_strategy_risk_cooldown_if_configured(&order);
