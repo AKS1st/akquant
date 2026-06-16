@@ -98,7 +98,6 @@ pub struct Engine {
     pub(crate) strategy_max_drawdown_limits: HashMap<String, Decimal>,
     pub(crate) strategy_risk_cooldown_bars: HashMap<String, usize>,
     pub(crate) strategy_risk_cooldown_until_bar: HashMap<String, usize>,
-    pub(crate) min_notional: Option<Decimal>,
     pub(crate) strategy_reduce_only_after_risk: HashSet<String>,
     pub(crate) strategy_positions: HashMap<String, HashMap<String, Decimal>>,
     pub(crate) strategy_cashflows: HashMap<String, Decimal>,
@@ -366,27 +365,6 @@ impl Engine {
             return Some(format!(
                 "Risk: Strategy {} order value {} exceeds strategy limit {}",
                 strategy_id, value, max_value
-            ));
-        }
-        None
-    }
-
-    pub(crate) fn check_min_notional(&self, order: &Order) -> Option<String> {
-        let min_val = self.min_notional?;
-        if min_val <= Decimal::ZERO {
-            return None;
-        }
-        let price = order.price.or_else(|| self.last_prices.get(&order.symbol).copied())?;
-        let multiplier = self
-            .instruments
-            .get(&order.symbol)
-            .map(|i| i.multiplier())
-            .unwrap_or(Decimal::ONE);
-        let notional = price * order.quantity * multiplier;
-        if notional < min_val {
-            return Some(format!(
-                "Risk: Order notional {:.2} below minimum {:.2} for {}",
-                notional, min_val, order.symbol
             ));
         }
         None

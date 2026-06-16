@@ -2716,10 +2716,6 @@ def run_backtest(
         strategy_loader_options=strategy_loader_options,
     )
     strategy_kwargs = dict(kwargs)
-    # 引擎内部 kwargs 不应透传给策略
-    strategy_kwargs.pop("asset_type", None)
-    strategy_kwargs.pop("perp_maint_tiers", None)
-    strategy_kwargs.pop("_stream_on_event", None)
     if start_time and _accepts_strategy_kwarg(strategy_input, "start_time"):
         strategy_kwargs["start_time"] = start_time
     if end_time and _accepts_strategy_kwarg(strategy_input, "end_time"):
@@ -2764,10 +2760,6 @@ def run_backtest(
             if not slot_key_str:
                 raise ValueError("strategy slot id cannot be empty")
             slot_strategy_kwargs = dict(kwargs)
-            # 引擎内部 kwargs 不应透传给策略
-            slot_strategy_kwargs.pop("asset_type", None)
-            slot_strategy_kwargs.pop("perp_maint_tiers", None)
-            slot_strategy_kwargs.pop("_stream_on_event", None)
             if symbols is not None and _accepts_strategy_kwarg(
                 slot_strategy_input, "symbols"
             ):
@@ -3860,9 +3852,6 @@ def run_backtest(
             _maker_rate = kwargs.get("maker_commission_rate")
             if _maker_rate is not None and hasattr(engine, "set_maker_commission_rate"):
                 cast(Any, engine).set_maker_commission_rate(float(_maker_rate))
-            _min_notional = kwargs.get("min_notional")
-            if _min_notional is not None and hasattr(engine, "set_min_notional"):
-                cast(Any, engine).set_min_notional(float(_min_notional))
 
     # Configure Execution parameters
     if (
@@ -4147,8 +4136,6 @@ def run_backtest(
                 return AssetType.Fund
             if v_lower == "option":
                 return AssetType.Option
-            if v_lower == "crypto":
-                return AssetType.Crypto
         raise ValueError(f"Unsupported asset_type: {val}")
 
     def _parse_option_type(val: Any) -> Any:
@@ -5393,8 +5380,6 @@ def run_warm_start(
                 return AssetType.Fund
             if v_lower == "option":
                 return AssetType.Option
-            if v_lower == "crypto":
-                return AssetType.Crypto
         raise ValueError(f"Unsupported asset_type: {val}")
 
     def _parse_option_type(val: Any) -> Any:

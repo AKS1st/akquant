@@ -44,9 +44,6 @@ fn process_order_request(engine: &mut Engine, py: Python<'_>, mut order: Order) 
     if strategy_limit_err.is_none() {
         strategy_limit_err = engine.check_portfolio_risk_budget_limit(&order);
     }
-    if strategy_limit_err.is_none() {
-        strategy_limit_err = engine.check_min_notional(&order);
-    }
     // 检查 Crypto 最小订单数量 (min_qty)
     if strategy_limit_err.is_none() {
         strategy_limit_err = engine.check_min_qty(&order);
