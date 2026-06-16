@@ -119,6 +119,8 @@ pub struct CryptoInstrument {
     pub symbol: String,
     pub lot_size: Decimal, // Usually small (e.g. 0.0001)
     pub tick_size: Decimal,
+    pub step_size: Decimal, // 数量步长 (e.g. 0.001 for BTC), 默认等于 lot_size
+    pub min_qty: Decimal, // 最小订单数量 (e.g. 0.001 for BTC), 默认等于 step_size
     pub multiplier: Decimal, // Usually 1.0 for Spot, but contract size for futures
     pub margin_ratio: Decimal, // 杠杆倒数: 10x = 0.1, 全额 = 1.0
 }
@@ -171,11 +173,13 @@ impl Instrument {
     /// :param strike_price: 行权价 (可选)
     /// :param expiry_date: 到期日 (可选)
     /// :param lot_size: 最小交易单位 (可选, 默认为1)
+    /// :param step_size: 数量步长 (可选, 仅Crypto, 默认等于lot_size)
+    /// :param min_qty: 最小订单数量 (可选, 仅Crypto, 默认等于step_size)
     /// :param underlying_symbol: 标的代码 (可选)
     /// :param settlement_type: 结算方式 (可选)
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (symbol, asset_type, multiplier=None, margin_ratio=None, tick_size=None, option_type=None, strike_price=None, expiry_date=None, lot_size=None, underlying_symbol=None, settlement_type=None, settlement_price=None, option_margin_model=None, implied_volatility=None, reference_volatility=None))]
+    #[pyo3(signature = (symbol, asset_type, multiplier=None, margin_ratio=None, tick_size=None, option_type=None, strike_price=None, expiry_date=None, lot_size=None, step_size=None, min_qty=None, underlying_symbol=None, settlement_type=None, settlement_price=None, option_margin_model=None, implied_volatility=None, reference_volatility=None))]
     pub fn new(
         symbol: String,
         asset_type: AssetType,
@@ -186,6 +190,8 @@ impl Instrument {
         strike_price: Option<&Bound<'_, PyAny>>,
         expiry_date: Option<u32>,
         lot_size: Option<&Bound<'_, PyAny>>,
+        step_size: Option<&Bound<'_, PyAny>>,
+        min_qty: Option<&Bound<'_, PyAny>>,
         underlying_symbol: Option<String>,
         settlement_type: Option<SettlementType>,
         settlement_price: Option<&Bound<'_, PyAny>>,
@@ -214,6 +220,14 @@ impl Instrument {
         let strike_price_val = strike_price.map(extract_decimal).transpose()?;
         let implied_volatility_val = implied_volatility.map(extract_decimal).transpose()?;
         let reference_volatility_val = reference_volatility.map(extract_decimal).transpose()?;
+        let step_val = step_size
+            .map(extract_decimal)
+            .transpose()?
+            .unwrap_or(lot_val);
+        let min_qty_val = min_qty
+            .map(extract_decimal)
+            .transpose()?
+            .unwrap_or(step_val);
         let underlying_symbol_value = underlying_symbol.as_deref();
         validate_instrument_inputs(
             &clean_symbol,
@@ -263,13 +277,19 @@ impl Instrument {
                 implied_volatility: implied_volatility_val,
                 reference_volatility: reference_volatility_val,
             }),
-            AssetType::Crypto => InstrumentEnum::Crypto(CryptoInstrument {
-                symbol: clean_symbol.clone(),
-                lot_size: lot_val,
-                tick_size: tick_val,
-                multiplier: multiplier_val,
-                margin_ratio: margin_val,
-            }),
+            AssetType::Crypto => {
+                ensure_positive(step_val, "step_size")?;
+                ensure_positive(min_qty_val, "min_qty")?;
+                InstrumentEnum::Crypto(CryptoInstrument {
+                    symbol: clean_symbol.clone(),
+                    lot_size: lot_val,
+                    tick_size: tick_val,
+                    step_size: step_val,
+                    min_qty: min_qty_val,
+                    multiplier: multiplier_val,
+                    margin_ratio: margin_val,
+                })
+            }
             AssetType::Forex => InstrumentEnum::Forex(ForexInstrument {
                 symbol: clean_symbol.clone(),
                 lot_size: lot_val,
@@ -319,6 +339,16 @@ impl Instrument {
     #[getter]
     pub fn get_reference_volatility(&self) -> Option<f64> {
         self.reference_volatility().and_then(|v| v.to_f64())
+    }
+
+    #[getter]
+    pub fn get_step_size(&self) -> f64 {
+        self.step_size().to_f64().unwrap_or(1.0)
+    }
+
+    #[getter]
+    pub fn get_min_qty(&self) -> f64 {
+        self.min_qty().to_f64().unwrap_or(1.0)
     }
 }
 
@@ -441,6 +471,36 @@ impl Instrument {
             _ => None,
         }
     }
+
+    pub fn step_size(&self) -> Decimal {
+        match &self.inner {
+            InstrumentEnum::Crypto(c) => c.step_size,
+            _ => Decimal::ONE,
+        }
+    }
+
+    pub fn min_qty(&self) -> Decimal {
+        match &self.inner {
+            InstrumentEnum::Crypto(c) => c.min_qty,
+            _ => Decimal::ONE,
+        }
+    }
+}
+
+/// 将 quantity 向下截断至 step_size 的整数倍
+pub fn round_qty(qty: Decimal, step_size: Decimal) -> Decimal {
+    if step_size <= Decimal::ZERO {
+        return qty;
+    }
+    (qty / step_size).floor() * step_size
+}
+
+/// 将 price 四舍五入至 tick_size 的整数倍
+pub fn round_price(price: Decimal, tick_size: Decimal) -> Decimal {
+    if tick_size <= Decimal::ZERO {
+        return price;
+    }
+    (price / tick_size).round() * tick_size
 }
 
 #[cfg(test)]
@@ -492,6 +552,8 @@ mod tests {
             None,
             None,
             Some(20260101),
+            None,
+            None,
             None,
             Some("".to_string()),
             None,
