@@ -922,12 +922,14 @@ impl Processor for CryptoPerpProcessor {
                 &mut engine.state.portfolio.cash,
             );
             for p in &payments {
-                log::info!(
-                    "Funding settlement: {} pays {:.6} USDT (rate={:.6})",
-                    p.symbol,
-                    p.amount,
-                    p.rate
-                );
+                if p.amount != 0.0 {
+                    log::info!(
+                        "Funding settlement: {} pays {:.6} USDT (rate={:.6})",
+                        p.symbol,
+                        p.amount,
+                        p.rate
+                    );
+                }
             }
         }
 

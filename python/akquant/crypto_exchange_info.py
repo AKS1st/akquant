@@ -240,7 +240,7 @@ def fetch_binance_klines(
         end_ms = int(df["timestamp"].iloc[-1].value // 1_000_000) + 1
         url_fr = (
             f"{base_url}/fapi/v1/fundingRate"
-            f"?symbol={symbol}&startTime={start_ms}&endTime={end_ms}&limit={limit}"
+            f"?symbol={symbol}&startTime={start_ms}&endTime={end_ms}&limit=100"
         )
         req_fr = urllib.request.Request(url_fr, headers=headers)
         with urllib.request.urlopen(req_fr, timeout=15) as resp_fr:
@@ -249,31 +249,26 @@ def fetch_binance_klines(
         # 构建 funding_time → rate 映射 (fundingTime 是结算时刻 ms)
         fr_map: Dict[int, float] = {}
         for item in raw_fr:
+            if not isinstance(item, dict):
+                continue
             ft = item.get("fundingTime")
             rate = item.get("fundingRate")
             if ft is not None and rate is not None:
                 fr_map[ft] = float(rate)
 
-        # 对于每根 bar，找到其所属结算小时的最新 funding_rate
-        # 一个结算小时内的所有 bar 共享该小时的结算费率
-        # 如果该小时内没有结算事件，费率为 0
-        df["funding_rate"] = 0.0
+        # 对于每根 bar，只在其所属结算小时设 funding_rate（来自 Binance API）
+        # 非结算小时用 NaN，引擎会跳过（Rust check_settlement 会 filter is_nan）
+        df["funding_rate"] = float("nan")
         bar_ns = df["timestamp"].values.astype("int64")  # ns
         for ft_ms, rate in fr_map.items():
             ft_ns = ft_ms * 1_000_000
-            # 找到该结算时刻及之后的第一根 bar，应用此费率
-            mask = bar_ns >= ft_ns
-            if mask.any():
-                # 将费率赋给该结算时刻及之后的所有 bar，直至下个结算点
-                # 但更精确的做法：只赋给该结算小时内的 bar
-                # 一个结算小时 = 3600 秒 = 3.6e12 ns
-                hour_ns = 3_600_000_000_000
-                hour_start = (ft_ns // hour_ns) * hour_ns
-                hour_end = hour_start + hour_ns
-                hour_mask = (bar_ns >= hour_start) & (bar_ns < hour_end)
-                df.loc[hour_mask, "funding_rate"] = rate
+            hour_ns = 3_600_000_000_000
+            hour_start = (ft_ns // hour_ns) * hour_ns
+            hour_end = hour_start + hour_ns
+            hour_mask = (bar_ns >= hour_start) & (bar_ns < hour_end)
+            df.loc[hour_mask, "funding_rate"] = rate
     except Exception:
-        df["funding_rate"] = 0.0
+        df["funding_rate"] = float("nan")
 
     return df
 

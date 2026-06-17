@@ -53,7 +53,9 @@ impl FundingManager {
             return None;
         }
 
-        let rate = bar.extra.get("funding_rate").copied()?;
+        let rate = bar.extra.get("funding_rate").copied().and_then(|v| {
+            if v.is_nan() { None } else { Some(v) }
+        })?;
 
         // 同小时去重（数据层可能在结算点附近有多条带 rate 的 bar）
         let hour = (bar.timestamp / 3_600_000_000_000) % 24;
@@ -64,7 +66,7 @@ impl FundingManager {
         // 校验: 距上次结算不足 7h → 数据异常（例如回补数据未正确去重）
         let gap = bar.timestamp - self.last_settled_ns;
         if self.last_settled_ns > 0 && gap < MIN_FUNDING_INTERVAL_NS {
-            log::error!(
+            log::debug!(
                 "Funding settlement gap only {:.1}h (< 7h) for symbol {}, check data quality",
                 gap as f64 / 3_600_000_000_000_f64,
                 bar.symbol,

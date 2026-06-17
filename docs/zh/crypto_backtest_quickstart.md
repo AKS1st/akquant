@@ -87,6 +87,8 @@ aligned_price = round_price(50000.123, 0.01)  # → 50000.12
 ```python
 import akquant as aq
 from akquant import Strategy, AssetType
+from akquant.config import BacktestConfig, StrategyConfig
+from akquant.config import BacktestConfig, StrategyConfig
 from akquant.crypto_exchange_info import fetch_binance_klines, get_default_crypto_instruments
 
 # 1. 数据：Binance 真实行情，结果可复现
@@ -102,14 +104,19 @@ class MyStrategy(Strategy):
             self.buy("BTCUSDT", quantity=0.001)
 
 # 4. 回测
+config = BacktestConfig(
+    strategy_config=StrategyConfig(
+        maker_commission_rate=0.0002,
+    ),
+)
 result = aq.run_backtest(
     strategy=MyStrategy,
     symbols=["BTCUSDT"],
     data=df,
+    config=config,
     asset_type=AssetType.Crypto,
     initial_cash=10000,
     commission_rate=0.0005,
-    maker_commission_rate=0.0002,
     margin_ratio=0.1,
     instruments=instruments,
 )
@@ -149,6 +156,7 @@ print(result.metrics)
 from akquant.crypto_exchange_info import fetch_binance_klines, get_default_crypto_instruments
 import akquant as aq
 from akquant import Strategy, AssetType
+from akquant.config import BacktestConfig, StrategyConfig
 
 # 1. 数据（默认 2026-06-15 全天，结果可复现）
 df = fetch_binance_klines("BTCUSDT", interval="5m")
@@ -164,14 +172,18 @@ class MyStrategy(Strategy):
             self.buy("BTCUSDT", quantity=0.001)
 
 # 4. 回测
+config = BacktestConfig(
+    strategy_config=StrategyConfig(maker_commission_rate=0.0002),
+)
+
 result = aq.run_backtest(
     strategy=MyStrategy(),
     symbols=["BTCUSDT"],
     data=df,
+    config=config,
     asset_type=AssetType.Crypto,
     initial_cash=10000,
     commission_rate=0.0005,
-    maker_commission_rate=0.0002,
     margin_ratio=0.1,
     instruments=instruments,
     show_progress=False,
@@ -209,13 +221,14 @@ print(f"最大回撤: {result.metrics.max_drawdown_pct:.2f}%")
 
 无平仓交易（策略未平仓）
 
-最终现金: 9934.33
+最终现金: 9934.34
 收益率:   0.01%
 夏普比:   0.000
 最大回撤: 0.01%
 ```
 
 > 数据来自 Binance 固定历史日期，结果可复现。
+> 实际资金费率约 0.001~0.006%，对现金影响极小。
 > 如果网络不通或 Binance API 超时，请检查网络后重试。
 
 ---
