@@ -115,22 +115,38 @@ result = aq.run_backtest(
 ## 完整示例
 
 ```python
-from akquant.crypto_exchange_info import fetch_binance_klines, get_default_crypto_instruments
+from akquant.crypto_exchange_info import get_default_crypto_instruments
 import akquant as aq
 from akquant import Strategy, AssetType
 from akquant.config import BacktestConfig, StrategyConfig
+import pandas as pd
 
-# 1. 下载 2026-06-01 全天 5 分钟 K 线（约 289 根 bar）
-df = fetch_binance_klines("BTCUSDT", interval="5m", start_time="2026-06-01", end_time="2026-06-02")
+# 1. 数据
+ts = pd.date_range("2026-06-01", periods=6, freq="5min", tz="UTC")
+df = pd.DataFrame({
+    "timestamp": ts, "symbol": "BTCUSDT",
+    "open": [100, 110, 120, 130, 140, 150],
+    "high": [105, 115, 125, 135, 145, 155],
+    "low":  [95,  99,  115, 125, 135, 145],
+    "close":[102, 112, 122, 132, 142, 152],
+    "volume":[1000.0]*6,
+})
+df["mark_price"] = df["close"]
+df["funding_rate"] = float("nan")
 
-# 2. 币种精度配置
-instruments = get_default_crypto_instruments(["BTCUSDT"], margin_ratio=0.1)
+# 2. 精度配置
+instruments = get_default_crypto_instruments(["BTCUSDT"], margin_ratio=1.0)
 
-# 3. 策略：第一根 bar 买入 0.001 BTC，不再操作
+# 3. 策略
 class MyStrategy(Strategy):
+    n = 0
     def on_bar(self, bar):
-        if self.get_position("BTCUSDT") == 0:
-            self.buy("BTCUSDT", quantity=0.001)
+        self.n += 1
+        if self.n == 1:
+            self.buy("BTCUSDT", quantity=1)               # Taker: 市价单
+            self.buy("BTCUSDT", quantity=1, price=99)     # Maker: 限价单
+        elif self.n == 4:
+            self.sell("BTCUSDT", quantity=1)               # 平 1 单
 
 # 4. 回测
 result = aq.run_backtest(
@@ -139,60 +155,121 @@ result = aq.run_backtest(
     data=df,
     config=BacktestConfig(
         strategy_config=StrategyConfig(
-            commission_rate=0.0005,
-            maker_commission_rate=0.0002,
+            commission_rate=0.001,
+            maker_commission_rate=0.0005,
         ),
     ),
     asset_type=AssetType.Crypto,
-    initial_cash=10000,
-    margin_ratio=0.1,
+    initial_cash=100000,
+    margin_ratio=1.0,
     instruments=instruments,
     show_progress=False,
 )
 
 # 5. 输出
-orders = result.orders_df
-print(f"\n订单 ({len(orders)} 笔):")
+orders = result.orders_df.sort_values("created_at").reset_index(drop=True)
+print("=== 订单明细 ===")
 for _, o in orders.iterrows():
-    print(f"  {o['side']:5s} qty={o['quantity']:.4f} filled={o['filled_quantity']:.4f} "
-          f"price={o['avg_price']:.2f} comm={o['commission']:.4f} {o['status']}")
+    print(f"  {o['side']:5s} type={o['order_type']:11s} qty={o['quantity']:.2f} "
+          f"filled={o['filled_quantity']:.2f} price={o['avg_price']:.2f} "
+          f"comm={o['commission']:.4f} status={o['status']}")
 
-trades = result.trades
-if trades:
-    print(f"\n平仓交易 ({len(trades)} 笔):")
-    for t in trades:
-        print(f"  {t.side:5s} entry={t.entry_price:.2f} exit={t.exit_price:.2f} "
-              f"pnl={t.pnl:.2f} net_pnl={t.net_pnl:.2f}")
-else:
-    print("\n无平仓交易（策略未平仓）")
+print(f"\n=== 平仓交易 ===")
+for t in result.trades:
+    print(f"  {t.side:5s} entry={t.entry_price:.2f} exit={t.exit_price:.2f} "
+          f"qty={t.quantity:.2f} pnl={t.pnl:.2f} net_pnl={t.net_pnl:.2f} "
+          f"comm={t.commission:.2f} bars={t.duration_bars}")
 
-print(f"\n最终现金: {float(result.cash_curve.iloc[-1]):.2f}")
-print(f"收益率:   {result.metrics.total_return_pct:.2f}%")
-print(f"夏普比:   {result.metrics.sharpe_ratio:.3f}")
-print(f"最大回撤: {result.metrics.max_drawdown_pct:.2f}%")
+m = result.metrics
+print(f"\n=== 综合指标 ===")
+print(f"  初始现金: {result.initial_cash:.2f}")
+print(f"  最终现金: {float(result.cash_curve.iloc[-1]):.2f}")
+print(f"  最终权益: {m.end_market_value:.2f}")
+print(f"  总收益率: {m.total_return_pct:.2f}%")
+print(f"  最大回撤: {m.max_drawdown_pct:.2f}%")
 ```
 
 **运行输出:**
 
 ```
-数据: 289 根 bar, 2026-06-01 ~ 2026-06-02
+=== 订单明细 ===
+  buy   type=market      qty=1.00 filled=1.00 price=110.00 comm=0.1100 status=filled
+  buy   type=limit       qty=1.00 filled=1.00 price=99.00  comm=0.0495 status=filled
+  sell  type=market      qty=1.00 filled=1.00 price=140.00 comm=0.1400 status=filled
 
-订单 (1 笔):
-   buy  qty=0.0010 filled=0.0010 price=73840.20 comm=0.0369 filled
+=== 平仓交易 ===
+  Long  entry=110.00 exit=140.00 qty=1.00 pnl=30.00 net_pnl=29.75 comm=0.25 bars=3
 
-无平仓交易（策略未平仓）
-
-最终现金: 9926.11
-收益率:   -0.03%
-夏普比:   0.000
-最大回撤: 0.03%
+=== 综合指标 ===
+  初始现金: 100000.00
+  最终现金: 99930.70
+  最终权益: 100082.70
+  总收益率: 0.08%
+  最大回撤: 0.00%
 ```
 
 ---
 
-## 手续费
+## 回测结果解读
 
-所有币种共享同一套 taker/maker 费率。
+### 订单明细字段
+
+| 字段 | 说明 |
+|---|---|
+| `side` | 买卖方向：`buy` 或 `sell` |
+| `order_type` | 订单类型：`market`（市价单）、`limit`（限价单） |
+| `quantity` | 下单数量 |
+| `filled_quantity` | 成交数量（部分成交时小于 quantity） |
+| `avg_price` | 平均成交价 |
+| `commission` | 该笔订单支付的佣金 |
+| `status` | 订单状态：`filled`（全部成交）、`rejected`（被拒）、`cancelled`（撤销） |
+
+### 订单成交过程
+
+上例中 3 笔订单的成交过程：
+
+1. **市价买单（Taker）** — bar 0 提交，bar 1 以 `open=110` 成交
+   - 佣金 = 110 × 0.001 = 0.11（使用 taker 费率 0.1%）
+
+2. **限价买单（Maker）** — bar 0 提交限价 99，bar 1 `low=99` 盘中触底成交
+   - 不开空跳空（bar 1 `open=110 > 99`），盘中被动成交 → maker
+   - 佣金 = 99 × 0.0005 = 0.0495（使用 maker 费率 0.05%）
+
+3. **市价卖单（Taker）** — bar 3 提交，bar 4 以 `open=140` 成交
+   - 佣金 = 140 × 0.001 = 0.14（使用 taker 费率 0.1%）
+
+### 平仓交易字段
+
+| 字段 | 说明 |
+|---|---|
+| `side` | 持仓方向：`Long`（多头）或 `Short`（空头） |
+| `entry_price` | 开仓均价（FIFO：先开先平） |
+| `exit_price` | 平仓成交价 |
+| `qty` | 平仓数量 |
+| `pnl` | 盈亏 = qty × (exit - entry) = 1 × (140 - 110) = 30 |
+| `net_pnl` | 净盈亏 = pnl - 开仓佣金 - 平仓佣金 = 30 - 0.11 - 0.14 = 29.75 |
+| `comm` | 该笔交易关联的佣金 |
+| `bars` | 持仓 bar 数（从开仓到平仓） |
+
+### 综合指标
+
+| 指标 | 值 | 说明 |
+|---|---|---|
+| `initial_cash` | 100000.00 | 初始现金 |
+| 最终现金 | 99930.70 | 平仓后账户可用现金 |
+| `end_market_value` | 100082.70 | 最终权益 = 现金 + 未平仓市值（含 1 持仓 @ 当前价 152 + 未实现盈亏） |
+| `total_return_pct` | 0.08% | 总收益率 = (权益 - 初始现金) / 初始现金 |
+| `max_drawdown_pct` | 0.00% | 最大回撤（本例价格单边上涨，无回撤） |
+
+### 现金流水追踪
+
+```
+初始:     100000.00
+买 1 @ 110 (taker):  −110 − 0.11 =    99889.89
+买 1 @ 99  (maker):  −99 − 0.0495 =   99790.84
+卖 1 @ 140 (taker):  +140 − 0.14 =    99930.70  ← 最终现金
+持仓市值:   +1 × 152 =                100082.70  ← 最终权益 (现金 + 持仓 × 当前价)
+```
 
 ```python
 config = BacktestConfig(
