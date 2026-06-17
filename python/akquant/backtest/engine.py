@@ -1580,6 +1580,119 @@ def _asset_type_to_upper_name(
     return "STOCK"
 
 
+def _check_crypto_config(
+    *,
+    data: Any,
+    kwargs: Dict[str, Any],
+    symbols: Any,
+    commission_rate: Optional[float],
+) -> None:
+    """回测启动前对 Crypto 参数做完整性检查并发出警告.
+
+    检查项:
+      - maker_commission_rate 未设置时隐含的行为
+      - 数据缺少 funding_rate / mark_price 列
+      - 未配置 per-symbol instruments (精度检查失效)
+      - 保证金未带杠杆
+      - min_notional 未设置
+
+    仅当 asset_type = crypto 时执行。
+    """
+    _raw_asset = kwargs.get("asset_type")
+    if _raw_asset is None:
+        return
+    try:
+        _parsed = _parse_asset_type_name(_raw_asset)
+    except Exception:
+        return
+    if _parsed != "crypto":
+        return
+
+    from ..akquant import AssetType as _AT
+
+    logger = get_logger(__name__)
+
+    # ── 1. maker_commission_rate ──
+    _maker = kwargs.get("maker_commission_rate")
+    _taker = commission_rate if commission_rate is not None else kwargs.get("commission_rate", 0.0)
+    if _maker is None:
+        logger.warning(
+            "[crypto] maker_commission_rate 未设置, 将默认等于 taker commission_rate (%.4f%%). "
+            "实盘中 Maker 费率通常低于 Taker, 建议通过 run_backtest(maker_commission_rate=...) 或 "
+            "StrategyConfig(maker_commission_rate=...) 显式设置。",
+            float(_taker) * 100,
+        )
+
+    # ── 2. data columns ──
+    _has_funding = False
+    _has_mark = False
+    if isinstance(data, dict):
+        for _df in data.values():
+            if hasattr(_df, "columns"):
+                if "funding_rate" in _df.columns:
+                    _has_funding = True
+                if "mark_price" in _df.columns:
+                    _has_mark = True
+    elif hasattr(data, "columns"):
+        if "funding_rate" in data.columns:
+            _has_funding = True
+        if "mark_price" in data.columns:
+            _has_mark = True
+
+    if not _has_funding:
+        logger.warning(
+            "[crypto] 数据缺少 funding_rate 列, 资金费率结算将不会生效。"
+            "如果回测永续合约, 建议在 DataFrame 中添加 funding_rate 列 "
+            "(UTC 0/8/16 整点设非零值, 其余设为 0)。"
+        )
+    else:
+        logger.info(
+            "[crypto] 检测到 funding_rate 列, 资金费率结算已就绪。"
+        )
+
+    if not _has_mark:
+        logger.warning(
+            "[crypto] 数据缺少 mark_price 列, 强平和资金费率结算将使用 close 价格作为标记价格。"
+            "建议在 DataFrame 中添加 mark_price 列以获得更准确的仿真结果。"
+        )
+    else:
+        logger.info("[crypto] 检测到 mark_price 列, 强平/资金费率使用标记价格。")
+
+    # ── 3. instruments 精度配置 ──
+    _raw_instrs = kwargs.get("instruments")
+    if _raw_instrs is None:
+        logger.warning(
+            "[crypto] 未配置 per-symbol instruments 参数。精度检查 (step_size/min_qty/"
+            "min_notional) 将不会生效, 小数精度相关的拒单功能被禁用。"
+            "建议通过 run_backtest(instruments=get_default_crypto_instruments(symbols)) "
+            "或 instruments={'SYMBOL': {'step_size': ..., 'min_qty': ..., ...}} 配置。"
+        )
+    else:
+        # 检查各币种是否有 min_notional
+        _has_notional = False
+        if isinstance(_raw_instrs, dict):
+            for _v in _raw_instrs.values():
+                if isinstance(_v, dict) and _v.get("min_notional", 0) > 0:
+                    _has_notional = True
+                elif hasattr(_v, "min_notional") and getattr(_v, "min_notional", 0) > 0:
+                    _has_notional = True
+        if not _has_notional:
+            logger.warning(
+                "[crypto] instruments 中未设置 min_notional (>0), 最小名义价值检查被禁用。"
+                "实盘中交易所会拒绝名义价值过低的订单。"
+                "建议使用 get_default_crypto_instruments(symbols) 自动填入。"
+            )
+
+    # ── 4. 杠杆 ──
+    _margin = kwargs.get("margin_ratio", 1.0)
+    if _margin is not None and float(_margin) >= 0.9999:
+        logger.info(
+            "[crypto] margin_ratio=%.2f (全额保证金, 无杠杆)。"
+            "如有意使用杠杆, 请设置 margin_ratio=1/leverage (如 10x=0.1)。",
+            float(_margin),
+        )
+
+
 def _option_type_to_upper_name(value: Any) -> Optional[InstrumentOptionTypeName]:
     if value is None:
         return None
@@ -2708,6 +2821,15 @@ def run_backtest(
         symbols=symbols,
         kwargs=kwargs,
         api_name="run_backtest",
+    )
+
+    # ── Crypto 参数预检 ──
+    if strategy_config is not None:
+        _maker_from_config = getattr(strategy_config, "maker_commission_rate", None)
+        if kwargs.get("maker_commission_rate") is None and _maker_from_config is not None:
+            kwargs["maker_commission_rate"] = _maker_from_config
+    _check_crypto_config(
+        data=data, kwargs=kwargs, symbols=symbols, commission_rate=commission_rate,
     )
 
     strategy_input = resolve_strategy_input(

@@ -254,9 +254,14 @@ AKQuant 支持区分 taker 和 maker 费率, 与真实交易所对齐。
 result = aq.run_backtest(
     ...,
     commission_rate=0.0007,          # taker 费率 0.07%
-    maker_commission_rate=0.0002,    # maker 费率 0.02% (不传则默认等于 taker)
+    maker_commission_rate=0.0002,    # maker 费率 0.02%
 )
 ```
+
+**`maker_commission_rate` 未设置时的行为:**
+- **默认继承 taker 费率** (`commission_rate`), 亦即 taker = maker
+- 回测启动时会输出 **warning** 提醒: _"maker_commission_rate 未设置, 将默认等于 taker 费率 X.XX%"_
+- 可通过 `StrategyConfig(maker_commission_rate=0.0002)` 或 `run_backtest(maker_commission_rate=0.0002)` 设置
 
 **判定规则:** 由订单类型决定:
 
@@ -267,7 +272,35 @@ result = aq.run_backtest(
 | `Limit` (限价单) | maker | `maker_commission_rate` |
 | `LimitMaker` (Post-Only) | maker | `maker_commission_rate` |
 
-不传 `maker_commission_rate` 时 maker 费率 = taker 费率, 向后兼容。
+### 回测启动参数检查
+
+运行 Crypto 回测时, 引擎会自动检查以下配置项并输出警告/提示:
+
+| 检查项 | 条件 | 级别 | 说明 |
+|---|---|---|---|
+| `maker_commission_rate` 未设置 | 未传 | warning | 默认等于 taker, 但实盘通常更低 |
+| 数据缺少 `funding_rate` 列 | 无该列 | warning | 资金费率结算不生效 |
+| 数据缺少 `mark_price` 列 | 无该列 | warning | 强平/FR 使用 close 替代标记价 |
+| `instruments` 未配置 | 未传 | warning | 精度检查/拒单功能禁用 |
+| `min_notional` 未配置 | all = 0 | warning | 最小名义价值检查禁用 |
+| `margin_ratio` = 1.0 | 无杠杆 | info | 提示可使用杠杆 |
+
+这些检查**仅在 `asset_type = Crypto` 时触发**, 不影响其他市场类型。
+
+建议首次上手时使用:
+
+```python
+from akquant.crypto_exchange_info import get_default_crypto_instruments
+
+result = aq.run_backtest(
+    ...,
+    asset_type="crypto",
+    instruments=get_default_crypto_instruments(["BTCUSDT"]),
+    maker_commission_rate=0.0002,
+)
+```
+
+即可消除所有 warning。
 
 ### 逐币种手续费
 

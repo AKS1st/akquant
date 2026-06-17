@@ -541,7 +541,9 @@ class StrategyConfig:
 
     **Capital & Costs:**
     :param initial_cash: Initial capital for the backtest. Default 100,000.0.
-    :param commission_rate: Default commission rate (e.g., 0.0003).
+    :param commission_rate: Default commission rate (e.g., 0.0003). 作为 taker 费率。
+    :param maker_commission_rate: Maker 费率 (可选)。不传则默认等于 commission_rate。
+                                 仅 SimpleMarket 模式支持 (Crypto/Forex)。
     :param commission_policy: Optional default commission policy dict.
                               Supported types: `percent`, `fixed`, `per_unit`.
                               When provided, it takes precedence over
@@ -576,7 +578,8 @@ class StrategyConfig:
     initial_cash: float = 100000.0
 
     # Fees & Commission (Default / Fallback)
-    commission_rate: float = 0.0  # Commission rate (e.g. 0.0003 for 0.03%)
+    commission_rate: float = 0.0  # Taker 费率 (e.g. 0.0003 for 0.03%)
+    maker_commission_rate: Optional[float] = None  # Maker 费率, None=同 commission_rate
     commission_policy: Optional[Dict[str, Any]] = None
     stamp_tax_rate: float = 0.0  # Stamp tax rate (e.g. 0.001, sell only)
     transfer_fee_rate: float = 0.0  # Transfer fee rate
