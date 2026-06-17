@@ -708,6 +708,22 @@ class BacktestResult:
         return df
 
     @cached_property
+    def funding_payment_df(self) -> pd.DataFrame:
+        """Get funding rate settlement records as a Pandas DataFrame."""
+        if not hasattr(self._raw, "get_funding_payments_dict"):
+            return pd.DataFrame()
+
+        try:
+            data = self._raw.get_funding_payments_dict()
+            if not data:
+                return pd.DataFrame()
+            df = pd.DataFrame(data)
+        except Exception:
+            return pd.DataFrame()
+
+        return df
+
+    @cached_property
     def liquidation_audit_df(self) -> pd.DataFrame:
         """Get margin forced-liquidation audit records as a Pandas DataFrame."""
         if not hasattr(self._raw, "get_liquidation_audits_dict"):

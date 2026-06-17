@@ -230,6 +230,7 @@ fn test_max_drawdown_logic() {
         orders: vec![],
         executions: vec![],
         liquidation_audits: vec![],
+        funding_payments: vec![],
     });
     assert_eq!(result.metrics.max_drawdown, 0.25);
 
@@ -253,6 +254,7 @@ fn test_max_drawdown_logic() {
         orders: vec![],
         executions: vec![],
         liquidation_audits: vec![],
+        funding_payments: vec![],
     });
     assert_eq!(result_2.metrics.max_drawdown, 0.0);
 
@@ -276,6 +278,7 @@ fn test_max_drawdown_logic() {
         orders: vec![],
         executions: vec![],
         liquidation_audits: vec![],
+        funding_payments: vec![],
     });
     assert_eq!(result_3.metrics.max_drawdown, 0.2);
 
@@ -302,6 +305,7 @@ fn test_max_drawdown_logic() {
         orders: vec![],
         executions: vec![],
         liquidation_audits: vec![],
+        funding_payments: vec![],
     });
     assert_eq!(result_4.metrics.max_drawdown, 0.5);
 }
@@ -338,6 +342,7 @@ fn test_ulcer_index_logic() {
         orders: vec![],
         executions: vec![],
         liquidation_audits: vec![],
+        funding_payments: vec![],
     });
     let expected_ui = 0.004f64.sqrt();
     assert!((result.metrics.ulcer_index - expected_ui).abs() < 1e-9);
@@ -365,6 +370,7 @@ fn test_calmar_uses_raw_drawdown_ratio_not_pct() {
         orders: vec![],
         executions: vec![],
         liquidation_audits: vec![],
+        funding_payments: vec![],
     });
 
     let expected_raw_calmar = result.metrics.annualized_return / result.metrics.max_drawdown;
@@ -410,6 +416,7 @@ fn test_daily_metrics_resample_by_local_timezone_day() {
         orders: vec![],
         executions: vec![],
         liquidation_audits: vec![],
+        funding_payments: vec![],
     });
 
     let expected_returns = [0.21_f64, 0.10_f64];

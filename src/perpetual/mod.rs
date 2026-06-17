@@ -5,7 +5,7 @@ pub mod manager;
 pub mod tiers;
 
 pub use config::CryptoPerpConfig;
-pub use funding::FundingManager;
+pub use funding::{FundingManager, FundingPayment};
 pub use liquidation::LiquidationManager;
 pub use manager::CryptoPerpManager;
 pub use tiers::{MaintenanceMarginTier, TierTable};

@@ -1,5 +1,6 @@
 use super::types::*;
 use crate::model::{Order, Trade};
+use crate::perpetual::FundingPayment;
 use chrono::{NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use pyo3::prelude::*;
@@ -22,6 +23,7 @@ pub struct CalculatorInput {
     pub orders: Vec<Order>,
     pub executions: Vec<Trade>,
     pub liquidation_audits: Vec<LiquidationAudit>,
+    pub funding_payments: Vec<FundingPayment>,
 }
 
 #[gen_stub_pyclass]
@@ -39,6 +41,7 @@ pub struct CalculatorInput {
 /// :ivar orders: 订单列表
 /// :ivar executions: 成交列表
 /// :ivar liquidation_audits: 强平审计记录
+/// :ivar funding_payments: 资金费率结算记录
 pub struct BacktestResult {
     #[pyo3(get)]
     pub equity_curve: Vec<(i64, f64)>,
@@ -61,6 +64,7 @@ pub struct BacktestResult {
     pub executions: Vec<Trade>,
     #[pyo3(get)]
     pub liquidation_audits: Vec<LiquidationAudit>,
+    pub funding_payments: Vec<FundingPayment>,
 }
 
 impl BacktestResult {
@@ -142,6 +146,7 @@ impl BacktestResult {
                 orders: input.orders,
                 executions: input.executions,
                 liquidation_audits: input.liquidation_audits,
+                funding_payments: input.funding_payments,
             };
         }
 
@@ -402,6 +407,7 @@ impl BacktestResult {
             orders: input.orders,
             executions: input.executions,
             liquidation_audits: input.liquidation_audits,
+            funding_payments: input.funding_payments,
         }
     }
 }

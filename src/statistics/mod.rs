@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::account::calculate_account_metrics;
 use crate::analysis::{BacktestResult, LiquidationAudit, PositionSnapshot};
+use crate::perpetual::FundingPayment;
 use crate::model::Instrument;
 use crate::portfolio::Portfolio;
 use crate::risk::RiskConfig;
@@ -25,6 +26,8 @@ pub struct StatisticsManager {
     pub snapshots: Vec<(i64, Vec<PositionSnapshot>)>,
     /// 强平审计记录
     pub liquidation_audits: Vec<LiquidationAudit>,
+    /// 资金费率结算记录
+    pub funding_payments: Vec<FundingPayment>,
 }
 
 impl Default for StatisticsManager {
@@ -52,7 +55,12 @@ impl StatisticsManager {
             margin_curve: Vec::new(),
             snapshots: Vec::new(),
             liquidation_audits: Vec::new(),
+            funding_payments: Vec::new(),
         }
+    }
+
+    pub fn record_funding_payment(&mut self, payment: FundingPayment) {
+        self.funding_payments.push(payment);
     }
 
     /// 更新权益和现金曲线
@@ -217,6 +225,7 @@ impl StatisticsManager {
             orders: order_manager.get_all_orders(),
             executions: order_manager.trades.clone(),
             liquidation_audits: self.liquidation_audits.clone(),
+            funding_payments: self.funding_payments.clone(),
         })
     }
 

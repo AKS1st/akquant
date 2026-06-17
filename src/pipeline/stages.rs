@@ -930,6 +930,7 @@ impl Processor for CryptoPerpProcessor {
                         p.rate
                     );
                 }
+                engine.statistics_manager.record_funding_payment(p.clone());
             }
         }
 

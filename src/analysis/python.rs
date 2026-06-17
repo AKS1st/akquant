@@ -726,6 +726,31 @@ impl BacktestResult {
         Ok(dict.into())
     }
 
+    pub fn get_funding_payments_dict(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let n = self.funding_payments.len();
+        let mut symbols = Vec::with_capacity(n);
+        let mut quantities = Vec::with_capacity(n);
+        let mut mark_prices = Vec::with_capacity(n);
+        let mut rates = Vec::with_capacity(n);
+        let mut amounts = Vec::with_capacity(n);
+
+        for p in &self.funding_payments {
+            symbols.push(p.symbol.clone());
+            quantities.push(p.quantity);
+            mark_prices.push(p.mark_price);
+            rates.push(p.rate);
+            amounts.push(p.amount);
+        }
+
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("symbol", symbols)?;
+        dict.set_item("quantity", quantities)?;
+        dict.set_item("mark_price", mark_prices)?;
+        dict.set_item("rate", rates)?;
+        dict.set_item("amount", amounts)?;
+        Ok(dict.into())
+    }
+
     /// Get orders as a DataFrame similar to PyBroker's format.
     #[getter]
     pub fn orders_df(&self, py: Python) -> PyResult<Py<PyAny>> {

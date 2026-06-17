@@ -1,5 +1,6 @@
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use rust_decimal_macros::dec;
@@ -7,7 +8,7 @@ use rust_decimal_macros::dec;
 use crate::model::Bar;
 
 /// 资金费率结算记录
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FundingPayment {
     pub symbol: String,
     pub quantity: f64,
