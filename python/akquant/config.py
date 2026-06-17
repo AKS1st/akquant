@@ -141,6 +141,9 @@ class InstrumentConfig:
                       默认等于 lot_size。
     :param min_qty: 最小订单数量 (仅 Crypto)，低于此值的买入/卖出订单将被拒绝。
                     默认等于 step_size。
+    :param min_notional: 最小开仓名义价值 (仅 Crypto)，订单名义价值
+                         (quantity * price) 低于此值时将被拒绝。
+                         默认 None 表示不检查。
 
     **Cost & Execution Overrides:**
     These fields override the global settings in `StrategyConfig` for
@@ -174,6 +177,7 @@ class InstrumentConfig:
     lot_size: Optional[float] = None
     step_size: Optional[float] = None  # 数量步长 (仅 Crypto)，默认等于 lot_size
     min_qty: Optional[float] = None  # 最小订单数量 (仅 Crypto)，默认等于 step_size
+    min_notional: Optional[float] = None  # 最小开仓名义价值 (仅 Crypto)
 
     # Costs & Execution (Asset Specific)
     commission_rate: Optional[float] = None
@@ -250,6 +254,8 @@ class InstrumentConfig:
             raise ValueError("step_size must be > 0")
         if self.min_qty is not None and self.min_qty <= 0:
             raise ValueError("min_qty must be > 0")
+        if self.min_notional is not None and self.min_notional < 0:
+            raise ValueError("min_notional must be >= 0")
         if self.reference_volatility is not None and self.reference_volatility <= 0:
             raise ValueError("reference_volatility must be > 0")
 

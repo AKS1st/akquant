@@ -39,6 +39,7 @@ from ..config import (
     ChinaFuturesConfig,
     ChinaFuturesInstrumentTemplateConfig,
     ChinaOptionsConfig,
+    InstrumentConfig,
     RiskConfig,
     StrategyConfig,
 )
@@ -2920,7 +2921,28 @@ def run_backtest(
             for item in raw_instruments:
                 preliminary_prebuilt_instruments[item.symbol] = item
         elif isinstance(raw_instruments, dict):
-            preliminary_prebuilt_instruments.update(raw_instruments)
+            for sym, val in raw_instruments.items():
+                if isinstance(val, (InstrumentConfig, dict)):
+                    if isinstance(val, InstrumentConfig):
+                        i_conf = val
+                    else:
+                        i_conf = InstrumentConfig(
+                            symbol=sym,
+                            asset_type=val.get("asset_type", "CRYPTO"),
+                            multiplier=val.get("multiplier", 1.0),
+                            margin_ratio=val.get("margin_ratio", 1.0),
+                            tick_size=val.get("tick_size", 0.01),
+                            lot_size=val.get("lot_size"),
+                            step_size=val.get("step_size"),
+                            min_qty=val.get("min_qty"),
+                            min_notional=val.get("min_notional"),
+                            commission_rate=val.get("commission_rate"),
+                            slippage=val.get("slippage"),
+                            expiry_date=val.get("expiry_date"),
+                        )
+                    preliminary_inst_conf_map[sym] = i_conf
+                else:
+                    preliminary_prebuilt_instruments[sym] = val
     preliminary_default_expiry = _normalize_expiry_date_yyyymmdd(
         kwargs.get("expiry_date", None)
     )
@@ -4092,7 +4114,28 @@ def run_backtest(
             for o in obs:
                 prebuilt_instruments[o.symbol] = o
         elif isinstance(obs, dict):
-            prebuilt_instruments.update(obs)
+            for sym, val in obs.items():
+                if isinstance(val, InstrumentConfig):
+                    inst_conf_map[sym] = val
+                elif isinstance(val, dict):
+                    # Convert plain dict to InstrumentConfig → Instrument
+                    i_conf = InstrumentConfig(
+                        symbol=sym,
+                        asset_type=val.get("asset_type", "CRYPTO"),
+                        multiplier=val.get("multiplier", 1.0),
+                        margin_ratio=val.get("margin_ratio", 1.0),
+                        tick_size=val.get("tick_size", 0.01),
+                        lot_size=val.get("lot_size"),
+                        step_size=val.get("step_size"),
+                        min_qty=val.get("min_qty"),
+                        min_notional=val.get("min_notional"),
+                        commission_rate=val.get("commission_rate"),
+                        slippage=val.get("slippage"),
+                        expiry_date=val.get("expiry_date"),
+                    )
+                    inst_conf_map[sym] = i_conf
+                else:
+                    prebuilt_instruments[sym] = val
 
     # From BacktestConfig
     if config and config.instruments_config:
@@ -4136,6 +4179,10 @@ def run_backtest(
                 return AssetType.Fund
             if v_lower == "option":
                 return AssetType.Option
+            if v_lower in {"crypto", "cryptocurrency"}:
+                return AssetType.Crypto
+            if v_lower == "forex":
+                return AssetType.Forex
         raise ValueError(f"Unsupported asset_type: {val}")
 
     def _parse_option_type(val: Any) -> Any:
@@ -4245,6 +4292,7 @@ def run_backtest(
                 lot_size=_prebuilt_lot_f,
                 step_size=float(_prebuilt_step_f if _prebuilt_step_f is not None else _prebuilt_lot_f),
                 min_qty=float(_prebuilt_min_qty_f if _prebuilt_min_qty_f is not None else (_prebuilt_step_f if _prebuilt_step_f is not None else _prebuilt_lot_f)),
+                min_notional=float(getattr(prebuilt, "min_notional", 0.0) or 0.0),
                 implied_volatility=(
                     float(getattr(prebuilt, "implied_volatility"))
                     if getattr(prebuilt, "implied_volatility", None) is not None
@@ -4299,6 +4347,20 @@ def run_backtest(
                 if i_conf.min_qty is not None
                 else p_step
             )
+            p_min_notional = i_conf.min_notional
+            # commission_rate 和 slippage (仅 Crypto 使用)
+            p_commission_rate = i_conf.commission_rate
+            if i_conf.slippage is not None:
+                if isinstance(i_conf.slippage, dict):
+                    slip_type = i_conf.slippage.get("type", "percent")
+                    if slip_type == "percent":
+                        p_slippage = float(i_conf.slippage["value"])
+                    else:
+                        p_slippage = None
+                else:
+                    p_slippage = float(i_conf.slippage)
+            else:
+                p_slippage = None
             if futures_template and p_asset_type == AssetType.Futures:
                 if i_conf.multiplier == 1 and futures_template.multiplier is not None:
                     p_multiplier = futures_template.multiplier
@@ -4359,6 +4421,9 @@ def run_backtest(
                 )
                 p_step = p_lot
                 p_min_qty = p_step
+                p_min_notional = None
+                p_commission_rate = None
+                p_slippage = None
             else:
                 p_asset_type = default_asset_type
                 p_multiplier = default_multiplier
@@ -4367,6 +4432,9 @@ def run_backtest(
                 p_lot = float(current_lot_size or 1.0)
                 p_step = p_lot
                 p_min_qty = p_step
+                p_min_notional = None
+                p_commission_rate = None
+                p_slippage = None
 
             p_opt_type = default_option_type
             p_option_margin_model = _parse_option_margin_model(
@@ -4422,12 +4490,15 @@ def run_backtest(
             p_lot_f,
             p_step,
             p_min_qty,
+            p_min_notional,
             p_underlying,
             p_settlement_type,
             p_settlement_price,
             p_option_margin_model,
             p_implied_volatility,
             p_reference_volatility,
+            p_commission_rate,
+            p_slippage,
         )
         engine.add_instrument(instr)
         instrument_snapshots[sym] = InstrumentSnapshot(
@@ -4442,6 +4513,7 @@ def run_backtest(
             lot_size=float(p_lot_f),
             step_size=float(p_step),
             min_qty=float(p_min_qty),
+            min_notional=float(p_min_notional) if p_min_notional is not None else 0.0,
             option_type=_option_type_to_upper_name(p_opt_type),
             strike_price=float(p_strike) if p_strike is not None else None,
             expiry_date=p_expiry,
@@ -5380,6 +5452,10 @@ def run_warm_start(
                 return AssetType.Fund
             if v_lower == "option":
                 return AssetType.Option
+            if v_lower in {"crypto", "cryptocurrency"}:
+                return AssetType.Crypto
+            if v_lower == "forex":
+                return AssetType.Forex
         raise ValueError(f"Unsupported asset_type: {val}")
 
     def _parse_option_type(val: Any) -> Any:
