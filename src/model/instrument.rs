@@ -126,7 +126,6 @@ pub struct CryptoInstrument {
     pub min_notional: Decimal, // 最小开仓名义价值 (e.g. 5.0 USDT), 0 = 不检查
     pub multiplier: Decimal, // Usually 1.0 for Spot, but contract size for futures
     pub margin_ratio: Decimal, // 杠杆倒数: 10x = 0.1, 全额 = 1.0
-    pub commission_rate: Option<Decimal>, // 逐币种手续费率 (百分比), None = 使用全局费率
     pub slippage: Option<Decimal>, // 逐币种滑点 (百分比), None = 使用全局滑点
 }
 
@@ -185,7 +184,7 @@ impl Instrument {
     /// :param settlement_type: 结算方式 (可选)
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (symbol, asset_type, multiplier=None, margin_ratio=None, tick_size=None, option_type=None, strike_price=None, expiry_date=None, lot_size=None, step_size=None, min_qty=None, min_notional=None, underlying_symbol=None, settlement_type=None, settlement_price=None, option_margin_model=None, implied_volatility=None, reference_volatility=None, commission_rate=None, slippage=None))]
+    #[pyo3(signature = (symbol, asset_type, multiplier=None, margin_ratio=None, tick_size=None, option_type=None, strike_price=None, expiry_date=None, lot_size=None, step_size=None, min_qty=None, min_notional=None, underlying_symbol=None, settlement_type=None, settlement_price=None, option_margin_model=None, implied_volatility=None, reference_volatility=None, slippage=None))]
     pub fn new(
         symbol: String,
         asset_type: AssetType,
@@ -205,7 +204,6 @@ impl Instrument {
         option_margin_model: Option<OptionMarginModel>,
         implied_volatility: Option<&Bound<'_, PyAny>>,
         reference_volatility: Option<&Bound<'_, PyAny>>,
-        commission_rate: Option<&Bound<'_, PyAny>>,
         slippage: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let clean_symbol = symbol.trim().to_string();
@@ -241,7 +239,6 @@ impl Instrument {
             .map(extract_decimal)
             .transpose()?
             .unwrap_or(Decimal::ZERO);
-        let commission_rate_val = commission_rate.map(extract_decimal).transpose()?;
         let slippage_val = slippage.map(extract_decimal).transpose()?;
         let underlying_symbol_value = underlying_symbol.as_deref();
         validate_instrument_inputs(
@@ -304,7 +301,6 @@ impl Instrument {
                     min_notional: min_notional_val,
                     multiplier: multiplier_val,
                     margin_ratio: margin_val,
-                    commission_rate: commission_rate_val,
                     slippage: slippage_val,
                 })
             }
@@ -372,11 +368,6 @@ impl Instrument {
     #[getter]
     pub fn get_min_notional(&self) -> f64 {
         self.min_notional().to_f64().unwrap_or(0.0)
-    }
-
-    #[getter]
-    pub fn get_commission_rate(&self) -> Option<f64> {
-        self.commission_rate().and_then(|v| v.to_f64())
     }
 
     #[getter]
@@ -526,13 +517,6 @@ impl Instrument {
         }
     }
 
-    pub fn commission_rate(&self) -> Option<Decimal> {
-        match &self.inner {
-            InstrumentEnum::Crypto(c) => c.commission_rate,
-            _ => None,
-        }
-    }
-
     pub fn slippage(&self) -> Option<Decimal> {
         match &self.inner {
             InstrumentEnum::Crypto(c) => c.slippage,
@@ -611,7 +595,6 @@ mod tests {
             None,
             None,
             Some("".to_string()),
-            None,
             None,
             None,
             None,

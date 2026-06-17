@@ -112,7 +112,6 @@ result = aq.run_backtest(
         "step_size": 0.001,           # 数量步长，下单量对齐至此
         "min_qty": 0.001,             # 最小订单数量
         "min_notional": 50.0,         # 最小开仓名义价值
-        "commission_rate": 0.0005,    # 逐币种手续费
         "slippage": 0.0002,           # 逐币种滑点
     }},
 )
@@ -146,6 +145,7 @@ instruments = get_default_crypto_instruments(["BTCUSDT", "ETHUSDT"])
 result = aq.run_backtest(
     ...,
     instruments=instruments,
+    commission_rate=0.0005,
 )
 ```
 
@@ -201,19 +201,9 @@ result = aq.run_backtest(config=config, commission_rate=0.0007, ...)
 > `maker_commission_rate` 不设置时默认等于 taker 费率。
 > 回测启动时若未设置会输出 warning 提醒。
 
-### 逐币种费率
-
-在 `instruments` 字典中设置后，该币种不再区分 taker/maker，全部使用此费率：
-
-```python
-instruments={"BTCUSDT": {
-    "commission_rate": 0.0005,    # 覆盖全局费率
-}}
-```
-
 ### 逐订单费率
 
-下单时临时指定，优先级最高：
+下单时临时指定费率，覆盖全局设置：
 
 ```python
 self.buy("BTCUSDT", quantity=1, commission={"type": "fixed", "value": 5.0})

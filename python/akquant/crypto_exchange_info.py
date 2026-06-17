@@ -159,7 +159,6 @@ def fetch_binance_symbol_info(
 def get_default_crypto_instruments(
     symbols: List[str],
     margin_ratio: float = 1.0,
-    commission_rate: float = 0.0007,
 ) -> Dict[str, Dict[str, Any]]:
     """
     获取各币种默认精度参数，返回可直接传入 ``run_backtest(instruments=...)`` 的 dict。
@@ -169,7 +168,6 @@ def get_default_crypto_instruments(
     Args:
         symbols: 币种列表，如 ``["BTCUSDT", "ETHUSDT"]``。
         margin_ratio: 保证金比率，1.0=全仓，0.1=10x。
-        commission_rate: 手续费率，默认 0.07%。
 
     Returns:
         Dict[str, dict]，key 为币种，value 为 instruments 配置 dict。
@@ -181,10 +179,9 @@ def get_default_crypto_instruments(
         result = aq.run_backtest(
             ...,
             instruments=get_default_crypto_instruments(["BTCUSDT", "ETHUSDT"]),
+            commission_rate=0.0007,
         )
     """
-    from .config import InstrumentConfig  # noqa: keep import for consistency
-
     result: Dict[str, Dict[str, Any]] = {}
     for sym in symbols:
         defaults = DEFAULT_CRYPTO_SYMBOL_INFO.get(sym, {})
@@ -197,7 +194,6 @@ def get_default_crypto_instruments(
             "step_size": defaults.get("step_size", 0.001),
             "min_qty": defaults.get("min_qty", 0.001),
             "min_notional": defaults.get("min_notional", 5.0),
-            "commission_rate": commission_rate,
         }
     return result
 

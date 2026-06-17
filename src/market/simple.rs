@@ -56,14 +56,11 @@ impl MarketModel for SimpleMarket {
         is_maker: bool,
     ) -> Decimal {
         let turnover = price * quantity * instrument.multiplier();
-        // 逐币种手续费率优先于全局设置
-        let rate = instrument.commission_rate().unwrap_or_else(|| {
-            if is_maker {
-                self.config.maker_commission_rate
-            } else {
-                self.config.commission_rate
-            }
-        });
+        let rate = if is_maker {
+            self.config.maker_commission_rate
+        } else {
+            self.config.commission_rate
+        };
         let mut commission = match self.config.commission_mode {
             CommissionMode::Percent => turnover * rate,
             CommissionMode::Fixed => rate,
@@ -134,7 +131,6 @@ mod tests {
                 min_notional: dec!(0),
                 multiplier: dec!(1),
                 margin_ratio: dec!(0.1),
-                commission_rate: None,
                 slippage: None,
             }),
         }

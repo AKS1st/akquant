@@ -4476,8 +4476,7 @@ def run_backtest(
                 else p_step
             )
             p_min_notional = i_conf.min_notional
-            # commission_rate 和 slippage (仅 Crypto 使用)
-            p_commission_rate = i_conf.commission_rate
+            # slippage (仅 Crypto 使用)
             if i_conf.slippage is not None:
                 if isinstance(i_conf.slippage, dict):
                     slip_type = i_conf.slippage.get("type", "percent")
@@ -4550,7 +4549,6 @@ def run_backtest(
                 p_step = p_lot
                 p_min_qty = p_step
                 p_min_notional = None
-                p_commission_rate = None
                 p_slippage = None
             else:
                 p_asset_type = default_asset_type
@@ -4561,7 +4559,6 @@ def run_backtest(
                 p_step = p_lot
                 p_min_qty = p_step
                 p_min_notional = None
-                p_commission_rate = None
                 p_slippage = None
 
             p_opt_type = default_option_type
@@ -4625,7 +4622,6 @@ def run_backtest(
             p_option_margin_model,
             p_implied_volatility,
             p_reference_volatility,
-            p_commission_rate,
             p_slippage,
         )
         engine.add_instrument(instr)

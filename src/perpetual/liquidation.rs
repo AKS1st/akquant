@@ -209,7 +209,6 @@ mod tests {
                 min_notional: dec!(0),
                 multiplier: dec!(1),
                 margin_ratio: dec!(0.1),
-                commission_rate: None,
                 slippage: None,
             }),
         }

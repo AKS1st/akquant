@@ -169,10 +169,32 @@ class TestMinQty:
 @pytest.mark.integration
 @requires_engine
 class TestPerSymbolCommission:
-    def test_commission_overrides_global(self):
-        """commission_rate=0.002 覆盖全局 0.001 → 订单佣金 = 50000×0.002 = 100.
+    def test_global_rate_applied(self):
+        """全局佣金按 commission_rate=0.001 扣费. 现金 = 100000-50000-50 = 49950.
 
-        现金预计算: 100000 - 50000(开仓) - 100(佣金) = 49900.
+        注意: 加密货币费率不是逐币种的, instruments.commission_rate 不覆盖全局.
+        """
+        import pandas as pd
+        df = _df(10, "2024-01-01 00:00")
+
+        class S(aq.Strategy):
+            def on_bar(self, bar):
+                if self.get_position("BTCUSDT") == 0:
+                    self.buy("BTCUSDT", quantity=1)
+
+        r = aq.run_backtest(strategy=S(), symbols=["BTCUSDT"], data=df,
+            asset_type=aq.AssetType.Crypto, initial_cash=100000, commission_rate=0.001,
+            instruments={"BTCUSDT": _instr(lot_size=1.0, step_size=1.0, min_qty=1.0)})
+
+        odf = r.orders_df
+        assert len(odf) == 1
+        assert float(odf.iloc[0]["commission"]) == pytest.approx(50.0, abs=1.0)  # 50000×0.001
+        assert float(r.cash_curve.iloc[-1]) == pytest.approx(49950.0, abs=1.0)
+
+    def test_per_instrument_commission_ignored(self):
+        """instruments 中的 commission_rate 对 Crypto 不生效, 仍使用全局 0.001.
+
+        现金预计算: 100000 - 50000 - 50(50000×0.001) = 49950.
         """
         import pandas as pd
         df = _df(10, "2024-01-01 00:00")
@@ -187,29 +209,8 @@ class TestPerSymbolCommission:
             instruments={"BTCUSDT": _instr(lot_size=1.0, step_size=1.0, min_qty=1.0,
                                            commission_rate=0.002)})
 
-        # 订单级别验证
         odf = r.orders_df
-        assert len(odf) == 1
-        assert float(odf.iloc[0]["commission"]) == pytest.approx(100.0, abs=1.0)  # 50000×0.002
-        assert float(odf.iloc[0]["avg_price"]) == pytest.approx(50000.0, rel=1e-4)
-        # 现金验证
-        assert float(r.cash_curve.iloc[-1]) == pytest.approx(49900.0, abs=1.0)
-
-    def test_global_rate_used_when_no_per_symbol(self):
-        """不设 per-symbol commission_rate → 使用全局 0.001. 订单佣金 = 50."""
-        import pandas as pd
-        df = _df(10, "2024-01-01 00:00")
-
-        class S(aq.Strategy):
-            def on_bar(self, bar):
-                if self.get_position("BTCUSDT") == 0:
-                    self.buy("BTCUSDT", quantity=1)
-
-        r = aq.run_backtest(strategy=S(), symbols=["BTCUSDT"], data=df,
-            asset_type=aq.AssetType.Crypto, initial_cash=100000, commission_rate=0.001,
-            instruments={"BTCUSDT": _instr(lot_size=1.0, step_size=1.0, min_qty=1.0)})
-
-        odf = r.orders_df
+        # 即使 instruments 设置了 commission_rate=0.002, 仍使用全局 0.001
         assert float(odf.iloc[0]["commission"]) == pytest.approx(50.0, abs=1.0)
         assert float(r.cash_curve.iloc[-1]) == pytest.approx(49950.0, abs=1.0)
 
