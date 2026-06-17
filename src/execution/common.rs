@@ -151,9 +151,18 @@ impl CommonMatcher {
                 OrderSide::Buy => base_price * (Decimal::ONE + rate),
                 OrderSide::Sell => base_price * (Decimal::ONE - rate),
             },
-            _ => ctx
-                .slippage
-                .calculate_price(base_price, order.quantity, order.side),
+            _ => {
+                // 逐币种滑点优先于全局滑点模型
+                if let Some(instr_slippage) = ctx.instrument.slippage() {
+                    match order.side {
+                        OrderSide::Buy => base_price * (Decimal::ONE + instr_slippage),
+                        OrderSide::Sell => base_price * (Decimal::ONE - instr_slippage),
+                    }
+                } else {
+                    ctx.slippage
+                        .calculate_price(base_price, order.quantity, order.side)
+                }
+            }
         }
     }
 
