@@ -3997,6 +3997,12 @@ def run_backtest(
                 for sym in symbols:
                     if sym in _tier_table:
                         cast(Any, engine).set_perp_maint_tiers(sym, _tier_table[sym])
+            # 资金费率和强平开关: 仅从 CryptoConfig 读取
+            if crypto_config is not None:
+                if hasattr(engine, "set_perp_funding"):
+                    cast(Any, engine).set_perp_funding(crypto_config.enable_funding)
+                if hasattr(engine, "set_perp_liquidation"):
+                    cast(Any, engine).set_perp_liquidation(crypto_config.enable_liquidation)
             # Maker 费率: 仅从 StrategyConfig.maker_commission_rate 读取
             if hasattr(engine, "set_maker_commission_rate"):
                 _maker_rate = _maker_rate_config  # resolved from config.strategy_config above
