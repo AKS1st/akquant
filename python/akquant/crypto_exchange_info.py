@@ -119,25 +119,31 @@ def _extract_symbol_filter(info: Dict[str, Any], symbol: str) -> Optional[Dict[s
 def fetch_binance_klines(
     symbol: str,
     interval: str = "5m",
-    limit: int = 500,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
     *,
     base_url: str = "https://fapi.binance.com",
 ) -> "pd.DataFrame":
     """
     从 Binance USDⓈ-M Futures API 下载 K 线数据及附属行情。
 
+    不传 ``start_time`` / ``end_time`` 时默认下载 **2026-06-15 (UTC)** 全天数据，
+    每次运行结果一致，便于新手验证配置。
+
     返回的 DataFrame 包含 OHLCV、``funding_rate``（资金费率）、
     ``mark_price``（标记价格）、``taker_buy_vol`` 等列。
     ``symbol`` 列自动填充为 ``symbol``。
 
     ``funding_rate`` 来源于 Binance 的历史资金费率接口
-    (``fapi/v1/fundingRate``)，按时间戳对齐到对应 K 线。
+    (``fapi/v1/fundingRate``)，按结算小时对齐到对应 K 线。
     ``mark_price`` 来源于标记价格 K 线 (``fapi/v1/markPriceKlines``)。
 
     Args:
         symbol: 币种，如 "BTCUSDT"。
         interval: K 线周期，如 "5m"、"1h"、"1d"。默认 "5m"。
-        limit: 返回条数，最大 1500。默认 500。
+        start_time: 起始时间，格式 ``"2026-06-15"`` 或 ``"2026-06-15T00:00:00"``。
+                    未传时使用默认日期 2026-06-15。
+        end_time: 结束时间，格式同上。未传时使用默认日期 2026-06-16（即 start 次日）。
         base_url: Binance API 地址。
 
     Returns:
@@ -148,8 +154,11 @@ def fetch_binance_klines(
 
         from akquant.crypto_exchange_info import fetch_binance_klines
 
-        df = fetch_binance_klines("BTCUSDT", interval="5m", limit=500)
-        # df 已包含 funding_rate 和 mark_price，可直接用于回测
+        # 默认 2026-06-15 全天，结果可复现
+        df = fetch_binance_klines("BTCUSDT")
+
+        # 指定日期范围
+        df = fetch_binance_klines("BTCUSDT", start_time="2026-06-01", end_time="2026-06-02")
     """
     import json
     import urllib.request
@@ -163,8 +172,22 @@ def fetch_binance_klines(
 
     headers = {"User-Agent": "akquant/1.0"}
 
-    # 1. 下载标准 K 线
-    url = f"{base_url}/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}"
+    # ── 固定默认日期，保证结果可复现 ──
+    import pandas as pd
+    if start_time is None:
+        start_time = "2026-06-15"
+    if end_time is None:
+        end_time = "2026-06-16"
+    start_ms = int(pd.Timestamp(start_time, tz="UTC").timestamp() * 1000)
+    end_ms = int(pd.Timestamp(end_time, tz="UTC").timestamp() * 1000)
+    limit = 1500
+
+    # 1. 下载标准 K 线（用时间范围代替 limit，保证结果可复现）
+    url = (
+        f"{base_url}/fapi/v1/klines"
+        f"?symbol={symbol}&interval={interval}"
+        f"&startTime={start_ms}&endTime={end_ms}&limit={limit}"
+    )
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=15) as resp:
         raw = json.loads(resp.read().decode("utf-8"))
@@ -193,7 +216,8 @@ def fetch_binance_klines(
     try:
         url_mark = (
             f"{base_url}/fapi/v1/markPriceKlines"
-            f"?symbol={symbol}&interval={interval}&limit={limit}"
+            f"?symbol={symbol}&interval={interval}"
+            f"&startTime={start_ms}&endTime={end_ms}&limit={limit}"
         )
         req_m = urllib.request.Request(url_mark, headers=headers)
         with urllib.request.urlopen(req_m, timeout=15) as resp_m:

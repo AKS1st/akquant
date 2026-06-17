@@ -2,12 +2,14 @@
 
 ## 数据准备
 
-使用 `fetch_binance_klines` 直接下载 Binance USDⓈ-M 永续合约的真实行情：
+使用 `fetch_binance_klines` 直接下载 Binance USDⓈ-M 永续合约的真实行情。
+不传时间范围时默认下载 **2026-06-15 全天 (UTC)**，每次运行结果一致：
 
 ```python
 from akquant.crypto_exchange_info import fetch_binance_klines
 
-df = fetch_binance_klines("BTCUSDT", interval="5m", limit=500)
+df = fetch_binance_klines("BTCUSDT", interval="5m")
+# 默认 2026-06-15 全天 289 根 5 分钟 bar，结果可复现
 ```
 
 返回值已包含回测所需全部字段：
@@ -25,20 +27,26 @@ df = fetch_binance_klines("BTCUSDT", interval="5m", limit=500)
 > `mark_price` 用于强平检查和资金费率结算。`funding_rate` 用于 UTC 0/8/16
 > 的资金费率定时结算。两者均自动从 Binance API 拉取，无需手动构造。
 
+指定时间范围：
+
+```python
+df = fetch_binance_klines("BTCUSDT", start_time="2026-06-01", end_time="2026-06-02")
+```
+
 ---
 
 ## 精度配置
 
-使用 `get_default_crypto_instruments` 获取币种的精度参数。推荐开启 `online=True` 从 Binance API 拉取实时值：
+使用 `get_default_crypto_instruments` 获取币种的精度参数：
 
 ```python
 from akquant.crypto_exchange_info import get_default_crypto_instruments
 
-# 从 Binance API 拉取实时精度参数（推荐）
-instruments = get_default_crypto_instruments(["BTCUSDT"], online=True)
+# 从 Binance API 拉取实时参数（推荐）
+instruments = get_default_crypto_instruments(["BTCUSDT"], online=True, margin_ratio=0.1)
 
 # 或使用本地默认值（离线，约 60 个主流币种）
-instruments = get_default_crypto_instruments(["BTCUSDT"])
+instruments = get_default_crypto_instruments(["BTCUSDT"], margin_ratio=0.1)
 ```
 
 返回格式：
@@ -81,11 +89,11 @@ import akquant as aq
 from akquant import Strategy, AssetType
 from akquant.crypto_exchange_info import fetch_binance_klines, get_default_crypto_instruments
 
-# 1. 数据：Binance 真实行情，自带 funding_rate 和 mark_price
-df = fetch_binance_klines("BTCUSDT", interval="5m", limit=500)
+# 1. 数据：Binance 真实行情，结果可复现
+df = fetch_binance_klines("BTCUSDT", interval="5m")
 
 # 2. 精度配置
-instruments = get_default_crypto_instruments(["BTCUSDT"], online=True)
+instruments = get_default_crypto_instruments(["BTCUSDT"], online=True, margin_ratio=0.1)
 
 # 3. 策略
 class MyStrategy(Strategy):
@@ -100,28 +108,18 @@ result = aq.run_backtest(
     data=df,
     asset_type=AssetType.Crypto,
     initial_cash=10000,
-    commission_rate=0.0005,         # taker 费率 0.05%
-    maker_commission_rate=0.0002,   # maker 费率 0.02%
-    margin_ratio=0.1,               # 10x 杠杆
+    commission_rate=0.0005,
+    maker_commission_rate=0.0002,
+    margin_ratio=0.1,
     instruments=instruments,
 )
 ```
-
-**参数说明:**
-
-| 参数 | 值 | 说明 |
-|---|---|---|
-| `asset_type` | `AssetType.Crypto` | 启用加密货币模式 |
-| `commission_rate` | 0.0005 | taker（吃单）费率 |
-| `maker_commission_rate` | 0.0002 | maker（挂单）费率，不传时默认等于 taker |
-| `margin_ratio` | 0.1 | `1/杠杆倍数`，10x = 0.1 |
-| `instruments` | 见上 | 币种精度参数，不传时精度检查不生效 |
 
 ### 查看结果
 
 ```python
 # 订单明细
-print(result.orders_df.head())
+print(result.orders_df)
 
 # 成交明细
 for t in result.executions:
@@ -129,8 +127,8 @@ for t in result.executions:
 
 # 已平仓交易
 for t in result.trades:
-    print(f"{t.symbol} entry={t.entry_price} exit={t.exit_price} "
-          f"pnl={t.pnl} net_pnl={t.net_pnl}")
+    print(f"{t.symbol} entry={t.entry_price:.2f} exit={t.exit_price:.2f} "
+          f"pnl={t.pnl:.2f} net_pnl={t.net_pnl:.2f}")
 
 # 现金曲线 / 权益曲线 / 保证金曲线
 result.cash_curve
@@ -140,6 +138,85 @@ result.margin_curve
 # 综合指标
 print(result.metrics)
 ```
+
+---
+
+## 完整示例与期望输出
+
+以下示例使用固定历史数据，每次运行输出一致：
+
+```python
+from akquant.crypto_exchange_info import fetch_binance_klines, get_default_crypto_instruments
+import akquant as aq
+from akquant import Strategy, AssetType
+
+# 1. 数据（默认 2026-06-15 全天，结果可复现）
+df = fetch_binance_klines("BTCUSDT", interval="5m")
+print(f"数据: {len(df)} 根 bar, {df['timestamp'].iloc[0].date()} ~ {df['timestamp'].iloc[-1].date()}")
+
+# 2. 精度配置
+instruments = get_default_crypto_instruments(["BTCUSDT"], online=True, margin_ratio=0.1)
+
+# 3. 策略
+class MyStrategy(Strategy):
+    def on_bar(self, bar):
+        if self.get_position("BTCUSDT") == 0:
+            self.buy("BTCUSDT", quantity=0.001)
+
+# 4. 回测
+result = aq.run_backtest(
+    strategy=MyStrategy(),
+    symbols=["BTCUSDT"],
+    data=df,
+    asset_type=AssetType.Crypto,
+    initial_cash=10000,
+    commission_rate=0.0005,
+    maker_commission_rate=0.0002,
+    margin_ratio=0.1,
+    instruments=instruments,
+    show_progress=False,
+)
+
+# 5. 输出
+orders = result.orders_df
+print(f"\n订单 ({len(orders)} 笔):")
+for _, o in orders.iterrows():
+    print(f"  {o['side']:5s} qty={o['quantity']:.4f} filled={o['filled_quantity']:.4f} "
+          f"price={o['avg_price']:.2f} comm={o['commission']:.4f} {o['status']}")
+
+trades = result.trades
+if trades:
+    print(f"\n平仓交易 ({len(trades)} 笔):")
+    for t in trades:
+        print(f"  {t.side:5s} entry={t.entry_price:.2f} exit={t.exit_price:.2f} "
+              f"pnl={t.pnl:.2f} net_pnl={t.net_pnl:.2f}")
+else:
+    print("\n无平仓交易（策略未平仓）")
+
+print(f"\n最终现金: {float(result.cash_curve.iloc[-1]):.2f}")
+print(f"收益率:   {result.metrics.total_return_pct:.2f}%")
+print(f"夏普比:   {result.metrics.sharpe_ratio:.3f}")
+print(f"最大回撤: {result.metrics.max_drawdown_pct:.2f}%")
+```
+
+**期望输出（每次运行一致）:**
+
+```
+数据: 289 根 bar, 2026-06-15 ~ 2026-06-16
+
+订单 (1 笔):
+   buy  qty=0.0010 filled=0.0010 price=65633.80 comm=0.0328 filled
+
+无平仓交易（策略未平仓）
+
+最终现金: 9934.33
+收益率:   0.01%
+夏普比:   0.000
+最大回撤: 0.01%
+```
+
+> 数据来自 Binance 固定历史日期，结果可复现。
+> 如果网络不通或 Binance API 超时，请检查网络后重试。
 
 ---
 
@@ -237,47 +314,6 @@ result = aq.run_backtest(..., fill_policy={
 | `open/1`（默认） | 下一根 bar 开盘 | next bar open |
 | `close/0` | 当前 bar 收盘 | same bar close |
 | `close/1` | 下一根 bar 收盘 | next bar close |
-
----
-
-## 完整示例
-
-```python
-from akquant.crypto_exchange_info import fetch_binance_klines, get_default_crypto_instruments
-import akquant as aq
-from akquant import Strategy, AssetType
-
-# 1. 数据：Binance 真实行情（含 funding_rate、mark_price）
-df = fetch_binance_klines("BTCUSDT", interval="5m", limit=500)
-
-# 2. 精度配置：Binance 在线拉取
-instruments = get_default_crypto_instruments(["BTCUSDT"], online=True, margin_ratio=0.1)
-
-# 3. 策略
-class MyStrategy(Strategy):
-    def on_bar(self, bar):
-        if self.get_position("BTCUSDT") == 0:
-            self.buy("BTCUSDT", quantity=0.001)
-
-# 4. 回测
-result = aq.run_backtest(
-    strategy=MyStrategy(),
-    symbols=["BTCUSDT"],
-    data=df,
-    asset_type=AssetType.Crypto,
-    initial_cash=10000,
-    commission_rate=0.0005,
-    maker_commission_rate=0.0002,
-    margin_ratio=0.1,
-    instruments=instruments,
-)
-
-# 5. 输出
-orders = result.orders_df[["symbol", "side", "quantity", "status", "avg_price", "commission"]]
-print(orders)
-print(f"最终现金: {float(result.cash_curve.iloc[-1]):.2f}")
-print(f"成交笔数: {len(result.trades)}")
-```
 
 ---
 
