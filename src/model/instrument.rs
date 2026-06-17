@@ -117,9 +117,11 @@ pub struct OptionInstrument {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CryptoInstrument {
     pub symbol: String,
-    pub lot_size: Decimal, // Usually small (e.g. 0.0001)
+    /// 遗留字段，数字货币不使用 lot_size。请使用 step_size。
+    /// 保留是为了跨品种 Instrument 接口兼容。
+    pub lot_size: Decimal,
     pub tick_size: Decimal,
-    pub step_size: Decimal, // 数量步长 (e.g. 0.001 for BTC), 默认等于 lot_size
+    pub step_size: Decimal, // 数量步长 (e.g. 0.001 for BTC), 数字货币唯一数量单位
     pub min_qty: Decimal, // 最小订单数量 (e.g. 0.001 for BTC), 默认等于 step_size
     pub min_notional: Decimal, // 最小开仓名义价值 (e.g. 5.0 USDT), 0 = 不检查
     pub multiplier: Decimal, // Usually 1.0 for Spot, but contract size for futures

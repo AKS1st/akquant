@@ -36,7 +36,7 @@ df = pd.DataFrame({
     "close": prices,
     "volume": np.full(n, 100.0),
     "symbol": "BTCUSDT",
-    # 可选: 启用手续费结算时需要
+    # 可选: 启用资金费率结算时需要
     "funding_rate": np.zeros(n),
     "mark_price": prices,
 })
@@ -46,7 +46,7 @@ df = pd.DataFrame({
 - `timestamp` — UTC 时区, 支持 pd.Timestamp 或 int (纳秒)
 - `open/high/low/close/volume` — 必须的 OHLCV 字段
 - `symbol` — 币种标识, 多币种回测时每条数据必须携带
-- `funding_rate` — (可选) 启用手续费结算时传入, 0/8/16 整点为结算点
+- `funding_rate` — (可选) 启用资金费率结算时传入, 0/8/16 整点为结算点
 - `mark_price` — (可选) 强平和资金费率结算使用的标记价格, 不传则用 close
 
 ### 2. 执行回测
@@ -99,9 +99,44 @@ print(result.metrics)
 
 ---
 
+## 快速获取默认配置
+
+无需记忆各币种的精度参数，一行获取：
+
+```python
+from akquant.crypto_exchange_info import get_default_crypto_instruments
+
+instruments = get_default_crypto_instruments(["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+# 返回 dict，可直接传入 run_backtest(instruments=...)
+# {
+#   "BTCUSDT": {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.1, "min_notional": 50.0, ...},
+#   "ETHUSDT": {"step_size": 0.001, "min_qty": 0.001, "tick_size": 0.01, "min_notional": 20.0, ...},
+#   ...
+# }
+
+result = aq.run_backtest(
+    ...,
+    instruments=instruments,
+)
+```
+
+函数签名：
+
+```python
+def get_default_crypto_instruments(
+    symbols: List[str],
+    margin_ratio: float = 1.0,      # 全仓=1.0, 10x=0.1
+    commission_rate: float = 0.0007, # 默认 0.07%
+) -> Dict[str, dict]: ...
+```
+
+无需网络请求，使用内置的 Binance USDⓈ-M 永续合约参数表，覆盖约 60 个主流币种。
+
+---
+
 ## 精度配置
 
-加密货币的精度设置通过 `instruments` 参数传入:
+你也可以手动传入精度参数：
 
 ```python
 result = aq.run_backtest(
@@ -110,18 +145,21 @@ result = aq.run_backtest(
         "asset_type": "CRYPTO",
         "multiplier": 1.0,
         "margin_ratio": 0.1,          # 杠杆倒数, 10x=0.1
-        "tick_size": 0.01,            # 最小价格变动
-        "lot_size": 0.001,            # 交易单位
+        "tick_size": 0.1,             # 最小价格变动
         "step_size": 0.001,           # 数量步长, 下单量对齐至此
         "min_qty": 0.001,             # 最小订单数量
-        "min_notional": 5.0,          # 最小开仓名义价值 (USDT)
+        "min_notional": 50.0,         # 最小开仓名义价值 (USDT)
         "commission_rate": 0.0005,    # 逐币种手续费 (覆盖全局)
         "slippage": 0.0002,           # 逐币种滑点 (覆盖全局)
     }},
 )
 ```
 
-不传 `instruments` 时使用全局默认值, 精度检查不生效。
+**注意**: 数字货币没有 `lot_size`（最小交易单位）概念。股票有整手概念（100 股起），
+期货有合约单位，但数字货币的数量单位完全由 `step_size` 决定。
+引擎中 `lot_size` 仅用于股票/期货类型，对 Crypto 类型**不生效**。
+
+不传 `instruments` 时使用全局默认值，精度检查不生效。推荐使用 `get_default_crypto_instruments()`。
 
 ### 精度规则
 
@@ -177,7 +215,7 @@ df["funding_rate"] = 0.0  # 所有 bar 设零 → 不产生结算
 
 启用条件: `asset_type = Crypto` + `margin_ratio < 1.0` (即使用了杠杆)。
 
-- 使用 `mark_price` 列计算未实现盈亏, 有则用 `close` 作为标记价格
+- 使用 `mark_price` 列计算未实现盈亏, 无则用 `close` 作为标记价格
 - 维持保证金档位使用内置默认表 (BTC/ETH/SOL 等 8 个主流币种), 其他币种用默认 0.5%
 - 权益低于维持保证金时自动发出减仓订单
 
@@ -256,6 +294,7 @@ import pandas as pd
 import numpy as np
 import akquant as aq
 from akquant import Strategy
+from akquant.crypto_exchange_info import get_default_crypto_instruments
 
 # 1. 构造数据: 500 根 5 分钟 bar, 价格从 50000 缓慢下跌
 n = 500
@@ -271,13 +310,16 @@ df = pd.DataFrame({
     "symbol": "BTCUSDT", "funding_rate": funding, "mark_price": prices,
 })
 
-# 2. 策略: 第二根 bar 买入, 持有到结束
+# 2. 快速获取默认配置
+instruments = get_default_crypto_instruments(["BTCUSDT"], margin_ratio=0.1)
+
+# 3. 策略: 买入并持有
 class MyStrategy(Strategy):
     def on_bar(self, bar):
         if self.get_position("BTCUSDT") == 0:
             self.buy("BTCUSDT", quantity=0.01)
 
-# 3. 回测
+# 4. 回测
 result = aq.run_backtest(
     strategy=MyStrategy(),
     symbols=["BTCUSDT"],
@@ -285,15 +327,10 @@ result = aq.run_backtest(
     asset_type=aq.AssetType.Crypto,
     initial_cash=5000,
     commission_rate=0.0005,
-    margin_ratio=0.1,
-    instruments={"BTCUSDT": {
-        "asset_type": "CRYPTO", "multiplier": 1.0, "margin_ratio": 0.1,
-        "tick_size": 0.01, "lot_size": 0.001,
-        "step_size": 0.001, "min_qty": 0.001,
-    }},
+    instruments=instruments,
 )
 
-# 4. 输出结果
+# 5. 输出结果
 orders = result.orders_df[["symbol","side","quantity","status","avg_price","commission"]]
 print(orders)
 
@@ -306,8 +343,8 @@ print(f"成交笔数: {len(result.trades)}")
 
 ## 注意事项
 
-1. **`asset_type` 必须为 `AssetType.Crypto`**(或字符串 `"crypto"`), 否则使用默认的 Stock 市场模型, 精度检查和资金费率结算都不生效
-2. **`instruments` dict 值可以是 dict 或 `InstrumentConfig` 对象**, 两者等价
-3. **费用结算检查每根带 `funding_rate` 的 bar**, 不要在高频周期 (如 1m) 的每条 bar 都设非零值, 设 `0.0` 即可跳过
-4. **默认 `fill_policy` 为 bar_offset=1** (下一 bar 成交), 如果需要当前 bar 成交, 手动设置 `fill_policy={"price_basis": "close", "bar_offset": 0}`
-5. **`min_notional=0` 表示不检查**, 需要时设为交易所实际值 (如 Binance 永续合约 BTC=50, ETH=20, 其他多数=5)
+1. **`asset_type` 必须为 `AssetType.Crypto`** (或字符串 `"crypto"`), 否则使用默认的 Stock 市场模型, 精度检查和资金费率结算都不生效
+2. **数字货币没有 `lot_size` 概念**, 数量精度由 `step_size` 全权决定。`lot_size` 是股票/期货的遗留字段, 对 Crypto 不生效
+3. **`min_notional=0` 表示不检查**, 不设置时默认为 0。需要检查时设为交易所实际值 (如 Binance 永续合约 BTC=50, ETH=20, 其他多数=5)。首次上手建议使用 `get_default_crypto_instruments()` 避免遗漏
+4. **资金费率结算检查每根带 `funding_rate` 的 bar**, 不要在高频周期 (如 1m) 的每条 bar 都设非零值, 设 `0.0` 即可跳过
+5. **默认 `fill_policy` 为 bar_offset=1** (下一 bar 成交), 如果需要当前 bar 成交, 手动设置 `fill_policy={"price_basis": "close", "bar_offset": 0}`
