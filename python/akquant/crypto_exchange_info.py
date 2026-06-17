@@ -257,7 +257,7 @@ def fetch_binance_klines(
                 fr_map[ft] = float(rate)
 
         # 对于每根 bar，只在其所属结算小时设 funding_rate（来自 Binance API）
-        # 非结算小时用 NaN，引擎会跳过（Rust check_settlement 会 filter is_nan）
+        # 非结算小时设为 NaN，Rust 端 check_settlement 会过滤 NaN 和 0.0
         df["funding_rate"] = float("nan")
         bar_ns = df["timestamp"].values.astype("int64")  # ns
         for ft_ms, rate in fr_map.items():
@@ -268,7 +268,7 @@ def fetch_binance_klines(
             hour_mask = (bar_ns >= hour_start) & (bar_ns < hour_end)
             df.loc[hour_mask, "funding_rate"] = rate
     except Exception:
-        df["funding_rate"] = float("nan")
+        pass
 
     return df
 
