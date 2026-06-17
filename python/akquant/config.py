@@ -624,6 +624,27 @@ class StrategyConfig:
 
 
 @dataclass
+class CryptoConfig:
+    """
+    加密货币/永续合约回测配置。
+
+    通过 ``BacktestConfig(crypto=CryptoConfig(...))`` 设置，是唯一的入口。
+    不支持通过 ``run_backtest(**kwargs)`` 散传。
+
+    :param perp_maint_tiers: 维持保证金档位表。
+        Dict[symbol -> List[{"notional_upper": float, "maint_margin_rate": float,
+                             "maint_amount": float}]]。
+        不传时使用内置默认表 (BTC/ETH/SOL 等 8 个币种)。
+    :param enable_funding: 是否启用资金费率结算 (UTC 0/8/16)。默认 True。
+    :param enable_liquidation: 是否启用强平检查。默认 True。
+    """
+
+    perp_maint_tiers: Optional[Dict[str, List[Dict[str, float]]]] = None
+    enable_funding: bool = True
+    enable_liquidation: bool = True
+
+
+@dataclass
 class BacktestConfig:
     """
     [Top Level] Configuration for the entire Backtest Simulation.
@@ -647,6 +668,11 @@ class BacktestConfig:
                                List of `InstrumentConfig` or Dict
                                `{symbol: InstrumentConfig}`.
                                Use this for Futures, Options, or non-standard Stocks.
+
+    **Market Specific:**
+    :param china_futures: 中国期货市场配置 (可选)。
+    :param china_options: 中国期权市场配置 (可选)。
+    :param crypto: 加密货币/永续合约配置 (可选)。
 
     **Environment:**
     :param benchmark: Benchmark symbol for performance comparison.
@@ -681,6 +707,9 @@ class BacktestConfig:
     bootstrap_samples: int = 1000
     bootstrap_sample_size: Optional[int] = None
     analysis_config: Optional[Dict[str, Any]] = None
+
+    # Crypto Market
+    crypto: Optional[CryptoConfig] = None
 
 
 # Global instance

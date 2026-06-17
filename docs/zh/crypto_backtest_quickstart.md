@@ -231,15 +231,21 @@ result = aq.run_backtest(
 如需覆盖维持保证金档位:
 
 ```python
-result = aq.run_backtest(
-    ...,
-    perp_maint_tiers={
-        "BTCUSDT": [
-            {"notional_upper": 100000, "maint_margin_rate": 0.004, "maint_amount": 0},
-            {"notional_upper": 2000000, "maint_margin_rate": 0.005, "maint_amount": 100},
-        ]
-    }
+from akquant.config import CryptoConfig
+
+config = BacktestConfig(
+    crypto=CryptoConfig(
+        perp_maint_tiers={
+            "BTCUSDT": [
+                {"notional_upper": 100000, "maint_margin_rate": 0.004, "maint_amount": 0},
+                {"notional_upper": 2000000, "maint_margin_rate": 0.005, "maint_amount": 100},
+            ]
+        },
+    ),
+    ...
 )
+result = aq.run_backtest(config=config, ...)
+```
 ```
 
 ---
@@ -248,22 +254,30 @@ result = aq.run_backtest(
 
 AKQuant 支持区分 taker 和 maker 费率, 与真实交易所对齐。
 
-### 全局 Taker/Maker
+### 全局 Taker/Maker (仅 StrategyConfig)
 
 ```python
-result = aq.run_backtest(
-    ...,
-    commission_rate=0.0007,          # taker 费率 0.07%
-    maker_commission_rate=0.0002,    # maker 费率 0.02%
+from akquant.config import StrategyConfig
+
+config = BacktestConfig(
+    strategy_config=StrategyConfig(
+        commission_rate=0.0007,          # taker 费率, 也作为 run_backtest 显式参数
+        maker_commission_rate=0.0002,    # maker 费率, 仅 StrategyConfig 有
+    ),
+    ...
 )
+result = aq.run_backtest(config=config, commission_rate=0.0007, ...)
 ```
 
-**`maker_commission_rate` 未设置时的行为:**
-- **默认继承 taker 费率** (`commission_rate`), 亦即 taker = maker
-- 回测启动时会输出 **warning** 提醒: _"maker_commission_rate 未设置, 将默认等于 taker 费率 X.XX%"_
-- 可通过 `StrategyConfig(maker_commission_rate=0.0002)` 或 `run_backtest(maker_commission_rate=0.0002)` 设置
+**只有 `commission_rate` 同时是 `run_backtest` 显式参数和 `StrategyConfig` 字段**
+(这是 akquant 已有的全局费用配置模式)。  
+**`maker_commission_rate` 仅通过 `StrategyConfig` 设置**, 不支持 kwargs 散传。
 
-**判定规则:** 由订单类型决定:
+**`maker_commission_rate` 未设置时:**
+- 默认继承 taker 费率 (`commission_rate`), taker = maker
+- 回测启动时输出 warning 提醒
+
+**判定规则:**
 
 | 订单类型 | 角色 | 使用的费率 |
 |---|---|---|
@@ -272,35 +286,38 @@ result = aq.run_backtest(
 | `Limit` (限价单) | maker | `maker_commission_rate` |
 | `LimitMaker` (Post-Only) | maker | `maker_commission_rate` |
 
-### 回测启动参数检查
-
-运行 Crypto 回测时, 引擎会自动检查以下配置项并输出警告/提示:
-
-| 检查项 | 条件 | 级别 | 说明 |
-|---|---|---|---|
-| `maker_commission_rate` 未设置 | 未传 | warning | 默认等于 taker, 但实盘通常更低 |
-| 数据缺少 `funding_rate` 列 | 无该列 | warning | 资金费率结算不生效 |
-| 数据缺少 `mark_price` 列 | 无该列 | warning | 强平/FR 使用 close 替代标记价 |
-| `instruments` 未配置 | 未传 | warning | 精度检查/拒单功能禁用 |
-| `min_notional` 未配置 | all = 0 | warning | 最小名义价值检查禁用 |
-| `margin_ratio` = 1.0 | 无杠杆 | info | 提示可使用杠杆 |
-
-这些检查**仅在 `asset_type = Crypto` 时触发**, 不影响其他市场类型。
-
-建议首次上手时使用:
+### 强平/资金费率控制 (仅 CryptoConfig)
 
 ```python
-from akquant.crypto_exchange_info import get_default_crypto_instruments
+from akquant.config import CryptoConfig
 
-result = aq.run_backtest(
-    ...,
-    asset_type="crypto",
-    instruments=get_default_crypto_instruments(["BTCUSDT"]),
-    maker_commission_rate=0.0002,
+config = BacktestConfig(
+    crypto=CryptoConfig(
+        enable_funding=True,           # 资金费率结算
+        enable_liquidation=True,       # 强平检查
+        perp_maint_tiers={...},        # 维持保证金档位 (可选)
+    ),
 )
+result = aq.run_backtest(config=config, ...)
 ```
 
-即可消除所有 warning。
+**`CryptoConfig` 仅通过 `BacktestConfig.crypto` 设置**, 不支持 kwargs 散传。
+不传时资金费率和强平仍启用 (默认 True), 维持保证金使用内置表。
+
+### 回测启动参数检查
+
+运行 Crypto 回测时, 引擎自动检查以下配置并输出警告/提示:
+
+| 检查项 | 配置位置 | 级别 | 说明 |
+|---|---|---|---|
+| `maker_commission_rate` 未设置 | `StrategyConfig` | warning | 默认等于 taker |
+| 数据无 `funding_rate` 列 | DataFrame | warning | 资金费率结算不生效 |
+| 数据无 `mark_price` 列 | DataFrame | warning | 强平/FR 用 close 替代 |
+| `instruments` 未配置 | kwargs | warning | 精度检查/拒单禁用 |
+| `min_notional` 全为零 | `InstrumentConfig` | warning | 最小名义价值禁用 |
+| `margin_ratio` = 1.0 | kwargs | info | 无杠杆提示 |
+
+仅 `asset_type = Crypto` 时触发, 不影响其他市场类型。
 
 ### 逐币种手续费
 

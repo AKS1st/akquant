@@ -39,6 +39,7 @@ from ..config import (
     ChinaFuturesConfig,
     ChinaFuturesInstrumentTemplateConfig,
     ChinaOptionsConfig,
+    CryptoConfig,
     InstrumentConfig,
     RiskConfig,
     StrategyConfig,
@@ -1586,17 +1587,20 @@ def _check_crypto_config(
     kwargs: Dict[str, Any],
     symbols: Any,
     commission_rate: Optional[float],
+    maker_commission_rate: Optional[float],
+    crypto_config: Optional[CryptoConfig],
 ) -> None:
     """回测启动前对 Crypto 参数做完整性检查并发出警告.
 
     检查项:
-      - maker_commission_rate 未设置时隐含的行为
+      - maker_commission_rate 未设置时提示默认等于 taker
       - 数据缺少 funding_rate / mark_price 列
       - 未配置 per-symbol instruments (精度检查失效)
       - 保证金未带杠杆
       - min_notional 未设置
 
     仅当 asset_type = crypto 时执行。
+    所有 crypto 专用配置仅从 BacktestConfig.crypto 读取, 无 kwargs 回退。
     """
     _raw_asset = kwargs.get("asset_type")
     if _raw_asset is None:
@@ -1608,18 +1612,15 @@ def _check_crypto_config(
     if _parsed != "crypto":
         return
 
-    from ..akquant import AssetType as _AT
-
     logger = get_logger(__name__)
 
-    # ── 1. maker_commission_rate ──
-    _maker = kwargs.get("maker_commission_rate")
-    _taker = commission_rate if commission_rate is not None else kwargs.get("commission_rate", 0.0)
-    if _maker is None:
+    # ── 1. maker_commission_rate (仅从 StrategyConfig 读取) ──
+    _taker = commission_rate if commission_rate is not None else 0.0
+    if maker_commission_rate is None:
         logger.warning(
             "[crypto] maker_commission_rate 未设置, 将默认等于 taker commission_rate (%.4f%%). "
-            "实盘中 Maker 费率通常低于 Taker, 建议通过 run_backtest(maker_commission_rate=...) 或 "
-            "StrategyConfig(maker_commission_rate=...) 显式设置。",
+            "实盘中 Maker 费率通常低于 Taker. "
+            "请通过 StrategyConfig(maker_commission_rate=...) 设置。",
             float(_taker) * 100,
         )
 
@@ -1646,9 +1647,7 @@ def _check_crypto_config(
             "(UTC 0/8/16 整点设非零值, 其余设为 0)。"
         )
     else:
-        logger.info(
-            "[crypto] 检测到 funding_rate 列, 资金费率结算已就绪。"
-        )
+        logger.info("[crypto] 检测到 funding_rate 列, 资金费率结算已就绪。")
 
     if not _has_mark:
         logger.warning(
@@ -1668,7 +1667,6 @@ def _check_crypto_config(
             "或 instruments={'SYMBOL': {'step_size': ..., 'min_qty': ..., ...}} 配置。"
         )
     else:
-        # 检查各币种是否有 min_notional
         _has_notional = False
         if isinstance(_raw_instrs, dict):
             for _v in _raw_instrs.values():
@@ -2823,13 +2821,18 @@ def run_backtest(
         api_name="run_backtest",
     )
 
-    # ── Crypto 参数预检 ──
-    if strategy_config is not None:
-        _maker_from_config = getattr(strategy_config, "maker_commission_rate", None)
-        if kwargs.get("maker_commission_rate") is None and _maker_from_config is not None:
-            kwargs["maker_commission_rate"] = _maker_from_config
+    # ── Crypto 专用配置 (仅从 BacktestConfig 读取, 无 kwargs 回退) ──
+    crypto_config: Optional[CryptoConfig] = None
+    if config is not None:
+        crypto_config = config.crypto
+    _maker_rate_config = getattr(strategy_config, "maker_commission_rate", None) if strategy_config else None
     _check_crypto_config(
-        data=data, kwargs=kwargs, symbols=symbols, commission_rate=commission_rate,
+        data=data,
+        kwargs=kwargs,
+        symbols=symbols,
+        commission_rate=commission_rate,
+        maker_commission_rate=_maker_rate_config,
+        crypto_config=crypto_config,
     )
 
     strategy_input = resolve_strategy_input(
@@ -3985,17 +3988,20 @@ def run_backtest(
         _parsed = _parse_asset_type_name(_asset_type)
         if _parsed == "crypto" and hasattr(engine, "use_crypto_perp"):
             cast(Any, engine).use_crypto_perp(True)
-            # 从 Python 侧传入默认维持保证金档位表
+            # 维持保证金档位: 仅从 BacktestConfig.crypto.perp_maint_tiers 读取
             if hasattr(engine, "set_perp_maint_tiers"):
-                _user_tiers = kwargs.get("perp_maint_tiers")
-                _tier_table = _user_tiers if isinstance(_user_tiers, dict) else DEFAULT_CRYPTO_MAINT_TIERS
+                if crypto_config is not None and crypto_config.perp_maint_tiers is not None:
+                    _tier_table = crypto_config.perp_maint_tiers
+                else:
+                    _tier_table = DEFAULT_CRYPTO_MAINT_TIERS
                 for sym in symbols:
                     if sym in _tier_table:
                         cast(Any, engine).set_perp_maint_tiers(sym, _tier_table[sym])
-            # Maker 费率先不管设置 taker 费率, 在set_stock_fee_policy之后再设maker
-            _maker_rate = kwargs.get("maker_commission_rate")
-            if _maker_rate is not None and hasattr(engine, "set_maker_commission_rate"):
-                cast(Any, engine).set_maker_commission_rate(float(_maker_rate))
+            # Maker 费率: 仅从 StrategyConfig.maker_commission_rate 读取
+            if hasattr(engine, "set_maker_commission_rate"):
+                _maker_rate = _maker_rate_config  # resolved from config.strategy_config above
+                if _maker_rate is not None:
+                    cast(Any, engine).set_maker_commission_rate(float(_maker_rate))
 
     # Configure Execution parameters
     if (
