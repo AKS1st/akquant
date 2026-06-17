@@ -277,7 +277,12 @@ pub fn extract_timestamp(timestamp: &Bound<'_, PyAny>) -> PyResult<i64> {
 
 pub fn extract_decimal(value: &Bound<'_, PyAny>) -> PyResult<Decimal> {
     if let Ok(f) = value.extract::<f64>() {
-        Decimal::from_f64_retain(f).ok_or_else(|| PyValueError::new_err("Invalid float"))
+        // Round to 12 decimal places to avoid float-to-Decimal precision artifacts.
+        // E.g. Python float 0.001 → f64 0.00100000000000000002..., which without
+        // rounding would break step_size modulo checks like `1.0 % 0.001 == 0`.
+        Ok(Decimal::from_f64_retain(f)
+            .ok_or_else(|| PyValueError::new_err("Invalid float"))?
+            .round_dp(12))
     } else if let Ok(s) = value.extract::<String>() {
         Decimal::from_str(&s).map_err(|e| PyValueError::new_err(e.to_string()))
     } else if let Ok(i) = value.extract::<i64>() {

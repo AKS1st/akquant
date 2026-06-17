@@ -206,8 +206,11 @@ mod tests {
                 tick_size: dec!(0.01),
                 step_size: dec!(0.001),
                 min_qty: dec!(0.001),
+                min_notional: dec!(0),
                 multiplier: dec!(1),
                 margin_ratio: dec!(0.1),
+                commission_rate: None,
+                slippage: None,
             }),
         }
     }
