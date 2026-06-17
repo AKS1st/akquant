@@ -124,11 +124,15 @@ def fetch_binance_klines(
     base_url: str = "https://fapi.binance.com",
 ) -> "pd.DataFrame":
     """
-    从 Binance USDⓈ-M Futures API 下载 K 线数据。
+    从 Binance USDⓈ-M Futures API 下载 K 线数据及附属行情。
 
-    返回的 DataFrame 包含 open/high/low/close/volume/trades 列，
-    以及 taker_buy_vol / taker_buy_quote_vol。
-    symbol 列自动填充为 ``symbol``。
+    返回的 DataFrame 包含 OHLCV、``funding_rate``（资金费率）、
+    ``mark_price``（标记价格）、``taker_buy_vol`` 等列。
+    ``symbol`` 列自动填充为 ``symbol``。
+
+    ``funding_rate`` 来源于 Binance 的历史资金费率接口
+    (``fapi/v1/fundingRate``)，按时间戳对齐到对应 K 线。
+    ``mark_price`` 来源于标记价格 K 线 (``fapi/v1/markPriceKlines``)。
 
     Args:
         symbol: 币种，如 "BTCUSDT"。
@@ -137,19 +141,19 @@ def fetch_binance_klines(
         base_url: Binance API 地址。
 
     Returns:
-        pd.DataFrame，包含 timestamp(UTC)、OHLCV、funding_rate、mark_price 等列。
+        pd.DataFrame，包含 timestamp(UTC)、OHLCV、volume、trades、
+        taker_buy_vol、taker_buy_quote_vol、funding_rate、mark_price、symbol。
 
     Example::
 
         from akquant.crypto_exchange_info import fetch_binance_klines
 
         df = fetch_binance_klines("BTCUSDT", interval="5m", limit=500)
-        df["symbol"] = "BTCUSDT"
+        # df 已包含 funding_rate 和 mark_price，可直接用于回测
     """
     import json
     import urllib.request
 
-    # 周期映射
     _interval_map = {
         "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
         "1h": "1h", "2h": "2h", "4h": "4h", "6h": "6h", "8h": "8h",
@@ -157,9 +161,11 @@ def fetch_binance_klines(
     }
     interval = _interval_map.get(interval, interval)
 
-    # 1. 下载 K 线
+    headers = {"User-Agent": "akquant/1.0"}
+
+    # 1. 下载标准 K 线
     url = f"{base_url}/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    req = urllib.request.Request(url, headers={"User-Agent": "akquant/1.0"})
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=15) as resp:
         raw = json.loads(resp.read().decode("utf-8"))
 
@@ -181,6 +187,70 @@ def fetch_binance_klines(
 
     df = pd.DataFrame(rows)
     df["symbol"] = symbol
+
+    # 2. 下载标记价格 K 线 (mark_price)
+    # 取收盘价作为每根 bar 的标记价格
+    try:
+        url_mark = (
+            f"{base_url}/fapi/v1/markPriceKlines"
+            f"?symbol={symbol}&interval={interval}&limit={limit}"
+        )
+        req_m = urllib.request.Request(url_mark, headers=headers)
+        with urllib.request.urlopen(req_m, timeout=15) as resp_m:
+            raw_mark = json.loads(resp_m.read().decode("utf-8"))
+        mark_map: Dict[int, float] = {}
+        for k in raw_mark:
+            ts_ms = k[0]
+            close = float(k[4])
+            mark_map[ts_ms] = close
+        df["mark_price"] = df["timestamp"].apply(
+            lambda t: mark_map.get(int(t.value // 1_000_000), float("nan"))
+        )
+    except Exception:
+        df["mark_price"] = float("nan")
+
+    # 3. 下载资金费率历史 (funding_rate)
+    # 取每根 bar 所在时刻最新的结算费率（未结算时为 0）
+    try:
+        start_ms = int(df["timestamp"].iloc[0].value // 1_000_000)
+        end_ms = int(df["timestamp"].iloc[-1].value // 1_000_000) + 1
+        url_fr = (
+            f"{base_url}/fapi/v1/fundingRate"
+            f"?symbol={symbol}&startTime={start_ms}&endTime={end_ms}&limit={limit}"
+        )
+        req_fr = urllib.request.Request(url_fr, headers=headers)
+        with urllib.request.urlopen(req_fr, timeout=15) as resp_fr:
+            raw_fr = json.loads(resp_fr.read().decode("utf-8"))
+
+        # 构建 funding_time → rate 映射 (fundingTime 是结算时刻 ms)
+        fr_map: Dict[int, float] = {}
+        for item in raw_fr:
+            ft = item.get("fundingTime")
+            rate = item.get("fundingRate")
+            if ft is not None and rate is not None:
+                fr_map[ft] = float(rate)
+
+        # 对于每根 bar，找到其所属结算小时的最新 funding_rate
+        # 一个结算小时内的所有 bar 共享该小时的结算费率
+        # 如果该小时内没有结算事件，费率为 0
+        df["funding_rate"] = 0.0
+        bar_ns = df["timestamp"].values.astype("int64")  # ns
+        for ft_ms, rate in fr_map.items():
+            ft_ns = ft_ms * 1_000_000
+            # 找到该结算时刻及之后的第一根 bar，应用此费率
+            mask = bar_ns >= ft_ns
+            if mask.any():
+                # 将费率赋给该结算时刻及之后的所有 bar，直至下个结算点
+                # 但更精确的做法：只赋给该结算小时内的 bar
+                # 一个结算小时 = 3600 秒 = 3.6e12 ns
+                hour_ns = 3_600_000_000_000
+                hour_start = (ft_ns // hour_ns) * hour_ns
+                hour_end = hour_start + hour_ns
+                hour_mask = (bar_ns >= hour_start) & (bar_ns < hour_end)
+                df.loc[hour_mask, "funding_rate"] = rate
+    except Exception:
+        df["funding_rate"] = 0.0
+
     return df
 
 
