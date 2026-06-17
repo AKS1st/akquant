@@ -88,7 +88,6 @@ aligned_price = round_price(50000.123, 0.01)  # → 50000.12
 import akquant as aq
 from akquant import Strategy, AssetType
 from akquant.config import BacktestConfig, StrategyConfig
-from akquant.config import BacktestConfig, StrategyConfig
 from akquant.crypto_exchange_info import fetch_binance_klines, get_default_crypto_instruments
 
 # 1. 数据：Binance 真实行情，结果可复现
@@ -238,12 +237,19 @@ print(f"最大回撤: {result.metrics.max_drawdown_pct:.2f}%")
 所有币种共享同一套 taker/maker 费率，实际值由交易所账户 VIP 等级决定。
 
 ```python
-result = aq.run_backtest(
-    ...,
-    commission_rate=0.0005,         # taker 费率
-    maker_commission_rate=0.0002,   # maker 费率
+from akquant.config import BacktestConfig, StrategyConfig
+
+config = BacktestConfig(
+    strategy_config=StrategyConfig(
+        commission_rate=0.0005,       # taker 费率
+        maker_commission_rate=0.0002, # maker 费率
+    ),
 )
+result = aq.run_backtest(config=config, commission_rate=0.0005, ...)
 ```
+
+> `commission_rate` 同时是 `run_backtest` 显式参数和 `StrategyConfig` 字段（akquant 已有设计），
+> `maker_commission_rate` 仅通过 `StrategyConfig` 设置。不传时默认等于 `commission_rate`。
 
 | 订单类型 | 角色 | 使用的费率 |
 |---|---|---|
@@ -336,5 +342,5 @@ result = aq.run_backtest(..., fill_policy={
 2. **不使用 `instruments` 时精度检查不生效**。建议使用 `get_default_crypto_instruments(..., online=True)`
 3. **数字货币没有 `lot_size` 概念**，数量精度由 `step_size` 决定
 4. **`min_notional` 设为 0 时不检查**，默认值为 0
-5. **`maker_commission_rate` 不传时默认等于 `commission_rate`**
+5. **`maker_commission_rate` 仅通过 `BacktestConfig(StrategyConfig(maker_commission_rate=...))` 设置**，不传时默认等于 `commission_rate`
 6. **默认成交时机是下一根 bar 开盘**。如需当前 bar 收盘成交，设置 `fill_policy={"price_basis": "close", "bar_offset": 0}`
