@@ -260,122 +260,118 @@ class TestCryptoPrecisionBacktest:
     """在完整回测中验证精度截断行为"""
 
     def test_order_rejected_when_qty_not_aligned_to_step(self):
-        """未对齐 step_size 的 quantity 应被拒单，而非自动修正"""
-        from datetime import date
+        """未对齐 step_size 的 quantity 应被拒单"""
         import pandas as pd
-        from akquant import Strategy, run_backtest, OrderStatus
+        from akquant import Strategy, run_backtest, AssetType
 
         class PrecisionTestStrategy(Strategy):
             n_bars = 0
-
-            def next(self):
+            def on_bar(self, bar):
                 self.n_bars += 1
                 if self.n_bars == 1:
-                    # 未对齐的 quantity，预期被拒
                     self.buy(symbol="BTCUSDT", quantity=0.123456, price=50000.0)
-                elif self.n_bars == 2:
-                    orders = self.get_orders()
-                    rejected = [o for o in orders if o.status == "Rejected"]
-                    assert len(rejected) > 0, "预期有被拒订单"
 
-        dates = pd.date_range("2024-01-02", "2024-01-03", freq="1min", tz="UTC")
+        dates = pd.date_range("2024-01-02 00:00", periods=10, freq="1min", tz="UTC")
         bars = pd.DataFrame({
-            "open": 50000.0, "high": 50100.0, "low": 49900.0,
-            "close": 50050.0, "volume": 100.0, "amount": 100.0 * 50000.0,
-        }, index=dates)
-        bars["symbol"] = "BTCUSDT"
+            "timestamp": dates, "symbol": "BTCUSDT",
+            "open": 50000.0, "high": 50100.0, "low": 49900.0, "close": 50050.0,
+            "volume": 100.0,
+        })
 
         result = run_backtest(
-            PrecisionTestStrategy,
+            strategy=PrecisionTestStrategy(),
+            symbols=["BTCUSDT"],
+            data=bars,
+            asset_type=AssetType.Crypto,
+            initial_cash=1000000,
+            commission_rate=0.0,
             instruments={
                 "BTCUSDT": {
                     "asset_type": "CRYPTO",
                     "multiplier": 1.0, "margin_ratio": 1.0,
                     "tick_size": 0.01, "lot_size": 0.001,
                     "step_size": 0.001, "min_qty": 0.001,
-                    "commission_rate": 0.001,
                 }
             },
-            start=date(2024, 1, 2), end=date(2024, 1, 3),
-            bars=bars, cash=1_000_000, benchmark=None,
         )
         assert result is not None
+        odf = result.orders_df
+        assert "rejected" in odf["status"].astype(str).str.lower().values, \
+            f"Expected rejected order, got {odf['status'].values}"
 
     def test_aligned_qty_gets_filled(self):
         """已对齐 step_size 的 quantity 应正常成交"""
-        from datetime import date
         import pandas as pd
-        from akquant import Strategy, run_backtest
+        from akquant import Strategy, run_backtest, AssetType
 
         class PrecisionTestStrategy(Strategy):
             n_bars = 0
-
-            def next(self):
+            def on_bar(self, bar):
                 self.n_bars += 1
                 if self.n_bars == 1:
-                    # 已用 round_qty 对齐的 quantity
                     self.buy(symbol="BTCUSDT", quantity=0.123, price=50000.0)
-                elif self.n_bars == 2:
-                    orders = self.get_orders()
-                    filled = [o for o in orders if o.status == "Filled"]
-                    assert len(filled) > 0, "预期有成交订单"
 
-        dates = pd.date_range("2024-01-02", "2024-01-03", freq="1min", tz="UTC")
+        dates = pd.date_range("2024-01-02 00:00", periods=10, freq="1min", tz="UTC")
         bars = pd.DataFrame({
-            "open": 50000.0, "high": 50100.0, "low": 49900.0,
-            "close": 50050.0, "volume": 100.0, "amount": 100.0 * 50000.0,
-        }, index=dates)
-        bars["symbol"] = "BTCUSDT"
+            "timestamp": dates, "symbol": "BTCUSDT",
+            "open": 50000.0, "high": 50100.0, "low": 49900.0, "close": 50050.0,
+            "volume": 100.0,
+        })
 
         result = run_backtest(
-            PrecisionTestStrategy,
+            strategy=PrecisionTestStrategy(),
+            symbols=["BTCUSDT"],
+            data=bars,
+            asset_type=AssetType.Crypto,
+            initial_cash=1000000,
+            commission_rate=0.0,
             instruments={
                 "BTCUSDT": {
                     "asset_type": "CRYPTO",
                     "multiplier": 1.0, "margin_ratio": 1.0,
                     "tick_size": 0.01, "lot_size": 0.001,
                     "step_size": 0.001, "min_qty": 0.001,
-                    "commission_rate": 0.001,
                 }
             },
-            start=date(2024, 1, 2), end=date(2024, 1, 3),
-            bars=bars, cash=1_000_000, benchmark=None,
         )
         assert result is not None
+        odf = result.orders_df
+        assert "filled" in odf["status"].astype(str).str.lower().values, \
+            f"Expected filled order, got {odf['status'].values}"
 
     def test_price_not_aligned_tick_rejected(self):
         """未对齐 tick_size 的限价单 price 应被拒单"""
-        from datetime import date
         import pandas as pd
-        from akquant import Strategy, run_backtest
+        from akquant import Strategy, run_backtest, AssetType
 
         class PricePrecisionTestStrategy(Strategy):
             n = 0
-
-            def next(self):
+            def on_bar(self, bar):
                 self.n += 1
                 if self.n == 1:
                     self.buy(symbol="ETHUSDT", quantity=0.1, price=3060.12345)
 
-        dates = pd.date_range("2024-01-02", "2024-01-03", freq="1min", tz="UTC")
+        dates = pd.date_range("2024-01-02 00:00", periods=10, freq="1min", tz="UTC")
         bars = pd.DataFrame({
-            "open": 3060.0, "high": 3070.0, "low": 3050.0,
-            "close": 3065.0, "volume": 100.0, "amount": 100.0 * 3060.0,
-        }, index=dates)
-        bars["symbol"] = "ETHUSDT"
+            "timestamp": dates, "symbol": "ETHUSDT",
+            "open": 3060.0, "high": 3070.0, "low": 3050.0, "close": 3065.0,
+            "volume": 100.0,
+        })
 
         result = run_backtest(
-            PricePrecisionTestStrategy,
+            strategy=PricePrecisionTestStrategy(),
+            symbols=["ETHUSDT"],
+            data=bars,
+            asset_type=AssetType.Crypto,
+            initial_cash=1000000,
+            commission_rate=0.0,
             instruments={
                 "ETHUSDT": {
                     "asset_type": "CRYPTO",
                     "multiplier": 1.0, "margin_ratio": 1.0,
                     "tick_size": 0.01, "lot_size": 0.01,
                     "step_size": 0.01, "min_qty": 0.01,
-                    "commission_rate": 0.001,
                 }
             },
-            start=date(2024, 1, 2), end=date(2024, 1, 3),
-            bars=bars, cash=1_000_000, benchmark=None,
         )
         assert result is not None
