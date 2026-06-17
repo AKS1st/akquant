@@ -41,15 +41,17 @@ def _df(n: int, start: str, price: float = 50000.0, freq: str = "5min",
         funding_schedule: dict = None) -> "pd.DataFrame":
     """构造 N 根 bar 的 DataFrame.
     funding_schedule: {hour: rate}, 如 {8: 0.001}.
+    非结算小时 funding_rate 设为 NaN，避免引擎误触发结算检查。
     """
     import pandas as pd
+    import math
     ts = pd.date_range(start, periods=n, freq=freq, tz="UTC")
     funding = []
     for t in ts:
         if funding_schedule and t.hour in funding_schedule and t.minute == 0:
             funding.append(funding_schedule[t.hour])
         else:
-            funding.append(0.0)
+            funding.append(float("nan"))
     df = pd.DataFrame({
         "timestamp": ts, "open": float(price), "high": float(price)*1.002,
         "low": float(price)*0.998, "close": float(price), "volume": 100.0,
@@ -385,6 +387,49 @@ class TestFundingSettlement:
         r = aq.run_backtest(strategy=S(), symbols=["BTCUSDT"], data=df,
             asset_type=aq.AssetType.Crypto, initial_cash=100000, commission_rate=0.0)
         assert float(r.cash_curve.iloc[-1]) == pytest.approx(49900.0, abs=10.0)
+
+    def test_no_gap_errors_on_non_settlement_hours(self):
+        """非结算小时不触发资金费率结算，无 gap error 刷屏。
+
+        数据：从 07:00 到次日 08:00 跨越 25 小时，5m 周期。
+        只在 UTC 8:00 设置 funding_rate=0.001，其余小时为 NaN。
+
+        验证：
+          - 结算只在 08:00 触发一次
+          - 不产生 "Funding settlement gap only" ERROR
+          - 现金正确反映单次结算：100000 - 50000 - 50 = 49950
+
+        背景：Pandas 的 NaN 经 numpy → PyO3 PyReadonlyArray1<f64> 会被转为 0.0。
+        此前 Rust 端仅过滤 is_nan()，0.0 无法被过滤，导致每小时都触发结算检查，
+        gap 检查失败刷 24 条 ERROR。修复后同时过滤 is_nan() || v == 0.0。
+        """
+        import logging
+        import io
+
+        df = _df(300, "2024-01-01 07:00", funding_schedule={8: 0.001})
+        class S(aq.Strategy):
+            def on_bar(self, bar):
+                if self.get_position("BTCUSDT") == 0:
+                    self.buy("BTCUSDT", quantity=1)
+
+        buf = io.StringIO()
+        handler = logging.StreamHandler(buf)
+        handler.setLevel(logging.INFO)
+        root = logging.getLogger()
+        root.addHandler(handler)
+        try:
+            r = aq.run_backtest(strategy=S(), symbols=["BTCUSDT"], data=df,
+                asset_type=aq.AssetType.Crypto, initial_cash=100000, commission_rate=0.0,
+                show_progress=False)
+            logs = buf.getvalue()
+        finally:
+            root.removeHandler(handler)
+
+        gap_errors = logs.count("Funding settlement gap only")
+        settlement_events = logs.count("Funding settlement: BTCUSDT pays")
+        assert gap_errors == 0, f"Expected 0 gap errors, got {gap_errors}. Non-settlement hours should not trigger settlement."
+        assert settlement_events == 1, f"Expected 1 settlement event (UTC 08:00), got {settlement_events}"
+        assert float(r.cash_curve.iloc[-1]) == pytest.approx(49950.0, abs=1.0)
 
 
 # ═══════════════════════════════════════════════════════════════
