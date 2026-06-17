@@ -244,20 +244,80 @@ result = aq.run_backtest(
 
 ---
 
-## 逐币种手续费与滑点
+## 手续费配置 (Taker / Maker)
 
-在 `instruments` dict 中设置:
+AKQuant 支持区分 taker 和 maker 费率, 与真实交易所对齐。
+
+### 全局 Taker/Maker
+
+```python
+result = aq.run_backtest(
+    ...,
+    commission_rate=0.0007,          # taker 费率 0.07%
+    maker_commission_rate=0.0002,    # maker 费率 0.02% (不传则默认等于 taker)
+)
+```
+
+**判定规则:** 由订单类型决定:
+
+| 订单类型 | 角色 | 使用的费率 |
+|---|---|---|
+| `Market` (市价单) | taker | `commission_rate` |
+| `StopMarket` / `StopLimit` | taker | `commission_rate` |
+| `Limit` (限价单) | maker | `maker_commission_rate` |
+| `LimitMaker` (Post-Only) | maker | `maker_commission_rate` |
+
+不传 `maker_commission_rate` 时 maker 费率 = taker 费率, 向后兼容。
+
+### 逐币种手续费
+
+在 `instruments` dict 中设置 `commission_rate` 会**同时覆盖 taker 和 maker 费率**:
 
 ```python
 instruments={"BTCUSDT": {
-    "commission_rate": 0.0005,    # 0.05%, 覆盖全局 commission_rate
-    "slippage": 0.0002,           # 0.02% 滑点, 覆盖全局 slippage
+    "commission_rate": 0.0005,    # 同时覆盖全局 taker 和 maker 费率, 不再区分
 }}
 ```
 
-- 不设置时回退到全局 `commission_rate` / `slippage`
-- 手续费由 `SimpleMarket::calculate_commission` 执行, 支持 taker/maker 区分
-- 滑点作为百分比作用于成交价: 买单 `price × (1 + rate)`, 卖单 `price × (1 - rate)`
+### 逐订单手续费 (更精细的控制)
+
+下单时临时指定费率, 覆盖全局和逐品种设置:
+
+```python
+# 买入时指定固定佣金
+self.buy("BTCUSDT", quantity=1, commission={"type": "fixed", "value": 5.0})
+
+# 买入时指定百分比佣金
+self.buy("BTCUSDT", quantity=1, commission={"type": "percent", "value": 0.001})
+
+# 买入时按数量计费
+self.buy("BTCUSDT", quantity=1, commission={"type": "per_unit", "value": 0.01})
+```
+
+---
+
+## 滑点配置
+
+全局滑点:
+
+```python
+result = aq.run_backtest(
+    ...,
+    slippage=0.0002,  # 0.02%, 买方价上浮, 卖方价下浮
+)
+```
+
+逐币种滑点 (覆盖全局):
+
+```python
+instruments={"BTCUSDT": {
+    "slippage": 0.0002,
+}}
+```
+
+滑点按百分比作用于成交价: 买单 `price × (1 + rate)`, 卖单 `price × (1 - rate)`。
+
+滑点生效优先级: **逐订单滑点 > 逐币种滑点 > 全局滑点模型**。
 
 ---
 
