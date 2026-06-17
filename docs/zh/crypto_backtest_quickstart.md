@@ -83,7 +83,10 @@ class MyStrategy(Strategy):
             self.buy("BTCUSDT", quantity=0.001)
 
 config = BacktestConfig(
-    strategy_config=StrategyConfig(maker_commission_rate=0.0002),
+    strategy_config=StrategyConfig(
+        commission_rate=0.0005,
+        maker_commission_rate=0.0002,
+    ),
 )
 result = aq.run_backtest(
     strategy=MyStrategy,
@@ -92,7 +95,6 @@ result = aq.run_backtest(
     config=config,
     asset_type=AssetType.Crypto,
     initial_cash=10000,
-    commission_rate=0.0005,
     margin_ratio=0.1,
     instruments=instruments,
 )
@@ -103,7 +105,7 @@ result = aq.run_backtest(
 | 参数 | 值 | 说明 |
 |---|---|---|
 | `asset_type` | `AssetType.Crypto` | 启用加密货币模式 |
-| `commission_rate` | 0.0005 | taker（吃单）费率 |
+| `commission_rate` | 0.0005（通过 `StrategyConfig`） | taker（吃单）费率 |
 | `maker_commission_rate` | 0.0002（通过 `StrategyConfig`） | maker（挂单）费率，不传时默认等于 taker |
 | `margin_ratio` | 0.1 | `1/杠杆倍数`，10x = 0.1 |
 | `instruments` | 见上 | 币种精度参数，不传时精度检查不生效 |
@@ -135,10 +137,14 @@ result = aq.run_backtest(
     strategy=MyStrategy(),
     symbols=["BTCUSDT"],
     data=df,
-    config=BacktestConfig(strategy_config=StrategyConfig(maker_commission_rate=0.0002)),
+    config=BacktestConfig(
+        strategy_config=StrategyConfig(
+            commission_rate=0.0005,
+            maker_commission_rate=0.0002,
+        ),
+    ),
     asset_type=AssetType.Crypto,
     initial_cash=10000,
-    commission_rate=0.0005,
     margin_ratio=0.1,
     instruments=instruments,
     show_progress=False,
@@ -195,7 +201,7 @@ config = BacktestConfig(
         maker_commission_rate=0.0002, # maker 费率
     ),
 )
-result = aq.run_backtest(config=config, commission_rate=0.0005, ...)
+result = aq.run_backtest(config=config, ...)
 ```
 
 | 订单类型 | 角色 | 使用的费率 |
