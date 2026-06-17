@@ -116,6 +116,74 @@ def _extract_symbol_filter(info: Dict[str, Any], symbol: str) -> Optional[Dict[s
     return result
 
 
+def fetch_binance_klines(
+    symbol: str,
+    interval: str = "5m",
+    limit: int = 500,
+    *,
+    base_url: str = "https://fapi.binance.com",
+) -> "pd.DataFrame":
+    """
+    从 Binance USDⓈ-M Futures API 下载 K 线数据。
+
+    返回的 DataFrame 包含 open/high/low/close/volume/trades 列，
+    以及 taker_buy_vol / taker_buy_quote_vol。
+    symbol 列自动填充为 ``symbol``。
+
+    Args:
+        symbol: 币种，如 "BTCUSDT"。
+        interval: K 线周期，如 "5m"、"1h"、"1d"。默认 "5m"。
+        limit: 返回条数，最大 1500。默认 500。
+        base_url: Binance API 地址。
+
+    Returns:
+        pd.DataFrame，包含 timestamp(UTC)、OHLCV、funding_rate、mark_price 等列。
+
+    Example::
+
+        from akquant.crypto_exchange_info import fetch_binance_klines
+
+        df = fetch_binance_klines("BTCUSDT", interval="5m", limit=500)
+        df["symbol"] = "BTCUSDT"
+    """
+    import json
+    import urllib.request
+
+    # 周期映射
+    _interval_map = {
+        "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
+        "1h": "1h", "2h": "2h", "4h": "4h", "6h": "6h", "8h": "8h",
+        "12h": "12h", "1d": "1d", "1w": "1w",
+    }
+    interval = _interval_map.get(interval, interval)
+
+    # 1. 下载 K 线
+    url = f"{base_url}/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}"
+    req = urllib.request.Request(url, headers={"User-Agent": "akquant/1.0"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        raw = json.loads(resp.read().decode("utf-8"))
+
+    import pandas as pd
+
+    rows = []
+    for k in raw:
+        rows.append({
+            "timestamp": pd.Timestamp(k[0], unit="ms", tz="UTC"),
+            "open": float(k[1]),
+            "high": float(k[2]),
+            "low": float(k[3]),
+            "close": float(k[4]),
+            "volume": float(k[5]),
+            "trades": int(k[8]),
+            "taker_buy_vol": float(k[9]),
+            "taker_buy_quote_vol": float(k[10]),
+        })
+
+    df = pd.DataFrame(rows)
+    df["symbol"] = symbol
+    return df
+
+
 def fetch_binance_symbol_info(
     symbols: Optional[List[str]] = None,
     base_url: str = "https://fapi.binance.com",
@@ -159,15 +227,18 @@ def fetch_binance_symbol_info(
 def get_default_crypto_instruments(
     symbols: List[str],
     margin_ratio: float = 1.0,
+    *,
+    online: bool = False,
+    base_url: str = "https://fapi.binance.com",
 ) -> Dict[str, Dict[str, Any]]:
     """
-    获取各币种默认精度参数，返回可直接传入 ``run_backtest(instruments=...)`` 的 dict。
-
-    使用内置默认参数表（对应 Binance USDⓈ-M 永续合约），无需网络请求。
+    获取各币种精度参数，返回可直接传入 ``run_backtest(instruments=...)`` 的 dict。
 
     Args:
         symbols: 币种列表，如 ``["BTCUSDT", "ETHUSDT"]``。
         margin_ratio: 保证金比率，1.0=全仓，0.1=10x。
+        online: True 时从 Binance API 实时拉取，False 时使用内置默认值。
+        base_url: Binance API 地址，仅在 online=True 时使用。
 
     Returns:
         Dict[str, dict]，key 为币种，value 为 instruments 配置 dict。
@@ -176,15 +247,28 @@ def get_default_crypto_instruments(
 
         from akquant.crypto_exchange_info import get_default_crypto_instruments
 
+        # 使用本地默认值（离线，约 60 个主流币种）
+        instruments = get_default_crypto_instruments(["BTCUSDT", "ETHUSDT"])
+
+        # 从 Binance API 拉取实时精度参数
+        instruments = get_default_crypto_instruments(["BTCUSDT"], online=True)
+
         result = aq.run_backtest(
             ...,
-            instruments=get_default_crypto_instruments(["BTCUSDT", "ETHUSDT"]),
-            commission_rate=0.0007,
+            instruments=instruments,
         )
     """
+    if online:
+        try:
+            info = fetch_binance_symbol_info(symbols, base_url=base_url)
+        except Exception:
+            info = {}
+    else:
+        info = {}
+
     result: Dict[str, Dict[str, Any]] = {}
     for sym in symbols:
-        defaults = DEFAULT_CRYPTO_SYMBOL_INFO.get(sym, {})
+        defaults = info.get(sym) or DEFAULT_CRYPTO_SYMBOL_INFO.get(sym, {})
         result[sym] = {
             "asset_type": "CRYPTO",
             "multiplier": 1.0,
