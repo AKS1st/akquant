@@ -231,6 +231,7 @@ fn test_max_drawdown_logic() {
         executions: vec![],
         liquidation_audits: vec![],
         funding_payments: vec![],
+        days_per_year: 252.0,
     });
     assert_eq!(result.metrics.max_drawdown, 0.25);
 
@@ -255,6 +256,7 @@ fn test_max_drawdown_logic() {
         executions: vec![],
         liquidation_audits: vec![],
         funding_payments: vec![],
+        days_per_year: 252.0,
     });
     assert_eq!(result_2.metrics.max_drawdown, 0.0);
 
@@ -279,6 +281,7 @@ fn test_max_drawdown_logic() {
         executions: vec![],
         liquidation_audits: vec![],
         funding_payments: vec![],
+        days_per_year: 252.0,
     });
     assert_eq!(result_3.metrics.max_drawdown, 0.2);
 
@@ -306,6 +309,7 @@ fn test_max_drawdown_logic() {
         executions: vec![],
         liquidation_audits: vec![],
         funding_payments: vec![],
+        days_per_year: 252.0,
     });
     assert_eq!(result_4.metrics.max_drawdown, 0.5);
 }
@@ -343,6 +347,7 @@ fn test_ulcer_index_logic() {
         executions: vec![],
         liquidation_audits: vec![],
         funding_payments: vec![],
+        days_per_year: 252.0,
     });
     let expected_ui = 0.004f64.sqrt();
     assert!((result.metrics.ulcer_index - expected_ui).abs() < 1e-9);
@@ -371,6 +376,7 @@ fn test_calmar_uses_raw_drawdown_ratio_not_pct() {
         executions: vec![],
         liquidation_audits: vec![],
         funding_payments: vec![],
+        days_per_year: 252.0,
     });
 
     let expected_raw_calmar = result.metrics.annualized_return / result.metrics.max_drawdown;
@@ -417,6 +423,7 @@ fn test_daily_metrics_resample_by_local_timezone_day() {
         executions: vec![],
         liquidation_audits: vec![],
         funding_payments: vec![],
+        days_per_year: 252.0,
     });
 
     let expected_returns = [0.21_f64, 0.10_f64];

@@ -212,6 +212,9 @@ impl StatisticsManager {
             Self::upsert_timestamped_value(&mut snapshots, ts, snap);
         }
 
+        // 根据资产类型选择年化天数因子：数字货币 24/7 用 365，传统市场用 252
+        let days_per_year = instruments.values().any(|i| i.asset_type == crate::model::AssetType::Crypto).then_some(365.0).unwrap_or(252.0);
+
         BacktestResult::calculate(crate::analysis::CalculatorInput {
             equity_curve_decimal: equity_curve,
             cash_curve_decimal: cash_curve,
@@ -226,6 +229,7 @@ impl StatisticsManager {
             executions: order_manager.trades.clone(),
             liquidation_audits: self.liquidation_audits.clone(),
             funding_payments: self.funding_payments.clone(),
+            days_per_year,
         })
     }
 

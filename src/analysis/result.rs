@@ -24,6 +24,8 @@ pub struct CalculatorInput {
     pub executions: Vec<Trade>,
     pub liquidation_audits: Vec<LiquidationAudit>,
     pub funding_payments: Vec<FundingPayment>,
+    /// 年化天数因子。A 股等传统市场用 252，数字货币 24/7 市场用 365。
+    pub days_per_year: f64,
 }
 
 #[gen_stub_pyclass]
@@ -255,11 +257,12 @@ impl BacktestResult {
         };
 
         let std_dev = variance.sqrt();
-        let annualized_volatility = std_dev * (252.0f64).sqrt();
+        let dpy = input.days_per_year;
+let annualized_volatility = std_dev * dpy.sqrt();
 
         // 5. Sharpe Ratio
-        // 使用日收益算术均值 * 252 作为年化收益，与 pyfolio/quantstats 等行业实现一致
-        let annualized_mean_return = mean_return * 252.0;
+        // 使用日收益算术均值 * days_per_year 作为年化收益，与 pyfolio/quantstats 等行业实现一致
+        let annualized_mean_return = mean_return * dpy;
         let risk_free_rate = 0.0;
         let sharpe_ratio = if annualized_volatility != 0.0 {
             (annualized_mean_return - risk_free_rate) / annualized_volatility
@@ -275,7 +278,7 @@ impl BacktestResult {
             0.0
         };
         let downside_std_dev = downside_variance.sqrt();
-        let annualized_downside_volatility = downside_std_dev * (252.0f64).sqrt();
+        let annualized_downside_volatility = downside_std_dev * dpy.sqrt();
 
         let sortino_ratio = if annualized_downside_volatility != 0.0 {
             (annualized_mean_return - risk_free_rate) / annualized_downside_volatility
