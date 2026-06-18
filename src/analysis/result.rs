@@ -258,9 +258,11 @@ impl BacktestResult {
         let annualized_volatility = std_dev * (252.0f64).sqrt();
 
         // 5. Sharpe Ratio
-        let risk_free_rate = 0.0; // Assume 0 for simplicity or pass config
+        // 使用日收益算术均值 * 252 作为年化收益，与 pyfolio/quantstats 等行业实现一致
+        let annualized_mean_return = mean_return * 252.0;
+        let risk_free_rate = 0.0;
         let sharpe_ratio = if annualized_volatility != 0.0 {
-            (annualized_return - risk_free_rate) / annualized_volatility
+            (annualized_mean_return - risk_free_rate) / annualized_volatility
         } else {
             0.0
         };
@@ -276,14 +278,14 @@ impl BacktestResult {
         let annualized_downside_volatility = downside_std_dev * (252.0f64).sqrt();
 
         let sortino_ratio = if annualized_downside_volatility != 0.0 {
-            (annualized_return - risk_free_rate) / annualized_downside_volatility
+            (annualized_mean_return - risk_free_rate) / annualized_downside_volatility
         } else {
             0.0
         };
 
-        // 7. UPI
+        // 7. UPI (Ulcer Performance Index)
         let upi = if ulcer_index != 0.0 {
-            (annualized_return - risk_free_rate) / ulcer_index
+            (annualized_mean_return - risk_free_rate) / ulcer_index
         } else {
             0.0
         };

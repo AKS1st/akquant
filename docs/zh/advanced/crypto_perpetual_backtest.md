@@ -291,6 +291,39 @@ bars["funding_rate"] = [
 ]
 ```
 
+### 6.4 结算记录查询
+
+每次结算的明细记录存储在回测结果中，可通过 `funding_payment_df` 属性获取：
+
+```python
+result = aq.run_backtest(...)
+
+# 方式一：DataFrame（推荐）
+df = result.funding_payment_df
+print(df)
+#   symbol  quantity  mark_price   rate     amount
+#0  BTCUSDT     0.123   50000.00  0.001    6.1500
+#1  BTCUSDT     0.123   50200.00  0.002   12.3492
+
+# 方式二：原始 Rust dict（通过 pyo3 暴露）
+data = result.get_funding_payments_dict()
+```
+
+**返回字段说明：**
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `symbol` | str | 交易对 |
+| `quantity` | float | 结算时的持仓数量 |
+| `mark_price` | float | 结算时的标记价格 |
+| `rate` | float | 当期资金费率 |
+| `amount` | float | 支付/收取金额（正值表示支出，负值表示收入） |
+
+**注意：**
+- 该属性不是 `result.metrics` 上的一个标量字段，而是一个独立的明细列表。因为资金费率结算需要的是逐笔记录（若干行，每行一次结算事件），不适合用标量指标表达。
+- 回测过程中即使 `rate = 0` 也会触发结算并产生记录（金额为 0），便于审计结算事件是否按预期触发。
+- 当前版本记录不包含结算时间戳，如需按时间维度分析请参考 `positions_df` 中的权益变化曲线推断。
+
 ---
 
 ## 七、强平
