@@ -2210,20 +2210,21 @@ class Strategy:
 
     def order_target(
         self,
-        target: float,
         symbol: Optional[str] = None,
+        target: Optional[float] = None,
         price: Optional[float] = None,
         **kwargs: Any,
-    ) -> None:
+    ) -> Optional[str]:
         """
         调整仓位到目标数量.
 
+        :param symbol: 标的代码 (不填默认当前 Bar/Tick 的 symbol)
         :param target: 目标持仓数量 (例如 100, -100)
-        :param symbol: 标的代码
         :param price: 限价 (可选)
         :param kwargs: 其他下单参数
+        :return: 本次调仓产生的订单 ID; 若无需交易则返回 None
         """
-        _order_target_impl(self, target, symbol, price, **kwargs)
+        return _order_target_impl(self, symbol, target, price, **kwargs)
 
     def _calculate_max_buy_qty(self, symbol: str, price: float, cash: float) -> float:
         """
@@ -2238,37 +2239,39 @@ class Strategy:
 
     def order_target_value(
         self,
-        target_value: float,
         symbol: Optional[str] = None,
+        target_value: Optional[float] = None,
         price: Optional[float] = None,
         **kwargs: Any,
-    ) -> None:
+    ) -> Optional[str]:
         """
         调整仓位到目标价值.
 
+        :param symbol: 标的代码 (不填默认当前 Bar/Tick 的 symbol)
         :param target_value: 目标持仓价值
-        :param symbol: 标的代码
         :param price: 限价 (可选)
         :param kwargs: 其他下单参数
+        :return: 本次调仓产生的订单 ID; 若无需交易或无法定价则返回 None
         """
-        _order_target_value_impl(self, target_value, symbol, price, **kwargs)
+        return _order_target_value_impl(self, symbol, target_value, price, **kwargs)
 
     def order_target_percent(
         self,
-        target_percent: float,
         symbol: Optional[str] = None,
+        target_percent: Optional[float] = None,
         price: Optional[float] = None,
         **kwargs: Any,
-    ) -> None:
+    ) -> Optional[str]:
         """
         调整仓位到目标百分比.
 
+        :param symbol: 标的代码 (不填默认当前 Bar/Tick 的 symbol)
         :param target_percent: 目标持仓比例 (0.5 = 50%)
-        :param symbol: 标的代码
         :param price: 限价 (可选)
         :param kwargs: 其他下单参数
+        :return: 本次调仓产生的订单 ID; 若无需交易则返回 None
         """
-        _order_target_percent_impl(self, target_percent, symbol, price, **kwargs)
+        return _order_target_percent_impl(self, symbol, target_percent, price, **kwargs)
 
     def order_target_weights(
         self,
@@ -2278,7 +2281,7 @@ class Strategy:
         allow_leverage: bool = False,
         rebalance_tolerance: float = 0.0,
         **kwargs: Any,
-    ) -> None:
+    ) -> List[str]:
         """
         按多标的目标权重调仓.
 
@@ -2288,8 +2291,9 @@ class Strategy:
         :param allow_leverage: 是否允许目标权重和超过 1.0
         :param rebalance_tolerance: 调仓容忍阈值（按组合市值比例）
         :param kwargs: 其他下单参数
+        :return: 本次调仓产生的所有订单 ID 列表 (无交易时为空列表)
         """
-        _order_target_weights_impl(
+        return _order_target_weights_impl(
             self,
             target_weights,
             price_map,
@@ -2309,7 +2313,7 @@ class Strategy:
         strict_short_capability: bool = True,
         missing_price_mode: str = "ignore",
         **kwargs: Any,
-    ) -> None:
+    ) -> List[str]:
         """
         按多标的目标持仓数量调仓，支持正负目标仓位.
 
@@ -2321,8 +2325,9 @@ class Strategy:
         :param strict_short_capability: 当执行环境未声明可做空时是否严格拒绝
         :param missing_price_mode: price_map 缺项时的处理方式: ignore / skip / fail
         :param kwargs: 其他下单参数
+        :return: 本次调仓产生的所有订单 ID 列表 (无交易时为空列表)
         """
-        _order_target_positions_impl(
+        return _order_target_positions_impl(
             self,
             target_positions,
             price_map,

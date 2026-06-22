@@ -231,7 +231,7 @@ class IndicatorDemoStrategy(Strategy):
         overbought = rsi[-1] > self.rsi_upper  # 确认：RSI
 
         if pos == 0 and trend_up and strong and calm:
-            self.order_target_percent(0.95, symbol)
+            self.order_target_percent(symbol=symbol, target_percent=0.95)
             self.log(
                 f"买入: EMA{ema_fast[-1]:.2f}>{ema_slow[-1]:.2f}, "
                 f"ADX={adx[-1]:.1f}, NATR={natr[-1]:.2f}, RSI={rsi[-1]:.1f}"

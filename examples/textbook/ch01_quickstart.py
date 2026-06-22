@@ -105,14 +105,14 @@ class DualMAStrategy(Strategy):
                 f"[{bar.timestamp_iso}] 金叉买入 (MA5={ma5_curr:.2f}, "
                 f"MA20={ma20_curr:.2f})"
             )
-            self.order_target_percent(0.95, symbol)
+            self.order_target_percent(symbol=symbol, target_percent=0.95)
 
         elif ma5_curr < ma20_curr and position > 0:
             print(
                 f"[{bar.timestamp_iso}] 死叉卖出 (MA5={ma5_curr:.2f}, "
                 f"MA20={ma20_curr:.2f})"
             )
-            self.order_target_percent(0.0, symbol)
+            self.order_target_percent(symbol=symbol, target_percent=0.0)
 
 
 if __name__ == "__main__":

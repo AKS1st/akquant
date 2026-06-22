@@ -45,7 +45,7 @@ class StopOrderStrategy(akquant.Strategy):
             # print("Adjusting target value to 50000")
             # Current price is 120, holding 100 shares (from stop order) = 12000 value
             # Target 50000 -> Need to buy ~38000 / 120 worth
-            self.order_target_value(50000, bar.symbol)
+            self.order_target_value(bar.symbol, 50000)
 
         self.final_position = int(pos)
 

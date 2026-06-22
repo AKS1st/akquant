@@ -1439,12 +1439,18 @@ def calculate_max_buy_qty(
 
 def order_target(
     strategy: Any,
-    target: float,
     symbol: Optional[str] = None,
+    target: Optional[float] = None,
     price: Optional[float] = None,
     **kwargs: Any,
-) -> None:
-    """调整仓位到目标数量."""
+) -> Optional[str]:
+    """调整仓位到目标数量.
+
+    Returns:
+        本次调仓产生的订单 ID; 若无需交易 (已在目标) 则返回 None.
+    """
+    if target is None:
+        raise ValueError("order_target requires 'target' (目标持仓数量)")
     symbol = resolve_symbol(strategy, symbol)
 
     current_qty = 0.0
@@ -1454,19 +1460,26 @@ def order_target(
     delta_qty = target - current_qty
 
     if delta_qty > 0:
-        buy(strategy, symbol, delta_qty, price, **kwargs)
+        return buy(strategy, symbol, delta_qty, price, **kwargs)
     elif delta_qty < 0:
-        sell(strategy, symbol, abs(delta_qty), price, **kwargs)
+        return sell(strategy, symbol, abs(delta_qty), price, **kwargs)
+    return None
 
 
 def order_target_value(
     strategy: Any,
-    target_value: float,
     symbol: Optional[str] = None,
+    target_value: Optional[float] = None,
     price: Optional[float] = None,
     **kwargs: Any,
-) -> None:
-    """调整仓位到目标价值."""
+) -> Optional[str]:
+    """调整仓位到目标价值.
+
+    Returns:
+        本次调仓产生的订单 ID; 若无需交易或无法定价则返回 None.
+    """
+    if target_value is None:
+        raise ValueError("order_target_value requires 'target_value' (目标持仓价值)")
     symbol = resolve_symbol(strategy, symbol)
 
     cancel_all_orders(strategy, symbol=symbol)
@@ -1486,7 +1499,7 @@ def order_target_value(
                 f"Warning: Cannot determine price for {symbol}, "
                 "skipping order_target_value"
             )
-            return
+            return None
 
     current_qty = 0.0
     if strategy.ctx:
@@ -1523,22 +1536,31 @@ def order_target_value(
                 delta_qty = 0.0
 
     if delta_qty > 0:
-        buy(strategy, symbol, delta_qty, price, **kwargs)
+        return buy(strategy, symbol, delta_qty, price, **kwargs)
     elif delta_qty < 0:
-        sell(strategy, symbol, abs(delta_qty), price, **kwargs)
+        return sell(strategy, symbol, abs(delta_qty), price, **kwargs)
+    return None
 
 
 def order_target_percent(
     strategy: Any,
-    target_percent: float,
     symbol: Optional[str] = None,
+    target_percent: Optional[float] = None,
     price: Optional[float] = None,
     **kwargs: Any,
-) -> None:
-    """调整仓位到目标百分比."""
+) -> Optional[str]:
+    """调整仓位到目标百分比.
+
+    Returns:
+        本次调仓产生的订单 ID; 若无需交易则返回 None.
+    """
+    if target_percent is None:
+        raise ValueError(
+            "order_target_percent requires 'target_percent' (目标持仓比例)"
+        )
     portfolio_value = get_portfolio_value(strategy)
     target_value = portfolio_value * float(target_percent)
-    order_target_value(strategy, target_value, symbol, price, **kwargs)
+    return order_target_value(strategy, symbol, target_value, price, **kwargs)
 
 
 def order_target_weights(
@@ -1549,8 +1571,12 @@ def order_target_weights(
     allow_leverage: bool = False,
     rebalance_tolerance: float = 0.0,
     **kwargs: Any,
-) -> None:
-    """按多标的目标权重调仓."""
+) -> List[str]:
+    """按多标的目标权重调仓.
+
+    Returns:
+        本次调仓产生的所有订单 ID 列表 (无交易时为空列表).
+    """
     if strategy.ctx is None:
         raise RuntimeError("Context not ready")
 
@@ -1579,7 +1605,7 @@ def order_target_weights(
                 normalized_weights[symbol] = 0.0
 
     if not normalized_weights:
-        return
+        return []
 
     portfolio_value = get_portfolio_value(strategy)
     abs_tolerance_value = abs(float(portfolio_value)) * float(rebalance_tolerance)
@@ -1603,24 +1629,31 @@ def order_target_weights(
         planned.append((symbol, target_value, delta_value))
 
     if not planned:
-        return
+        return []
 
     sell_legs = [item for item in planned if item[2] < 0]
     buy_legs = [item for item in planned if item[2] >= 0]
 
+    order_ids: List[str] = []
     for symbol, target_value, _ in sorted(
         sell_legs,
         key=lambda item: (float(item[2]), str(item[0])),
     ):
         leg_price = price_map.get(symbol) if price_map else None
-        order_target_value(strategy, target_value, symbol, leg_price, **kwargs)
+        oid = order_target_value(strategy, symbol, target_value, leg_price, **kwargs)
+        if oid is not None:
+            order_ids.append(oid)
 
     for symbol, target_value, _ in sorted(
         buy_legs,
         key=lambda item: (-float(item[2]), str(item[0])),
     ):
         leg_price = price_map.get(symbol) if price_map else None
-        order_target_value(strategy, target_value, symbol, leg_price, **kwargs)
+        oid = order_target_value(strategy, symbol, target_value, leg_price, **kwargs)
+        if oid is not None:
+            order_ids.append(oid)
+
+    return order_ids
 
 
 def order_target_positions(
@@ -1633,8 +1666,12 @@ def order_target_positions(
     strict_short_capability: bool = True,
     missing_price_mode: str = "ignore",
     **kwargs: Any,
-) -> None:
-    """按多标的目标持仓数量调仓，支持正负目标仓位."""
+) -> List[str]:
+    """按多标的目标持仓数量调仓，支持正负目标仓位.
+
+    Returns:
+        本次调仓产生的所有订单 ID 列表 (无交易时为空列表).
+    """
     if strategy.ctx is None:
         raise RuntimeError("Context not ready")
 
@@ -1701,7 +1738,7 @@ def order_target_positions(
 
     if not normalized_targets:
         plan["status"] = "noop"
-        return
+        return []
 
     reduce_legs: List[Tuple[str, float, float]] = []
     increase_legs: List[Tuple[str, float, float]] = []
@@ -1744,8 +1781,9 @@ def order_target_positions(
 
     if not reduce_legs and not increase_legs:
         plan["status"] = "noop"
-        return
+        return []
 
+    order_ids: List[str] = []
     for symbol, target_qty, _ in sorted(
         reduce_legs,
         key=lambda item: (float(item[2]), str(item[0])),
@@ -1771,15 +1809,18 @@ def order_target_positions(
                 plan["reject_reason"] = missing_price_error
                 raise RuntimeError(missing_price_error)
         leg_price = price_map.get(symbol) if price_map else None
+        oid = order_target(strategy, symbol, target_qty, leg_price, **kwargs)
         plan["submitted_legs"].append(
             {
                 "symbol": symbol,
                 "target_quantity": float(target_qty),
                 "price": leg_price,
                 "phase": "reduce",
+                "order_id": oid,
             }
         )
-        order_target(strategy, target_qty, symbol, leg_price, **kwargs)
+        if oid is not None:
+            order_ids.append(oid)
 
     for symbol, target_qty, _ in sorted(
         increase_legs,
@@ -1806,16 +1847,20 @@ def order_target_positions(
                 plan["reject_reason"] = missing_price_error
                 raise RuntimeError(missing_price_error)
         leg_price = price_map.get(symbol) if price_map else None
+        oid = order_target(strategy, symbol, target_qty, leg_price, **kwargs)
         plan["submitted_legs"].append(
             {
                 "symbol": symbol,
                 "target_quantity": float(target_qty),
                 "price": leg_price,
                 "phase": "increase",
+                "order_id": oid,
             }
         )
-        order_target(strategy, target_qty, symbol, leg_price, **kwargs)
+        if oid is not None:
+            order_ids.append(oid)
     plan["status"] = "submitted"
+    return order_ids
 
 
 def buy_all(strategy: Any, symbol: Optional[str] = None) -> None:

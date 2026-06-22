@@ -96,9 +96,7 @@ class MomentumRotationStrategy(Strategy):
         # 如果当前没有持仓，买入 best
         if current_pos_symbol is None:
             # 目标仓位 95%
-            # 注意: order_target_percent 的第一个参数是 target_percent
-            # 第二个是 symbol (可选)
-            # 或者使用关键字参数
+            # 参数顺序: order_target_percent(symbol, target_percent)，与 buy/sell 一致
             self.order_target_percent(target_percent=0.95, symbol=best_symbol)
             print(f"[{bar.timestamp_iso}] BUY {best_symbol}: Momentum={best_mom:.2%}")
 
