@@ -217,6 +217,7 @@ impl StatisticsManager {
             orders: order_manager.get_all_orders(),
             executions: order_manager.trades.clone(),
             liquidation_audits: self.liquidation_audits.clone(),
+            days_per_year: 252.0,
         })
     }
 
