@@ -63,7 +63,7 @@ class PlotStrategy(Strategy):
 
         # 简单的均线突破
         if bar.close > ma and pos == 0:
-            self.order_target_percent(0.95, symbol)
+            self.order_target_percent(symbol=symbol, target_percent=0.95)
         elif bar.close < ma and pos > 0:
             self.close_position(symbol)
 

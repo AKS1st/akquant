@@ -107,8 +107,8 @@ class RebalanceStrategy(Strategy):
 
         # 调整仓位
         # order_target_value 会自动计算买卖数量
-        self.order_target_value(target_stock_val, self.stock_symbol)
-        self.order_target_value(target_bond_val, self.bond_symbol)
+        self.order_target_value(self.stock_symbol, target_stock_val)
+        self.order_target_value(self.bond_symbol, target_bond_val)
 
 
 if __name__ == "__main__":

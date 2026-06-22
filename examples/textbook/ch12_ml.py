@@ -194,7 +194,7 @@ class MLStrategy(Strategy):
         # 阈值设置：预测概率 > 0.55 才买入，< 0.45 卖出
         if prob_up > 0.55 and pos == 0:
             self.log(f"预测上涨概率 {prob_up:.2%} > 55%，买入")
-            self.order_target_percent(0.95, symbol)
+            self.order_target_percent(symbol=symbol, target_percent=0.95)
 
         elif prob_up < 0.45 and pos > 0:
             self.log(f"预测上涨概率 {prob_up:.2%} < 45%，卖出")
