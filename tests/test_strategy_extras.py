@@ -336,7 +336,7 @@ class TopNRebalanceStrategy(Strategy):
         allow_leverage: bool = False,
         rebalance_tolerance: float = 0.0,
         **kwargs: Any,
-    ) -> None:
+    ) -> list[str]:
         """Capture target weights invocation."""
         self.calls.append(
             {
@@ -348,6 +348,7 @@ class TopNRebalanceStrategy(Strategy):
                 "kwargs": kwargs,
             }
         )
+        return []
 
 
 def test_rebalance_to_topn_equal_weight_selection() -> None:
@@ -5476,7 +5477,13 @@ def test_strategy_order_target_positions_plan_tracks_skipped_legs() -> None:
     plan = strategy.get_last_target_positions_plan()
     assert plan["status"] == "submitted"
     assert plan["submitted_legs"] == [
-        {"symbol": "AAA", "target_quantity": 0.0, "price": 10.0, "phase": "reduce"}
+        {
+            "symbol": "AAA",
+            "target_quantity": 0.0,
+            "price": 10.0,
+            "phase": "reduce",
+            "order_id": "oid",
+        }
     ]
     assert plan["skipped_legs"] == [
         {

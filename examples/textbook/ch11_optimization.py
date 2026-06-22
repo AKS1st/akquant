@@ -69,7 +69,7 @@ class OptStrategy(Strategy):
         pos = self.get_position(symbol)
 
         if ma_short > ma_long and pos == 0:
-            self.order_target_percent(0.95, symbol)
+            self.order_target_percent(symbol=symbol, target_percent=0.95)
         elif ma_short < ma_long and pos > 0:
             self.close_position(symbol)
 

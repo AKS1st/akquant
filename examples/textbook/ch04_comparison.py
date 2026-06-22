@@ -173,7 +173,7 @@ def run_akquant_backtest(df: pd.DataFrame) -> None:
             pos = self.get_position(symbol)
 
             if ma5 > ma20 and pos == 0:
-                self.order_target_percent(0.95, symbol)
+                self.order_target_percent(symbol=symbol, target_percent=0.95)
             elif ma5 < ma20 and pos > 0:
                 self.close_position(symbol)
 

@@ -136,7 +136,7 @@ class MyFirstStrategy(Strategy):
                 )
 
                 # 使用 order_target_percent 买入 95% 的资金
-                self.order_target_percent(0.95, symbol)
+                self.order_target_percent(symbol=symbol, target_percent=0.95)
 
                 # 记录开仓价格 (近似值，实际成交价要等订单成交后才知道，这里暂用
                 # 收盘价代替)
