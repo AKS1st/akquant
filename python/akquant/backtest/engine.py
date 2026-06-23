@@ -4619,12 +4619,16 @@ def run_backtest(
             strike_price=p_strike,
             expiry_date=p_expiry,
             lot_size=p_lot_f,
+            step_size=p_step,
+            min_qty=p_min_qty,
+            min_notional=p_min_notional,
             underlying_symbol=p_underlying,
             settlement_type=p_settlement_type,
             settlement_price=p_settlement_price,
             option_margin_model=p_option_margin_model,
             implied_volatility=p_implied_volatility,
             reference_volatility=p_reference_volatility,
+            slippage=p_slippage,
         )
         engine.add_instrument(instr)
         instrument_snapshots[sym] = InstrumentSnapshot(
