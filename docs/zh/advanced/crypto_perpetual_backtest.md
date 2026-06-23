@@ -194,14 +194,20 @@ Tier 2: 300k~800k, rate=0.5%,  amount=300   → 300k×0.5%-300 = 1200 ✅ 平滑
 # 档位表在 python/akquant/backtest/engine.py 中 DEFAULT_CRYPTO_MAINT_TIERS
 # asset_type=AssetType.Crypto 时自动加载
 
-# 也可手动传入覆盖
+# 也可通过 CryptoConfig 手动传入覆盖
+from akquant.config import BacktestConfig, CryptoConfig
+
 run_backtest(
     ...,
-    perp_maint_tiers={
-        "BTCUSDT": [
-            {"notional_upper": 500_000, "maint_margin_rate": 0.005, "maint_amount": 0},
-        ],
-    },
+    config=BacktestConfig(
+        crypto=CryptoConfig(
+            perp_maint_tiers={
+                "BTCUSDT": [
+                    {"notional_upper": 500_000, "maint_margin_rate": 0.005, "maint_amount": 0},
+                ],
+            },
+        ),
+    ),
 )
 ```
 
@@ -305,8 +311,8 @@ print(df)
 #0  BTCUSDT     0.123   50000.00  0.001    6.1500
 #1  BTCUSDT     0.123   50200.00  0.002   12.3492
 
-# 方式二：原始 Rust dict（通过 pyo3 暴露）
-data = result.get_funding_payments_dict()
+# 方式二：原始 Rust dict（仅供内部使用）
+# 外部统一使用 funding_payment_df
 ```
 
 **返回字段说明：**
@@ -420,7 +426,7 @@ result = aq.run_backtest(
     margin_ratio=0.1,  # 10x
     initial_cash=10000,
 )
-print(result.summary())
+print(result.metrics)
 print(result.trades_df.head())
 ```
 
