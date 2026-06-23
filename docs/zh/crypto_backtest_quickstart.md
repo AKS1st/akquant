@@ -47,12 +47,29 @@ instruments = get_default_crypto_instruments(["BTCUSDT"], margin_ratio=0.1)
 }
 ```
 
-**精度规则：** 订单不满足以下条件时被拒绝：
+也可额外指定逐币种滑点（不指定则使用全局滑点或零滑点）：
+
+```python
+{
+    "BTCUSDT": {
+        "slippage": 0.001,      # 百分比, 0.1% 滑点
+    }
+}
+```
+
+**精度与执行规则：**
+
+**拒单检查类**（订单不满足时被引擎退回）：
 
 1. **`min_qty`** — 下单数量不得小于此值
 2. **`step_size`** — 下单数量必须为此值的整数倍
 3. **`tick_size`** — 限价单价格必须为此值的整数倍
 4. **`min_notional`** — 名义价值（价格 × 数量 × 乘数）不得小于此值
+
+**执行价格类**（影响成交价而非拒单）：
+
+5. **`slippage`** — 逐币种滑点（百分比）。买单：`成交价 = 基价 × (1 + 滑点)`；卖单：`成交价 = 基价 × (1 - 滑点)`。
+   优先于全局滑点模型，仅当前币种生效。**不传时使用全局滑点或零滑点。**
 
 辅助函数：
 
@@ -108,7 +125,7 @@ result = aq.run_backtest(
 | `commission_rate` | 0.0005（通过 `StrategyConfig`） | taker（吃单）费率 |
 | `maker_commission_rate` | 0.0002（通过 `StrategyConfig`） | maker（挂单）费率，不传时默认等于 taker |
 | `margin_ratio` | 0.1 | `1/杠杆倍数`，10x = 0.1 |
-| `instruments` | 见上 | 币种精度参数，不传时精度检查不生效 |
+| `instruments` | 见上 | 币种精度参数，不传时精度检查不生效。可含 `slippage` 字段指定逐币种滑点 |
 
 ---
 
@@ -359,4 +376,5 @@ result = aq.run_backtest(..., fill_policy={
 3. **数字货币没有 `lot_size` 概念**，数量精度由 `step_size` 决定
 4. **`min_notional` 设为 0 时不检查**，默认值为 0
 5. **`maker_commission_rate` 仅通过 `BacktestConfig(StrategyConfig(...))` 设置**，不传时默认等于 `commission_rate`
-6. **默认成交时机是下一根 bar 开盘**。如需当前 bar 收盘成交，设置 `fill_policy={"price_basis": "close", "bar_offset": 0}`
+6. **逐币种滑点 `slippage`** 在 `instruments` 字典中指定（百分比），买单加价、卖单减价。不传时使用全局滑点或零滑点
+7. **默认成交时机是下一根 bar 开盘**。如需当前 bar 收盘成交，设置 `fill_policy={"price_basis": "close", "bar_offset": 0}`
